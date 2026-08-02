@@ -23,7 +23,7 @@ who completed or are completing a Working Holiday Visa (WHV) experience in New Z
 2. Never trust client-supplied user IDs, roles, contributor IDs, ownership, status, revision IDs,
    consent state, or publication state. Re-derive/verify server-side on every mutation.
 3. Row Level Security is the source of truth for authorization; application code repeats the important
-   checks server-side but never *substitutes* for RLS.
+   checks server-side but never _substitutes_ for RLS.
 4. Keep user-editable profile data separate from protected role/permission data — different tables.
 5. Editorial preparation (import, attribution cleanup) is a distinct workflow from moderation
    (approve/reject) — different roles, different tables/state where practical.
@@ -51,20 +51,30 @@ who completed or are completing a Working Holiday Visa (WHV) experience in New Z
 
 ## Commands
 
-Populate as the project is scaffolded (Prompt 0). Expected shape once Next.js + Supabase are initialized:
+These exist in `package.json` as of Prompt 1. Node 24 LTS (`.nvmrc`/`engines.node`); npm is the
+package manager.
 
 ```bash
-npm run dev             # local dev server
-npm run build            # production build
-npm run lint              # ESLint
-npm run typecheck        # tsc --noEmit
-npm run test               # Vitest + React Testing Library
-npm run test:e2e         # Playwright
-supabase db reset      # apply migrations + seed locally
-supabase gen types typescript --local > types/database.ts
+npm run dev                    # local dev server
+npm run build                  # production build
+npm run start                  # serve the production build
+npm run lint                   # ESLint
+npm run format / format:check  # Prettier
+npm run typecheck              # tsc --noEmit
+npm run test                   # Vitest + React Testing Library
+npm run test:e2e               # build + Playwright
+npm run verify                 # format:check && lint && typecheck && test && build — the
+                                #   single non-destructive gate; run before calling anything done
+npm run verify:full            # verify, then Playwright (reuses verify's build, no rebuild)
+
+npm run supabase:start / :stop / :reset   # local Supabase stack — needs Docker
+npm run supabase:migration:new -- <name>
+npm run supabase:types          # from the local stack (Docker)
+npm run supabase:types:linked   # from a linked Supabase DEVELOPMENT project (no Docker needed)
 ```
 
-Do not treat this list as authoritative until it exists in `package.json` — check before running.
+See [docs/architecture.md](docs/architecture.md#local-vs-hosted-supabase-development) for the full
+local-vs-hosted Supabase workflow, including why local verification may be blocked on this machine.
 
 ## Folder conventions
 

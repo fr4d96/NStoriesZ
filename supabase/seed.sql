@@ -1,0 +1,6 @@
+-- WHV Compass NZ — local seed data.
+--
+-- No schema exists yet (Prompt 1 is the application foundation only), so
+-- there's nothing to seed. When tables land, seed data here must be
+-- fictional per CLAUDE.md — never real contributor names, stories, or
+-- images.
