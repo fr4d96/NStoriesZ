@@ -15,6 +15,20 @@ using images they actually have the rights to share.
   (Engineering Rule 16). Nothing is public by default beyond the display name and their published
   stories.
 
+**Implemented as of Prompt 2** (see
+[docs/architecture.md](architecture.md#rls-strategy--prompt-2-authprofilesrolescontributors)):
+`contributors.attribution_type` (`real_name` / `display_name` / `pseudonym` / `anonymous`) and
+`contributors.display_name` are the contributor's explicit, stored choice — set via the account
+page's "Contributor identity" form, never defaulted or inferred. `contributors.public_status`
+(`private` / `public` / `archived`) gates public visibility: `private` (the default) is visible only
+to the linked owner and staff; only `public` is visible to anonymous/other-user queries.
+`profiles.public_profile_enabled` + `profiles.public_slug` is the equivalent opt-in for the
+account-level profile page (separate concept from a contributor's public byline — see
+[docs/architecture.md](architecture.md) "Data-access conventions"). A contributor record may exist
+before any linked account (`linked_user_id IS NULL`) for the founding-catalogue import case below;
+linking it to a real account afterward is a trusted, staff-only, audited operation
+(`public.link_contributor_to_user()`), never a self-service claim of an existing record.
+
 ## Publication consent
 
 - No story is submitted for moderation without an explicit, recorded publication-permission
@@ -50,6 +64,12 @@ using images they actually have the rights to share.
   workflow and any audit trail treat them as separate actions.
 - Editors record attribution, publication consent, and image rights confirmations as part of import
   prep — a story cannot be submitted for moderation without these recorded.
+
+**Implemented as of Prompt 2:** an editor (or admin) can create an unlinked `contributors` row
+(`linked_user_id IS NULL`) to prepare a founding-catalogue contributor's identity ahead of an
+account existing. Publication consent and image-rights confirmation records themselves are Prompt 3+
+(they attach to stories/revisions, which don't exist yet) — only the contributor identity itself is
+implemented so far.
 
 ## Moderation boundaries
 

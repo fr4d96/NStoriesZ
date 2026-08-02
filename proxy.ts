@@ -1,13 +1,22 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const PROTECTED_PATHS = ["/my-stories", "/stories/new", "/account"];
+
+function isProtectedPath(pathname: string) {
+  return PROTECTED_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
+
 /**
  * Refreshes the Supabase auth cookie for the contributor area only — public
  * pages never touch Supabase, so they're excluded from the matcher below
- * rather than relying on a per-request cookie-presence check here. The
- * (contributor) layout still performs the real identity check via
- * getCurrentUser(); this proxy's only job is keeping the session cookie
- * fresh so that check has an up-to-date cookie to read.
+ * rather than relying on a per-request cookie-presence check here. Also
+ * redirects signed-out requests to /sign-in?next=<original path>, since this
+ * is the only place with access to the actual requested pathname; the
+ * (contributor) layout still performs its own getCurrentUser() check as a
+ * defense-in-depth backstop.
  */
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -34,7 +43,16 @@ export async function proxy(request: NextRequest) {
   );
 
   // Triggers a refresh (if needed) and writes the updated cookie via setAll.
-  await supabase.auth.getClaims();
+  const { data } = await supabase.auth.getClaims();
+
+  if (!data?.claims?.sub && isProtectedPath(request.nextUrl.pathname)) {
+    const signInUrl = new URL("/sign-in", request.url);
+    signInUrl.searchParams.set(
+      "next",
+      `${request.nextUrl.pathname}${request.nextUrl.search}`,
+    );
+    return NextResponse.redirect(signInUrl);
+  }
 
   return response;
 }

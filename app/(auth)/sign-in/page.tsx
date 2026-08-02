@@ -1,18 +1,33 @@
 import type { Metadata } from "next";
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { resolveSafeReturnTo } from "@/lib/validation/safe-redirect";
+import { SignInForm } from "@/app/(auth)/sign-in/sign-in-form";
 
 export const metadata: Metadata = {
   title: "Sign in",
 };
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string; error?: string }>;
+}) {
+  const params = await searchParams;
+  const next = resolveSafeReturnTo(params.next, "/account");
+
   return (
-    <PlaceholderPage title="Sign in">
-      <p>
-        Contributor sign-in isn&apos;t built yet — this page is a placeholder.
-        Sign-in, along with contributor profiles and roles, is planned for the
-        next phase of the project.
-      </p>
-    </PlaceholderPage>
+    <div className="mx-auto max-w-sm px-4 py-12 sm:px-6 sm:py-16">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        Sign in
+      </h1>
+      {params.error === "invalid_link" && (
+        <p
+          role="alert"
+          className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+        >
+          That link is invalid or has expired. Please try again.
+        </p>
+      )}
+      <SignInForm next={next} />
+    </div>
   );
 }
