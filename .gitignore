@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# environment
+.env
+.env.local
+.env.*.local
+
+# Supabase local
+supabase/.temp/
+
+# editor/OS
+.DS_Store
+
+# Claude Code local session settings (not project config)
+.claude/settings.local.json
+
+# test artifacts
+coverage/
+playwright-report/
+test-results/
