@@ -30,16 +30,23 @@ export function SiteHeader() {
               {item.label}
             </Link>
           ))}
+          <Link href="/sign-in" className="hover:underline">
+            Sign in
+          </Link>
           <Link
-            href="/sign-in"
+            href="/sign-up"
             className="rounded-md bg-black px-3 py-1.5 text-white hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
           >
-            Sign in
+            Sign up
           </Link>
         </nav>
 
         <MobileNavToggle
-          navItems={[...primaryNav, { href: "/sign-in", label: "Sign in" }]}
+          navItems={[
+            ...primaryNav,
+            { href: "/sign-in", label: "Sign in" },
+            { href: "/sign-up", label: "Sign up" },
+          ]}
         />
       </div>
     </header>

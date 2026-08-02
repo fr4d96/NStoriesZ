@@ -19,6 +19,7 @@ test("home page loads with title, heading, and working public nav", async ({
     { name: "Contributors", href: "/contributors" },
     { name: "About", href: "/about" },
     { name: "Sign in", href: "/sign-in" },
+    { name: "Sign up", href: "/sign-up" },
   ];
 
   for (const link of navLinks) {
