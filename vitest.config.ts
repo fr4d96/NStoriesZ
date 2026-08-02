@@ -14,6 +14,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.test.{ts,tsx}"],
-    exclude: ["node_modules/**", ".next/**", "e2e/**"],
+    // tests/integration/** hits a real Supabase project and is intentionally
+    // excluded from the default run — see `npm run test:rls`.
+    exclude: ["node_modules/**", ".next/**", "e2e/**", "tests/integration/**"],
   },
 });

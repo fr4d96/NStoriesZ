@@ -41,6 +41,24 @@ linking it to a real account afterward is a trusted, staff-only, audited operati
   content on a contributor's behalf; substantive changes during editorial preparation should be
   confirmed with the contributor before submission where practical.
 
+**Implemented as of Prompt 3** (see
+[docs/architecture.md](architecture.md#story-domain-prompt-3--schema-lifecycle-and-access-model)):
+`story_publication_consents` is append-only — every grant row is bound to one specific, immutable
+`revision_id` (a revision is frozen the instant it leaves `draft`, so binding consent to a
+`revision_id` _is_ binding to a frozen content snapshot), recorded by exactly one function,
+`submit_revision_with_consent()`, atomically with the submission it authorizes — there is no
+standalone "consent recorded early, trusted later" path. An editor's preparatory evidence gathered
+during import prep can be logged as a plain audit note (`log_editorial_action()`) but authorizes
+nothing until it's re-confirmed at the moment of submission, against the exact revision being
+submitted — this is exactly "consent for a revision does not automatically carry over": editing a
+revision after a grant produces a new revision with a new id, and the old grant no longer matches,
+so submission requires a fresh one. `confirmation_method = 'account'` requires the caller to be the
+story's linked contributor; the four offline methods require the caller to be the assigned editor or
+an admin, on an editorial-import story only. Revocation
+(`revoke_publication_consent()`, contributor or admin) is a terminal, story-wide flag — no function
+ever re-grants after it, matching "full deletion/restoration is a slower, human-reviewed path" below
+for the analogous case; a published story is archived automatically in the same transaction.
+
 ## Image rights
 
 - Every image attached to a story requires a recorded confirmation that the uploader/contributor has
@@ -53,6 +71,16 @@ linking it to a real account afterward is a trusted, staff-only, audited operati
   exact live locations, or medical records in any image or field, including seed/test data
   (Engineering Rule 15) — editors and moderators should reject/redact any submission that includes
   these even incidentally (e.g. a photo of a visa approval letter).
+
+**Implemented as of Prompt 3, schema-level:** `submit_revision_with_consent()` requires
+`image_rights_confirmed_at` and a resolved `identifiable_people_state` (`confirmed`/`not_applicable`
+— never `pending`/`declined`) whenever the revision has at least one attached image.
+`moderate_revision()`'s approve path independently re-verifies every attached image is both
+processed and approved (`story_media.approved_public_storage_path is not null and
+metadata_removed_at is not null`) before publishing — an unprocessed image blocks publication
+structurally. `promote_story_media()` (the function that would set those processed/approved columns)
+exists but has **no grants at all** in this phase, so no role can self-approve an image yet — the
+actual storage buckets and the image-processing pipeline that will call it are Prompt 4.
 
 ## Editorial assistance
 
@@ -67,9 +95,8 @@ linking it to a real account afterward is a trusted, staff-only, audited operati
 
 **Implemented as of Prompt 2:** an editor (or admin) can create an unlinked `contributors` row
 (`linked_user_id IS NULL`) to prepare a founding-catalogue contributor's identity ahead of an
-account existing. Publication consent and image-rights confirmation records themselves are Prompt 3+
-(they attach to stories/revisions, which don't exist yet) — only the contributor identity itself is
-implemented so far.
+account existing. **Publication consent and image-rights confirmation records are implemented as of
+Prompt 3**, per the sections above.
 
 ## Moderation boundaries
 
@@ -77,11 +104,21 @@ implemented so far.
   do not silently edit contributor content to make it publishable; if changes are needed, the revision
   is rejected with a reason and returned to the contributor/editor.
 - Approving a revision publishes it via the revision-pointer mechanism (see
-  [docs/architecture.md](architecture.md#story-revision-strategy)) — it never overwrites a previously
-  published revision in place, so a bad approval can be corrected by publishing a new approved
-  revision rather than needing to reconstruct history.
+  [docs/architecture.md](architecture.md#story-domain-prompt-3--schema-lifecycle-and-access-model)) —
+  it never overwrites a previously published revision in place, so a bad approval can be corrected by
+  publishing a new approved revision rather than needing to reconstruct history.
 - Moderators act on submitted (pending) revisions only; they do not have blanket edit rights over all
   contributor content.
+
+**Implemented as of Prompt 3:** `moderate_revision()` is the only path from `submitted` to
+`approved`/`rejected`/`changes_requested`, structurally — no role, including admin, has a direct
+`UPDATE` path to `revision_status`; a `BEFORE UPDATE` trigger additionally freezes every content
+column the instant a revision leaves `draft`, so a moderator (or anyone) literally cannot rewrite
+content, not just by convention. Every decision is recorded, append-only, in `moderation_actions`
+(user-facing reason) with staff-only internal notes in a sibling table
+(`moderation_action_notes`) — never visible to the contributor or to editors (a deliberate
+`get_story_for_editor()`/`get_story_for_moderator()` split, so one role's private material is never
+handed to another by default).
 
 ## Reporting
 
@@ -90,6 +127,13 @@ implemented so far.
 - A report puts the associated published revision up for re-review by a moderator; it does not
   automatically unpublish the story. Repeated or credible reports are a moderator judgment call,
   documented at implementation time.
+
+**Implemented as of Prompt 3:** `create_story_report()` requires the target to be currently public
+and published, snapshots `published_revision_id` at report time, and derives `reporter_id` from the
+session (never client-supplied) — a signed-in reader is required for MVP, per the brief.
+`list_my_reports()` lets a reporter see only their own; `resolve_report()` (moderator/admin) is the
+only path from `open`/`reviewing` to `resolved`/`dismissed`. A partial unique index prevents the same
+reporter opening a second report on the same story while one is still open.
 
 ## Corrections, withdrawal, and deletion
 
@@ -102,3 +146,13 @@ implemented so far.
   human-reviewed path (not a self-service one-click hard delete in MVP) given the founding-catalogue
   content may have been imported on someone else's behalf — the exact mechanics are an implementation
   decision to make explicitly, not something to leave implicit.
+
+**Implemented as of Prompt 3:** corrections and withdrawal are built; full deletion is not (as
+planned above). `create_next_draft_revision()` is the correcting-revision path — the previously
+published revision stays live, untouched, through the entire lifecycle of the correction attempt,
+including if it's rejected or changes are requested. `revoke_publication_consent()` is the
+withdrawal path — it archives a published story (removing it from every public-read function) and
+retains every underlying record; no function ever deletes a story, revision, consent, or moderation
+row (every structural foreign key in the domain is `on delete restrict`, deliberately, so this is
+enforced at the schema level, not just by which functions happen to exist). Full deletion remains
+out of scope, exactly as planned.
