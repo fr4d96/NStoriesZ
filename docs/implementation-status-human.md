@@ -57,14 +57,20 @@ with images.
   reject), add and caption photos, choose which regions/work types/tags apply, and see a private
   "here's exactly what this will look like" preview page that only they (and staff) can open.
   Every save happens automatically in the background as they type, without ever losing their
-  place if two tabs are open at once. Verified with 110 automated tests (up from 89) and by
-  manually loading every new page on a phone-sized screen to check it looks right. **What
-  wasn't tested**: an actual person signing in and writing a real story end-to-end, and a real
-  photo upload going all the way through — this working environment doesn't have a live login
-  to your actual site, so that has to wait for the final testing stage (Stage 5). One small gap
-  was found and fixed along the way: the database had no way to read back which regions/work
-  types/tags a contributor had already picked when they reopened a draft — that fix has since
-  been turned on for real, with your go-ahead.
+  place if two tabs are open at once. Verified with 112 automated tests (up from 89) and by
+  actually signing in with a real test account and writing a real story through the browser —
+  title, formatted body, bold text — and watching it save and preview correctly against your
+  real database. One small gap was found and fixed along the way: the database had no way to
+  read back which regions/work types/tags a contributor had already picked when they reopened a
+  draft — that fix has since been turned on for real, with your go-ahead. A second, more visible
+  bug was also found this way and fixed immediately: bolding a word in the middle of a sentence
+  (e.g. "picking **apples** in") was silently deleting the spaces around it, so it would have
+  rendered as "picking**apples**in" — never caught by the automated tests because none of them
+  happened to check a mid-sentence formatted word specifically. Confirmed fixed by re-testing the
+  exact same scenario live afterward. **What still hasn't been tested**: the real photo-upload
+  path end to end (this working environment can browse and type, but has no real image file to
+  upload), and a second contributor account interacting with someone else's story — both wait for
+  the final testing stage (Stage 5).
 - **Not yet built:** the staff screens for preparing someone else's story for publication and for
   reviewing/approving submissions. That's stages 4–5, still to come.
 

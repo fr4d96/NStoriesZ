@@ -17,7 +17,7 @@ Last updated: 2026-08-04.
 | 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**          | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                  |
 | 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                       |
 | 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.** | See "Prompt 3 detail" below.                                                                                                                  |
-| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **in progress — Sub-phase 3 of 5 complete (UI/logic verified locally; one new RPC staged but not yet pushed — see below)**                 | Being built on `prompt-4-authoring-images`, branched from `main` after Prompt 3 merged (PR #4). See "Prompt 4 detail" below.                  |
+| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **in progress — Sub-phase 3 of 5 complete and live-verified (including a real signed-in walkthrough)**                                     | Being built on `prompt-4-authoring-images`, branched from `main` after Prompt 3 merged (PR #4). See "Prompt 4 detail" below.                  |
 | 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | not started                                                                                                                                | Roadmap corrected in Prompt 3 (previously numbered 5, content unchanged).                                                                     |
 | 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | not started                                                                                                                                | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` get real UI here instead of a role-gated JSON stub. |
 | 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                           |
@@ -319,7 +319,7 @@ restrict` foreign keys to `story_revisions` blocked the existing cleanup order (
   assigned-editor/admin, which is what the Sub-phase 2 test list actually exercises.
 
 **Sub-phase 3 — self-service authoring, drafting, preview (complete — unit/component-tested and
-manually exercised locally; the DB side is NOT yet pushed to the linked project, see below):**
+live-verified against the real linked project with a real signed-in test account, see below):**
 
 - `lib/story/rich-text-serialize.ts` (new, pure, no DOM/editor dependency) — `tiptapDocToBlocks()`/
   `blocksToTiptapDoc()` convert between Tiptap/ProseMirror JSON and the canonical block/run/mark
@@ -414,21 +414,36 @@ false, follow: false}` metadata; `Cache-Control: no-store` is set in `proxy.ts` 
   this RPC yet) was removed in favor of the real generated types.
 - `npm install @tiptap/react@^3.29.2 @tiptap/starter-kit@^3.29.2 @tiptap/pm@^3.29.2` — the only new
   dependencies this sub-phase adds.
-- `npm run verify`: format/lint/typecheck clean, **110/110 unit tests** (up from 89, 21 new:
-  13 in `rich-text-serialize.test.ts`, 6 in `rich-text-editor.test.tsx`, 8 in
-  `mutation-queue.test.ts` — some overlap rounds to 21 net new after two pre-existing files grew),
-  build succeeds with 4 new routes (`/stories/[id]/edit`, `/stories/[id]/edit/upload`,
-  `/stories/[id]/preview`, and `/stories/new`/`/my-stories` now real instead of placeholders).
-  **What was and wasn't exercised**: lint/typecheck/unit tests/build all ran for real, including
-  the Tiptap closed-loop test against a real (headless) editor instance. Manually verified via the
-  dev server at a 375px mobile viewport: `/stories/new`, `/stories/<uuid>/edit`, and
-  `/stories/<uuid>/preview` all correctly redirect a signed-out request to `/sign-in?next=...`
-  (proving the `proxy.ts` matcher extension works), with no server errors logged. **Not exercised**:
-  any real signed-in walkthrough of the authoring form, a real image upload through the Route
-  Handler, or the mutation queue against a live network — this session has no live Supabase
-  session/credentials, exactly the limitation already documented for Sub-phase 2's live-network
-  gaps. Deferred to Sub-phase 5's broader integration-test pass, same as Sub-phase 2's deferred
-  Storage round trip.
+- `npm run verify`: format/lint/typecheck clean, **112/112 unit tests** (up from 89 — 21 from the
+  original implementation, plus 2 more from the live-verification bug fix below), build succeeds
+  with 4 new routes (`/stories/[id]/edit`, `/stories/[id]/edit/upload`, `/stories/[id]/preview`,
+  and `/stories/new`/`/my-stories` now real instead of placeholders).
+- **Live-verified via the dev server, signed in with the real `rls-owner@whv-compass-test.example`
+  test account against the real linked project** (the same account pool `npm run test:rls` uses):
+  created a real draft ("Picking Apples in Hawke's Bay"), confirmed the signed-out redirect for
+  `/stories/new`/`/stories/<uuid>/edit`/`/stories/<uuid>/preview` all correctly bounce to
+  `/sign-in?next=...` and land back on the original page after sign-in, typed real body text into
+  the Tiptap editor, applied bold to a mid-sentence word, confirmed autosave ("Saved" indicator)
+  and the `/my-stories` list showing the new draft with a status badge, and confirmed the private
+  preview page renders the same content via `get_story_preview()`.
+- **A real, user-visible bug was found this way and fixed**: `lib/validation/story.ts`'s
+  `textRunSchema` called `.trim()` on every run's `text` field — correct in isolation, wrong once a
+  run is one interior slice of continuous text split at a mark boundary (e.g. `"picking "` /
+  `"apples"` (bold) / `" in Hawke's Bay."`), since trimming its edges deletes real inter-word
+  spacing. Bolding a mid-sentence word therefore silently produced `"pickingapplesin"` instead of
+  `"picking apples in"` — confirmed live by inspecting the actual rendered DOM
+  (`picking<strong>apples</strong>in`, no spaces anywhere) before the fix, and
+  `picking <strong>apples</strong> in` after it. Fixed by replacing `.trim()` with a
+  `.refine((s) => s.trim().length > 0, ...)` check that rejects whitespace-only runs without
+  mutating legitimate boundary whitespace on non-whitespace-only ones. Two regression tests added
+  to `lib/validation/story.test.ts` (adjacent-run spacing preserved; whitespace-only run still
+  rejected). Not caught by the original 21 new tests because none of them happened to construct a
+  mid-sentence marked run specifically — a gap in test construction, not in the schema's
+  documented intent.
+- **Not exercised**: a real image upload through the Route Handler (this session has no real image
+  file to upload from), and a second contributor account interacting with someone else's story.
+  Deferred to Sub-phase 5's broader integration-test pass, same as Sub-phase 2's deferred Storage
+  round trip.
 
 Sub-phases 4–5 (editorial import UI, consent/approval UI, integration tests/Playwright/docs) are
 not yet started. Sub-phase 4 should begin by getting `20260804091000_get_revision_selections.sql`
@@ -462,7 +477,7 @@ All in `supabase/migrations/`, applied in filename order:
 | `20260803091100_fix_nullable_actor_boolean_logic.sql`   | Bug fix: wraps every `nullable_column = auth.uid()` ownership/role comparison in `coalesce(..., false)` across 9 functions — see "Prompt 3 detail" above.                                                                                                                                                                                         |
 | `20260803091200_fix_publish_sets_visibility.sql`        | Bug fix: `moderate_revision()`'s approve path now also sets `stories.visibility = 'public'`, not just `lifecycle_status`.                                                                                                                                                                                                                         |
 | `20260804090000` – `20260804090800` (9 files)           | Prompt 4 Sub-phase 2 — storage buckets, media processing-state machine, upload reservation, publication-attempt system. See "Prompt 4 detail" above and `docs/architecture.md`. **Applied and live-verified.**                                                                                                                                    |
-| `20260804091000_get_revision_selections.sql`            | Prompt 4 Sub-phase 3 — `get_revision_selections()`, the missing reader for `story_revision_locations`/`story_revision_work_types`/`story_revision_tags`, symmetric with the existing writer RPCs. **Staged, NOT yet applied** — needs your go-ahead for `supabase db push`; see "Prompt 4 detail" above.                                          |
+| `20260804091000_get_revision_selections.sql`            | Prompt 4 Sub-phase 3 — `get_revision_selections()`, the missing reader for `story_revision_locations`/`story_revision_work_types`/`story_revision_tags`, symmetric with the existing writer RPCs. Applied via `supabase db push` with explicit go-ahead; confirmed in sync via `supabase migration list`.                                         |
 
 ## Role and RLS matrix
 
@@ -683,8 +698,9 @@ direct RPC call, no UI at all); and the consent-at-submission UI
 `components/story/rich-text-editor.tsx`/`content-block-renderer.tsx`/`image-upload-manager.tsx`,
 `lib/story/mutation-queue.ts`, and the `app/(contributor)/stories/[id]/edit/actions.ts` pattern.
 Sub-phase 5 (integration tests/Playwright/final docs) follows after — see that sub-phase's
-acceptance list in the approved plan for what still needs a real live-Supabase round trip (Storage
-upload → processing → public copy; a real signed-in authoring session end-to-end), since this
-session had no live credentials for either Sub-phase 2's or Sub-phase 3's network-dependent paths.
-Prompt 5 (public discovery) and Prompt 6 (editorial/moderation workspace) follow after Prompt 4
-completes.
+acceptance list in the approved plan for what still needs a real live-Supabase round trip. A real
+signed-in authoring session end-to-end is now covered (see "Prompt 4 detail" above — done with the
+`rls-owner` test account after Sub-phase 3 landed); the one still-open live gap from Sub-phase 2 is
+the actual Storage byte round trip (upload → `sharp` processing → public copy), which needs the
+project's service-role key. Prompt 5 (public discovery) and Prompt 6 (editorial/moderation
+workspace) follow after Prompt 4 completes.

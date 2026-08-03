@@ -55,12 +55,13 @@ updated after every prompt or sub-phase.
   - Stage 3 (done): the actual screens — a real writing editor (bold/italic/links/headings/
     lists/quotes, nothing else), image upload with captions and reordering, and a private
     "see exactly what this will look like" preview page only the contributor (and staff) can
-    see. Verified with 110/110 automated tests and a manual mobile check of every new page;
-    a real signed-in walkthrough and a real image upload weren't tested end-to-end because this
-    environment has no live login credentials — that's left for the final testing stage. One
-    small gap found along the way: the database was missing a way to read back a story's chosen
-    regions/work types/tags on page reload, so a small addition is staged and waiting for a
-    go-ahead before it goes live.
+    see. Verified with 112/112 automated tests, a manual mobile check of every new page, and a
+    real signed-in walkthrough (sign in, write a story, format it, save, preview) against the
+    live database. Two real bugs found this way and fixed: a missing way to read back a story's
+    chosen regions/work types/tags on page reload (now live), and a formatting bug where bolding
+    a word mid-sentence silently deleted the spaces around it (confirmed fixed by re-testing the
+    exact scenario live). A real image upload still wasn't tested end-to-end — no test image
+    file in this environment — left for the final testing stage.
   - Stages 4–5 (not yet built): the staff screens for preparing someone else's story for
     publication and reviewing/approving it, plus final end-to-end tests and docs.
   - Next up after Prompt 4: Prompt 5 (public browsing/search) and Prompt 6 (moderator review

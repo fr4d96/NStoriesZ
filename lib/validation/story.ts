@@ -83,7 +83,20 @@ function noDuplicateMarkKinds(marks: StoryMark[] | undefined): boolean {
 function textRunSchema(maxTextLength: number) {
   return z
     .object({
-      text: z.string().trim().min(1).max(maxTextLength),
+      // Deliberately NOT `.trim()`ed: a run is often one interior slice of
+      // continuous text split at a mark boundary (e.g. "picking " / "apples"
+      // (bold) / " in Hawke's Bay..."), so its own leading/trailing
+      // whitespace is real inter-word spacing that belongs to the
+      // surrounding text, not padding to strip. Trimming here previously
+      // deleted that spacing (a real bug, found by actually bolding a
+      // mid-sentence word and seeing "picking**apples**in" render with no
+      // spaces at all). Still reject a run that's nothing but whitespace.
+      text: z
+        .string()
+        .max(maxTextLength)
+        .refine((s) => s.trim().length > 0, {
+          message: "Text cannot be empty or only whitespace.",
+        }),
       marks: z.array(markSchema).max(MAX_MARKS_PER_RUN).optional(),
     })
     .refine((run) => noDuplicateMarkKinds(run.marks), {
