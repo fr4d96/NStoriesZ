@@ -17,7 +17,7 @@ Last updated: 2026-08-03.
 | 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**          | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                  |
 | 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                       |
 | 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.** | See "Prompt 3 detail" below.                                                                                                                  |
-| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | not started                                                                                                                                | Roadmap corrected in Prompt 3 — this used to be numbered "storage buckets" only; the schema/RLS/RPCs it needs already exist.                  |
+| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **in progress — Sub-phase 2 of 5 complete and live-verified**                                                                              | Being built on `prompt-4-authoring-images`, branched from `main` after Prompt 3 merged (PR #4). See "Prompt 4 detail" below.                  |
 | 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | not started                                                                                                                                | Roadmap corrected in Prompt 3 (previously numbered 5, content unchanged).                                                                     |
 | 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | not started                                                                                                                                | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` get real UI here instead of a role-gated JSON stub. |
 | 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                           |
@@ -186,6 +186,140 @@ new story-domain fixtures (regions/destinations/work types/tags, and stories cov
 state including the new terminal `withdrawn` state) are **not** verified this session — they run only
 against the local stack (`supabase db reset`), which remains blocked on the missing container runtime,
 exactly like the rest of `seed.sql` since Prompt 1.
+
+## Prompt 4 detail — in progress
+
+Built on `prompt-4-authoring-images`, branched from `main` after Prompt 3's PR (#4) was found
+already merged upstream (`32fed0b`) — no new push/PR/merge was needed for the prerequisite, only
+a local fast-forward. The full Prompt 4 design (self-service authoring, editorial import, image
+storage/processing pipeline, consent/approval flows) went through seven rounds of plan review
+before implementation began; the approved plan is the source of truth for every decision below
+and is not duplicated here in full.
+
+**Sub-phase 1 — canonical content-schema extension (complete):**
+
+- `lib/validation/story.ts`'s `storyContentBlockSchema` extended from plain-string block text to
+  a block/run/mark structure: every block's text is now `TextRun[]` (`{ text, marks? }`), where
+  `marks` is `("bold" | "italic" | { type: "link"; href })[]`, capped at 3 (one of each kind,
+  enforced by a `.refine()` rejecting duplicate mark kinds on the same run). List items are now
+  `TextRun[][]` (one run array per item) rather than bare strings.
+- Added `isSafeHref()`: parser-based (`new URL()`), not regex-scheme-sniffing — accepts only
+  `http:`/`https:` absolute URLs or single-slash root-relative paths; rejects protocol-relative
+  (`//host/...`), backslashes, control characters, mixed-case scheme tricks, and overlong values.
+  Used both by the link-mark schema and (in a later sub-phase) the content renderer, at render
+  time too, per the plan's defense-in-depth requirement.
+- Added a document-wide character ceiling (50,000, sum of all run text across all blocks) and a
+  per-block run-count ceiling (100), on top of the existing per-block/per-run length ceilings.
+- `storyContentSchema` gained `.min(1)` (previously unbounded below — an empty array passed) —
+  combined with every run already requiring non-whitespace content, this closes the "meaningful
+  content" gap flagged during plan review.
+- **No DB migration was needed for this change.** Confirmed by reading
+  `supabase/migrations/20260803090200_story_revisions.sql` directly:
+  `content_json jsonb not null default '[]'::jsonb` with only a
+  `constraint story_revisions_content_json_is_array check (jsonb_typeof(content_json) = 'array')`
+  — the column is loosely-typed at the DB layer by design, so extending the Zod-side shape is
+  safe without a migration. This is exactly the kind of claim the plan required verifying against
+  the real migration file rather than assuming, so it's recorded here as verified, not assumed.
+- `supabase/seed.sql`'s 9 story-revision fixtures updated from the old
+  `'[{"type":"paragraph","text":"..."}]'` shape to the new
+  `'[{"type":"paragraph","text":[{"text":"..."}]}]'` shape, so local-stack seeding (whenever
+  Docker is available) stays schema-valid. Grepped the rest of the repo for the old shape —
+  no other file references it, since nothing yet consumes `content_json` outside `seed.sql` (the
+  first real consumer, the rich-text editor and content renderer, is Sub-phase 3).
+- `lib/validation/story.test.ts` rewritten/expanded to 29 tests (from 8): overlapping marks
+  accepted, duplicate mark kinds rejected, unsafe link hrefs rejected, per-block and document-wide
+  character ceilings enforced, empty-content-array rejected, plus a full `isSafeHref` matrix
+  (accepted: absolute https/http, root-relative; rejected: `javascript:`/`data:`/`vbscript:`/
+  `file:`, mixed-case scheme tricks, protocol-relative, control characters/backslashes, overlong
+  URLs, unparseable strings).
+- `npm run verify` passes in full: format/lint/typecheck clean, **78/78 unit tests** (up from 62),
+  build unchanged at 22 routes.
+
+**Sub-phase 2 — storage, admin client, media pipeline, publication backend (complete — migrations
+pushed and live-verified against a real linked Supabase project):**
+
+- 9 new migrations (`20260804090000` through `20260804090800`) — see
+  [docs/architecture.md](architecture.md#media-processing-and-publication-pipeline-prompt-4-sub-phase-2)
+  for the full design: two storage buckets + strict-path-parsing RLS; the
+  `story_media.processing_state` state machine with a DB-enforced transition trigger and
+  state-dependent `CHECK` constraints; `begin_/finalize_/cancel_story_media_upload()` (superseding
+  Prompt 3's `attach_story_media()`, dropped); `record_processed_story_media()`/
+  `record_story_media_processing_failed()` (service_role-only); `story_publication_attempts` +
+  `story_media_public_copy_attempts` (the latter append-and-update, never-delete);
+  `begin_story_publication_attempt()`/`finalize_story_publication()` (the atomic publication
+  transaction, no `expectedVersion` parameter); `moderate_revision()` narrowed to
+  `reject`/`changes_requested` only (`'approve'` now raises); `submit_revision_with_consent()`
+  extended to require every attached image be at least `processed`; `get_story_preview()`
+  (path-free) + `authorize_story_media_preview()` + `get_media_private_path_for_preview()`
+  (service_role-only) + `_can_access_story_media()` (moderator access scoped to the specific
+  revision under review, not blanket role access); two `maintenance_*` reconciliation RPCs
+  (service_role-only).
+- `lib/env.server.ts`: added a lazily-evaluated, separately-exported `getAdminEnv()` for
+  `SUPABASE_SERVICE_ROLE_KEY` — never merged into the existing `env` export, so ordinary
+  publishable-key code paths never require the secret to be set.
+- `lib/supabase/admin.ts` (new service-role client) and `lib/story/image-pipeline.ts` (the one
+  module allowed to import it) — enforced by both `server-only` (build-time) and a new
+  `no-restricted-imports` ESLint rule (`eslint.config.mjs`), verified directly: a scratch file
+  importing the admin client from outside `image-pipeline.ts` was confirmed to fail lint before
+  being deleted.
+- `lib/story/image-validation.ts` (magic-byte sniffing, size/count/dimension constants) and
+  `lib/story/image-pipeline.ts` (the real `sharp`-based decode/strip/resize/hash pipeline, the
+  public-bucket copy step, and the signed-URL mint). A real bug was found and fixed while writing
+  the test suite: `sharp`'s `metadata().pages` is always `undefined` — even for a genuinely
+  animated source — unless the image is decoded with `{ pages: -1 }`; without that option, the
+  animated-image rejection check would have silently never fired. Fixed in
+  `lib/story/image-pipeline.ts`, verified by `lib/story/image-pipeline.test.ts`, which also proves
+  (against a real source image with embedded EXIF, generated via `sharp.withExif()`) that the
+  pipeline's output genuinely has no EXIF.
+- `scripts/cleanup-abandoned-media-uploads.mjs` (new, `npm run media:cleanup:pending`) — fail-closed
+  (dedicated `SUPABASE_MAINTENANCE_*` env vars, project-ref-bound confirm string, dry-run default,
+  100-row batch bound), mirroring `scripts/run-rls-cleanup.mjs`'s isolation pattern.
+- All 9 migrations applied via `supabase db push` against the linked hosted project
+  (`ybhydepjaantkngngvuf`) — `supabase migration list` confirmed local and remote timestamps match
+  afterward. `types/database.ts` regenerated for real via `npm run supabase:types:linked`; the
+  hand-patched version written before the push typechecked cleanly against the real regenerated
+  output with zero changes needed to app code — a useful sanity check, not a substitute for the
+  real introspection now in place.
+- `npm run verify` passes in full: format/lint/typecheck clean, **89/89 unit tests** (up from 78,
+  11 new: `image-validation.test.ts`, `image-pipeline.test.ts`), build unchanged at 22 routes.
+  `npm audit` newly surfaces `sharp` by name (previously only `next`/`postcss`) for the exact same
+  pre-existing, already-documented `next`-bundled-transitive-dependency advisory
+  (`GHSA-f88m-g3jw-g9cj`, `<0.35.0`) — confirmed the flagged node is `next/node_modules/sharp`, not
+  this project's own `sharp@^0.35.3` (already the fixed version), so nothing new is actually
+  introduced.
+- **`npm run test:rls` — 25/25** against the real project, including the new publication-attempt
+  flow exercised live end-to-end (`begin_story_publication_attempt` → `finalize_story_publication`
+  successfully publishing a text-only revision; a stale/already-approved revision correctly denied
+  by `begin_story_publication_attempt`). The pre-existing suite's direct
+  `moderate_revision({decision:"approve"})` calls (which now unconditionally raise, as designed)
+  were replaced with a small `approveRevision()` test helper going through the real attempt flow —
+  all previously-passing Prompt 3 invariants (ownership, consent, revision-safety, withdrawal,
+  reporting) still hold. `scripts/rls-test-cleanup.sql` needed a real fix, not just a formality:
+  the new `story_publication_attempts`/`story_media_public_copy_attempts` tables' `on delete
+restrict` foreign keys to `story_revisions` blocked the existing cleanup order (a genuine
+  `23503` violation on the first attempt) — fixed by deleting both, in dependency order, before
+  clearing revision pointers; verified by two full clean run → cleanup → clean re-run cycles.
+- **Not yet live-verified**: a full round trip through actual Storage (real bytes uploaded →
+  processed via `sharp` → copied to the public bucket → publicly readable) — this needs the
+  project's service-role secret key, which wasn't available in this session. Explicitly deferred
+  to Sub-phase 5's broader integration-test pass per your direction; everything at the DB/RPC layer
+  (including the exact sequence a real pipeline run would follow) is live-verified above.
+- A discovered plan/code conflict, resolved in favor of the code: the approved plan's decision 4
+  (round seven) assumed `_authorize_revision_edit()` grants edit rights to the story's
+  `owner_user_id` and `assigned_editor_id` only, deliberately excluding a linked contributor. In
+  fact, `_authorize_revision_edit()` is built on Prompt 3's existing `_is_story_owner()`, whose own
+  documented semantics already treat a linked contributor as equivalent to the owner for editing
+  purposes (`s.owner_user_id = auth.uid() or c.linked_user_id = auth.uid()`) — this is pre-existing,
+  live-verified Prompt 3 behavior, not a Prompt 4 decision to make. The upload-authorization
+  functions reuse `_authorize_revision_edit()` verbatim (satisfying the plan's deeper intent — never
+  drift from the platform's one real edit-rights rule), which means a linked contributor _does_ have
+  upload rights, consistent with every other authoring RPC. There is no structural "linked
+  contributor with review-only rights, distinct from the owner" state in the current schema to test
+  against; the meaningful negative case is a signed-in user who is none of owner/linked-contributor/
+  assigned-editor/admin, which is what the Sub-phase 2 test list actually exercises.
+
+Sub-phases 3–5 (self-service authoring UI, editorial import UI, integration tests/Playwright/docs)
+are not yet started.
 
 ## Migration summary
 

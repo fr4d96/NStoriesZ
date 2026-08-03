@@ -86,12 +86,11 @@ e2e/
 ```
 
 Target/deferred pieces not yet built: `stories/[slug]`, `contributors/[slug]`, `sitemap.ts`/
-`robots.ts`, storage buckets and the real image-processing pipeline (`promote_story_media()` exists
-but is deliberately ungranted until then), `lib/supabase/admin.ts` (no privileged operation exists
-yet to justify a service-role client — see "Authentication boundaries" below), real
-authoring/editorial/moderation UI (the schema and RPCs exist; `/stories/new`, `/my-stories`, and the
-three staff routes are still placeholders/role-gated API stubs — see "Roadmap" below for exactly
-which prompt builds each UI).
+`robots.ts`, real authoring/editorial UI (the schema, RPCs, storage buckets, and image pipeline all
+exist as of Prompt 4 Sub-phase 2; `/stories/new`, `/my-stories`, and the three staff routes are
+still placeholders/role-gated API stubs — Sub-phases 3–4 build the UI), and any moderation UI at
+all (Prompt 4 builds the publication _backend_ only — see "Media processing and publication
+pipeline (Prompt 4)" below — Prompt 6 owns the moderation workspace that will call it).
 
 ## Authentication boundaries
 
@@ -548,10 +547,203 @@ Rules, enforced by convention (no script does these automatically):
   redirect allow-list hasn't been confirmed configured — see implementation-status.md "Manual Supabase
   settings required").
 
+## Media processing and publication pipeline (Prompt 4 Sub-phase 2)
+
+Built after seven rounds of plan review (see the approved plan for the full decision history).
+Backend and migrations only — no moderation UI ships in this sub-phase; Prompt 6 owns that UI and
+will call `begin_story_publication_attempt()`/`finalize_story_publication()` directly. All 9
+migrations are pushed and live-verified against the linked hosted project — see
+[docs/implementation-status.md](implementation-status.md) "Prompt 4 detail" for the full account,
+including the real bug the RLS integration suite's live run surfaced in
+`scripts/rls-test-cleanup.sql` (the new attempt/copy-attempt tables' `on delete restrict` foreign
+keys needed a cleanup-order fix). Not yet live-verified: a full round trip through actual Storage
+bytes (upload → `sharp` processing → public copy), which needs the project's service-role key —
+deferred to Sub-phase 5 per direction; everything at the DB/RPC layer is live-verified.
+
+### Storage buckets
+
+Two buckets, created in `20260804090700_story_media_storage_buckets.sql`:
+
+- `story-images-private` — never public. Holds original uploads
+  (`{story_id}/{media_id}/original.<ext>`) and processed-derivative staging
+  (`{story_id}/{media_id}/processed-{sha256}.<ext>`, content-addressed). Writes are gated by
+  `_can_write_reserved_media_path()`, a Storage RLS helper that parses the object path strictly
+  (exactly three components, the first two valid UUIDs, no traversal/backslashes/percent-encoding)
+  and requires an exact match against a real, still-`pending_upload`, still-editable reservation,
+  authorized via the same relationship set `_authorize_revision_edit()` uses — a direct Storage API
+  write to an arbitrary or another user's path fails at this policy, not merely because the app
+  chooses not to attempt it. Reads are gated by `_can_access_story_media()`.
+- `story-images-public` — world-readable by design. Every write (INSERT/UPDATE/DELETE) is
+  restricted to `service_role` — no client, including an authorized owner or moderator, ever
+  writes to this bucket directly. The only code path that ever does is
+  `copyStoryMediaToPublic()` in `lib/story/image-pipeline.ts`, and only as part of an active
+  publication attempt.
+
+### The media processing-state machine
+
+`story_media.processing_state`: `pending_upload → uploaded → processing → processed | failed →
+promotion_pending → promoted`. Enforced at two independent DB levels — a `BEFORE UPDATE` trigger
+(`story_media_validate_processing_state_transition()`) allow-listing exactly the valid `(old, new)`
+pairs, and state-dependent `CHECK` constraints ensuring a state can't exist without its required
+fields (e.g. `approved_public_storage_path is not null` if and only if `processing_state =
+'promoted'`) — regardless of which function attempts a change. `promoted` is immutable: a
+same-state `promoted → promoted` update is only a no-op if every recorded value is unchanged;
+changing any of them is rejected by the trigger.
+
+Column semantics, made unambiguous (a real ambiguity in the original Prompt 3 `width`/`height`
+columns, which always described the _processed_ derivative despite the generic name): renamed to
+`processed_width`/`processed_height`, with new `source_width`/`source_height` columns for the
+original upload. Both pairs are **server-detected via a real `sharp` decode during processing**,
+never client-supplied — `finalize_story_media_upload()` only records the raw observed byte size
+(read directly from `storage.objects`, not trusted from the client) at upload time; true MIME type
+and dimensions aren't known until `record_processed_story_media()` runs. `source_mime_type` is the
+one exception forced by an inherited Prompt 3 `NOT NULL` constraint: `begin_story_media_upload()`
+must insert _some_ value at reservation time, so it stores the client-declared MIME as a
+non-authoritative placeholder (used only to pick the reserved path's extension) — this value is
+never trusted for any validation or safety decision, and is overwritten with the server-detected
+true value the moment processing succeeds.
+
+### Upload reservation flow
+
+`begin_story_media_upload()` / `finalize_story_media_upload()` / `cancel_pending_story_media_upload()`
+supersede Prompt 3's single-step `attach_story_media()` (dropped). The DB row is created _before_
+the storage write, but as an explicit reservation (`pending_upload`), never a claim that bytes
+exist — `finalize_` is the step that runs after the storage write succeeds. Authorization for both
+is exactly `_authorize_revision_edit()`, reused verbatim (not a separately maintained relationship
+list). The 12-image-per-revision limit is enforced transactionally, under a lock on the revision
+row, counting already-joined `story_revision_media` rows plus not-yet-finalized `pending_upload`
+reservations together. `finalize_story_media_upload()` is safely retryable after a stale-version
+error without re-uploading bytes: object-existence/size and re-derived authorization are checked
+first (version-independent), and only the final join-creation step is version-gated — a repeat
+call after the row has already moved past `pending_upload` is a no-op. No automatic reaper runs
+inside these functions; an abandoned reservation is cleaned up only by explicit cancellation or the
+maintenance script (below).
+
+Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` (Sub-phase 3),
+Node runtime, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler authenticates, calls `begin_`,
+uploads via the regular (RLS-respecting) server client — never the admin client — then calls
+`finalize_`.
+
+### Processing (`lib/story/image-pipeline.ts` — the one module allowed to import `lib/supabase/admin.ts`)
+
+Enforced by two independent layers: `import "server-only"` (build-time — webpack errors if a
+client bundle transitively imports it) and an ESLint `no-restricted-imports` rule
+(`eslint.config.mjs`) banning `@/lib/supabase/admin` everywhere except this one file.
+
+`processStoryMedia(mediaId)`: downloads the original, sniffs magic bytes (JPEG/PNG/WebP only, no
+extra dependency — three fixed signatures), decodes with `sharp({ limitInputPixels: 50_000_000 })`
+(decompression-bomb guard), rejects animated sources (checked via `metadata.pages` — **requires
+decoding with `{ pages: -1 }`**, otherwise `pages` is always `undefined` even for a genuinely
+animated source; found via a unit test that tried to build an animated fixture), auto-orients via
+`.rotate()` then re-encodes (sharp strips all metadata by default unless `withMetadata()` is
+called, which it never is — verified directly in `lib/story/image-pipeline.test.ts` against a
+source with real embedded EXIF), resizes to a 2000px long-edge cap, computes the sha256 of the
+_processed_ bytes, and stages the result at a content-addressed private path. Verifies the actually
+stored object's bytes/hash before treating the operation as complete — an upload call returning
+success is never trusted blindly. Records the result via `record_processed_story_media()`
+(`service_role`-only), or a specific failure via `record_story_media_processing_failed()`.
+
+`copyStoryMediaToPublic(mediaId, approvalAttemptId)`: called only as part of an active publication
+attempt. Calls `begin_story_media_copy_attempt()` (flips `processed → promotion_pending` and
+records a durable, retained-forever `story_media_public_copy_attempts` row _before_ any public
+write is attempted), copies the already-processed bytes to the public bucket's content-addressed
+path, verifies the copy, and records `verified` or `failed`. Idempotent: a content-addressed path
+can never have two different byte sequences recorded as "correct" under it, so a retry either finds
+the existing object already correct or overwrites it with a freshly-verified copy.
+
+`mintMediaPreviewSignedUrl(mediaId)`: looks up the private staging path via
+`get_media_private_path_for_preview()` (`service_role`-only, no caller-identity check of its own —
+safe only because the calling Server Action already ran `authorize_story_media_preview()` on its
+own regular client first) and mints a 120-second signed URL. **A signed URL does contain the object
+path as part of its structure** — that's normal; the actual guarantee is that no raw path is ever
+returned as an independent, client-inspectable value, and the browser only ever receives the final
+bearer URL, minted only after server-side authorization. Once minted, the URL works for anyone
+holding it until expiry — the security boundary is entirely who is allowed to _mint_ one, not who
+uses it afterward.
+
+### Publication attempts
+
+`story_publication_attempts`: a trusted parent, `id` minted server-side by
+`begin_story_publication_attempt(revision_id)` (moderator/admin only) — no function anywhere
+accepts a client-generated attempt id as the _origin_ of a new attempt, though the minted id is
+legitimately passed back and used as a reference by every later call, each of which independently
+re-verifies it (exists, `active`, matches revision/media, caller is `initiated_by` or an admin).
+Only one attempt may be `active` per revision at a time, enforced by a partial unique index, not
+merely an application check. `story_media_public_copy_attempts` is append-and-update,
+**never-delete** — a row is retained and marked `resolved_at`/`resolution` (`promoted` / `abandoned`
+/ `superseded`), giving a permanent, queryable audit trail of every publication attempt.
+
+`finalize_story_publication(revision_id, approval_attempt_id, ...)` is the single atomic
+publication transaction, called through the moderator's own regular client (the copy work above
+already ran via the admin client separately). **No `expectedVersion` parameter** — submitted
+revisions are already immutable (`story_revisions_protect_immutable_content()`), so the attempt's
+own active/finalized/abandoned state plus row locks are the concurrency boundary, not the authoring
+version. For every attached media item, it accepts either already-`promoted` (reused unchanged from
+a prior publication — `create_next_draft_revision()` can clone media that's already public; never
+recopied, never re-transitioned) or `promotion_pending` with a `verified` copy for _this exact_
+attempt (only this category transitions to `promoted`, with `approved_public_storage_path` taken
+from the copy-attempt record, never a fresh parameter). Idempotent: retrying an already-`finalized`
+attempt is a safe no-op. `moderate_revision()` is narrowed to `reject`/`changes_requested` only —
+`'approve'` now raises, directing callers to the attempt-based flow, which is what makes it the only
+path to approval rather than an optional one. Both `finalize_story_publication()` and
+`moderate_revision()`'s reject/changes-requested path lock the attempt row and re-check `active`
+status, so a race between "finalize this attempt" and "reject this revision instead" resolves to
+exactly one winner (the loser gets a clear "already resolved" error); a reject after a partial
+approval attempt reverses `promotion_pending` media back to `processed` and marks the copy-attempt
+rows `resolved`/`abandoned` — never touching an already-`promoted` (fully terminal) row.
+
+### Submission requires processed media, not merely uploaded
+
+`submit_revision_with_consent()` (migration `20260804090500`) now raises unless every attached
+`story_revision_media` row's underlying `story_media.processing_state` is `processed` or later —
+object existence alone (`uploaded`) is not enough. This closes the gap where a contributor or
+reviewing contributor could submit/approve content whose images hadn't actually finished
+processing. A zero-image revision is unaffected (the check is vacuously satisfied).
+
+### Private preview — a dedicated RPC, never a reused staff function
+
+`get_story_preview(story_id)` authorizes owner, linked contributor, assigned editor, or admin, and
+**returns no storage path of any kind** — only `media_id` and presentation fields — since anything
+a regular-client-reachable `SECURITY DEFINER` function returns is visible to the browser over
+PostgREST. It structurally excludes `story_revision_editor_notes`/`moderation_action_notes` (no
+column, no join to either exists in the function body) rather than relying on a UI component to
+simply not render fields it was handed. `authorize_story_media_preview(media_id)` is a separate,
+path-free "yes/no" check backing the signed-URL mint flow above.
+
+`_can_access_story_media()` (used by both the above and the private bucket's read policy) scopes a
+moderator's access to media attached to a revision that is either currently `submitted` or one
+they've already acted on via `moderation_actions` — never a blanket grant merely from holding the
+role, which would otherwise leak an unrelated draft's images to a moderator reviewing a different
+revision of the same story.
+
+### Maintenance — fail-closed, dry-run by default
+
+`scripts/cleanup-abandoned-media-uploads.mjs` (`npm run media:cleanup:pending`), mirroring
+`scripts/run-rls-cleanup.mjs`'s isolation pattern: dedicated `SUPABASE_MAINTENANCE_*` env vars
+loaded only via `--env-file=.env.maintenance.local` (never falls back to `.env.local`), a
+project-ref-bound confirm string, dry-run by default (`--execute` required for anything
+destructive), a hard-coded 100-row batch bound. SQL only ever `SELECT`s candidates
+(`pending_upload` reservations older than 24h; unresolved copy-attempts older than 1h) — actual
+Storage object deletion always goes through the Storage API, and every database mutation goes
+through one of two new, narrow, `service_role`-only RPCs
+(`maintenance_cancel_abandoned_reservation()` / `maintenance_resolve_orphaned_copy_attempt()`)
+rather than raw SQL, so maintenance mutations respect the same transition trigger/state constraints
+as every other path.
+
+### A known pre-existing `npm audit` advisory, reconfirmed unaffected
+
+Adding `sharp` as a direct dependency surfaces `GHSA-f88m-g3jw-g9cj` (libvips CVEs, `<0.35.0`) in
+`npm audit` — but the flagged node is `next/node_modules/sharp` (the old copy Next.js bundles
+internally), not this project's own directly-installed `sharp@^0.35.3`, which is already the fixed
+version. Same pre-existing, already-documented `next`-transitive risk as the `postcss` advisory,
+not a new one introduced here.
+
 ## Roadmap (corrected)
 
 - **Prompt 4** — editor/self-service authoring UI, image upload, storage buckets, contributor
-  approval flow (the schema, RLS, and RPCs this UI needs are done as of Prompt 3).
+  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend) is
+  complete — see "Media processing and publication pipeline" above. Sub-phases 3–5 (self-service
+  authoring UI, editorial import UI, integration tests/docs) remain.
 - **Prompt 5** — public discovery: browse/filter/detail pages, SEO, sitemap, cost-band UI (the exact
   cost-band thresholds are a Prompt 5 design decision — deliberately not invented in Prompt 3).
 - **Prompt 6** — editorial and moderation workspace (queue UI, reports triage).

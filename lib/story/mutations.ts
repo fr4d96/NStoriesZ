@@ -209,34 +209,56 @@ export async function setRevisionTags(
   if (error) throw error;
 }
 
-export async function attachStoryMedia(params: {
-  revisionId: string;
-  expectedVersion: number;
-  privateStoragePath: string;
-  sourceMimeType: string;
-  width?: number;
-  height?: number;
-  sourceFileSizeBytes?: number;
-  altText?: string;
-  caption?: string;
-  decorative?: boolean;
-}) {
+/**
+ * Reserves a media slot and a private storage path for an upload. Does not
+ * touch the authoring version — a reservation is not yet attached content.
+ * The caller (a Route Handler, see app/(contributor)/stories/[id]/edit/upload/route.ts)
+ * uploads the actual bytes to `reservedPath` itself, then calls
+ * finalizeStoryMediaUpload().
+ */
+export async function beginStoryMediaUpload(
+  revisionId: string,
+  sourceMimeType: string,
+) {
   await requireUser();
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("attach_story_media", {
-    p_revision_id: params.revisionId,
-    p_expected_version: params.expectedVersion,
-    p_private_storage_path: params.privateStoragePath,
-    p_source_mime_type: params.sourceMimeType,
-    p_width: params.width,
-    p_height: params.height,
-    p_source_file_size_bytes: params.sourceFileSizeBytes,
-    p_alt_text: params.altText,
-    p_caption: params.caption,
-    p_decorative: params.decorative ?? false,
+  const { data, error } = await supabase.rpc("begin_story_media_upload", {
+    p_revision_id: revisionId,
+    p_source_mime_type: sourceMimeType,
   });
   if (error) throw error;
-  return data;
+  return data[0];
+}
+
+/**
+ * Verifies the reserved object actually exists in storage and creates the
+ * revision-media join, bumping the authoring version exactly once. Safely
+ * retryable after a stale-version error without re-uploading bytes.
+ */
+export async function finalizeStoryMediaUpload(
+  mediaId: string,
+  expectedVersion: number,
+) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("finalize_story_media_upload", {
+    p_media_id: mediaId,
+    p_expected_version: expectedVersion,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Deletes a still-pending, never-attached upload reservation (e.g. after a
+ * failed upload). Never touches the authoring version.
+ */
+export async function cancelPendingStoryMediaUpload(mediaId: string) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("cancel_pending_story_media_upload", {
+    p_media_id: mediaId,
+  });
+  if (error) throw error;
 }
 
 export async function updateStoryMediaCaption(params: {

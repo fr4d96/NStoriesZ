@@ -94,6 +94,30 @@ let admin: { client: SupabaseClient<Database>; userId: string };
 let anon: SupabaseClient<Database>;
 let ownerContributorId: string;
 
+/**
+ * Approves a submitted revision through the Prompt 4 publication-attempt
+ * flow — moderate_revision({decision:"approve"}) no longer exists (it now
+ * raises, directing callers here). None of the revisions in this suite
+ * attach media, so there is nothing to copy-prepare before finalizing.
+ */
+async function approveRevision(
+  moderatorClient: SupabaseClient<Database>,
+  revisionId: string,
+) {
+  const { data: attemptId, error: beginError } = await moderatorClient.rpc(
+    "begin_story_publication_attempt",
+    { p_revision_id: revisionId },
+  );
+  if (beginError || !attemptId) {
+    return { error: beginError ?? new Error("no attempt id returned") };
+  }
+  const { error } = await moderatorClient.rpc("finalize_story_publication", {
+    p_revision_id: revisionId,
+    p_approval_attempt_id: attemptId,
+  });
+  return { error };
+}
+
 beforeAll(async () => {
   owner = await signedInClient(
     process.env.SUPABASE_RLS_TEST_OWNER_EMAIL!,
@@ -201,17 +225,42 @@ describe("internal helpers are unreachable via the API", () => {
   });
 });
 
-describe("promote_story_media is ungranted in this phase", () => {
-  it("no role can call it", async () => {
-    const { error } = await admin.client.rpc("promote_story_media", {
+describe("the image-processing/promotion trust boundary is service_role only", () => {
+  // promote_story_media (Prompt 3) was dropped in Prompt 4 — its role is
+  // absorbed into finalize_story_publication(). record_processed_story_media
+  // and the copy-attempt functions are its Prompt 4 successors: none of them
+  // are reachable via the regular `authenticated` client, no matter the
+  // caller's role — only service_role (never used by any interactive-user
+  // client) is granted execute.
+  it("record_processed_story_media cannot be called by an admin over the regular client", async () => {
+    const { error } = await admin.client.rpc("record_processed_story_media", {
       p_media_id: "11111111-1111-4111-8111-111111111111",
-      p_approved_public_storage_path: "x",
+      p_processed_private_storage_path: "x",
+      p_source_mime_type: "image/webp",
+      p_source_width: 1,
+      p_source_height: 1,
       p_processed_mime_type: "image/webp",
       p_processed_file_size_bytes: 1,
-      p_width: 1,
-      p_height: 1,
-      p_sha256: "x",
+      p_processed_width: 1,
+      p_processed_height: 1,
+      p_sha256: "0".repeat(64),
     });
+    expect(error).not.toBeNull();
+  });
+
+  it("begin_story_media_copy_attempt cannot be called by an admin over the regular client", async () => {
+    const { error } = await admin.client.rpc("begin_story_media_copy_attempt", {
+      p_media_id: "11111111-1111-4111-8111-111111111111",
+      p_approval_attempt_id: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("maintenance_cancel_abandoned_reservation cannot be called by an admin over the regular client", async () => {
+    const { error } = await admin.client.rpc(
+      "maintenance_cancel_abandoned_reservation",
+      { p_media_id: "11111111-1111-4111-8111-111111111111" },
+    );
     expect(error).not.toBeNull();
   });
 });
@@ -322,15 +371,7 @@ describe("self-service first-publication lifecycle", () => {
   });
 
   it("moderator approves — safe-shaped public read appears with no sensitive keys", async () => {
-    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
-      p_story_id: storyId,
-    });
-    const currentVersion = draft![0].version;
-    const { error } = await moderator.client.rpc("moderate_revision", {
-      p_revision_id: revisionId,
-      p_expected_version: currentVersion,
-      p_decision: "approve",
-    });
+    const { error } = await approveRevision(moderator.client, revisionId);
     expect(error).toBeNull();
 
     const { data: story, error: readError } = await anon
@@ -387,11 +428,7 @@ describe("published-replacement lifecycle preserves the current publication", ()
       p_confirmation_method: "account",
       p_publication_confirmed: true,
     });
-    await moderator.client.rpc("moderate_revision", {
-      p_revision_id: firstRevisionId,
-      p_expected_version: 2,
-      p_decision: "approve",
-    });
+    await approveRevision(moderator.client, firstRevisionId);
   }, 30000);
 
   it("owner can start a replacement while the story stays published", async () => {
@@ -451,17 +488,14 @@ describe("published-replacement lifecycle preserves the current publication", ()
   });
 
   it("stale consent from the withdrawn/old revision does not authorize a different revision", async () => {
-    const { data: storyState } = await owner.client.rpc(
-      "get_my_story_with_draft",
-      {
-        p_story_id: storyId,
-      },
+    // firstRevisionId is already approved/superseded, not the live submitted
+    // one — begin_story_publication_attempt() rejects it outright since it
+    // requires revision_status = 'submitted', preserving the same invariant
+    // moderate_revision() used to enforce directly.
+    const { error } = await moderator.client.rpc(
+      "begin_story_publication_attempt",
+      { p_revision_id: firstRevisionId },
     );
-    const { error } = await moderator.client.rpc("moderate_revision", {
-      p_revision_id: firstRevisionId, // already approved/superseded target, not the live submitted one
-      p_expected_version: storyState![0].version,
-      p_decision: "approve",
-    });
     expect(error).not.toBeNull();
   });
 });
@@ -483,11 +517,7 @@ describe("withdrawal freezes the replacement without touching the publication", 
       p_confirmation_method: "account",
       p_publication_confirmed: true,
     });
-    await moderator.client.rpc("moderate_revision", {
-      p_revision_id: firstRevisionId,
-      p_expected_version: 2,
-      p_decision: "approve",
-    });
+    await approveRevision(moderator.client, firstRevisionId);
 
     const { data: replacementId } = await owner.client.rpc(
       "create_next_draft_revision",
@@ -598,13 +628,9 @@ describe("reports", () => {
       },
     );
     expect(submitError).toBeNull();
-    const { error: moderateError } = await moderator.client.rpc(
-      "moderate_revision",
-      {
-        p_revision_id: revisionId,
-        p_expected_version: 2,
-        p_decision: "approve",
-      },
+    const { error: moderateError } = await approveRevision(
+      moderator.client,
+      revisionId,
     );
     expect(moderateError).toBeNull();
 

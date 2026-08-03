@@ -413,62 +413,201 @@ export type Database = {
           approved_public_storage_path: string | null;
           created_at: string;
           deleted_at: string | null;
-          height: number | null;
+          error_code: string | null;
+          failure_reason: string | null;
           id: string;
           metadata_removed_at: string | null;
           owner_user_id: string | null;
           private_storage_path: string;
           processed_file_size_bytes: number | null;
+          processed_height: number | null;
           processed_mime_type: string | null;
+          processed_private_storage_path: string | null;
+          processed_width: number | null;
+          processing_started_at: string | null;
+          processing_state: Database["public"]["Enums"]["story_media_processing_state"];
+          reserved_for_revision_id: string | null;
           sha256: string | null;
           source_file_size_bytes: number | null;
+          source_height: number | null;
           source_mime_type: string;
+          source_width: number | null;
           story_id: string;
           uploaded_by: string | null;
-          width: number | null;
         };
         Insert: {
           approved_public_storage_path?: string | null;
           created_at?: string;
           deleted_at?: string | null;
-          height?: number | null;
+          error_code?: string | null;
+          failure_reason?: string | null;
           id?: string;
           metadata_removed_at?: string | null;
           owner_user_id?: string | null;
           private_storage_path: string;
           processed_file_size_bytes?: number | null;
+          processed_height?: number | null;
           processed_mime_type?: string | null;
+          processed_private_storage_path?: string | null;
+          processed_width?: number | null;
+          processing_started_at?: string | null;
+          processing_state?: Database["public"]["Enums"]["story_media_processing_state"];
+          reserved_for_revision_id?: string | null;
           sha256?: string | null;
           source_file_size_bytes?: number | null;
+          source_height?: number | null;
           source_mime_type: string;
+          source_width?: number | null;
           story_id: string;
           uploaded_by?: string | null;
-          width?: number | null;
         };
         Update: {
           approved_public_storage_path?: string | null;
           created_at?: string;
           deleted_at?: string | null;
-          height?: number | null;
+          error_code?: string | null;
+          failure_reason?: string | null;
           id?: string;
           metadata_removed_at?: string | null;
           owner_user_id?: string | null;
           private_storage_path?: string;
           processed_file_size_bytes?: number | null;
+          processed_height?: number | null;
           processed_mime_type?: string | null;
+          processed_private_storage_path?: string | null;
+          processed_width?: number | null;
+          processing_started_at?: string | null;
+          processing_state?: Database["public"]["Enums"]["story_media_processing_state"];
+          reserved_for_revision_id?: string | null;
           sha256?: string | null;
           source_file_size_bytes?: number | null;
+          source_height?: number | null;
           source_mime_type?: string;
+          source_width?: number | null;
           story_id?: string;
           uploaded_by?: string | null;
-          width?: number | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "story_media_reserved_for_revision_id_fkey";
+            columns: ["reserved_for_revision_id"];
+            isOneToOne: false;
+            referencedRelation: "story_revisions";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "story_media_story_id_fkey";
             columns: ["story_id"];
             isOneToOne: false;
             referencedRelation: "stories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      story_media_public_copy_attempts: {
+        Row: {
+          approval_attempt_id: string;
+          attempt_count: number;
+          content_hash: string;
+          created_at: string;
+          error_code: string | null;
+          id: string;
+          media_id: string;
+          public_path: string;
+          resolution: string | null;
+          resolved_at: string | null;
+          revision_id: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          approval_attempt_id: string;
+          attempt_count?: number;
+          content_hash: string;
+          created_at?: string;
+          error_code?: string | null;
+          id?: string;
+          media_id: string;
+          public_path: string;
+          resolution?: string | null;
+          resolved_at?: string | null;
+          revision_id: string;
+          status: string;
+          updated_at?: string;
+        };
+        Update: {
+          approval_attempt_id?: string;
+          attempt_count?: number;
+          content_hash?: string;
+          created_at?: string;
+          error_code?: string | null;
+          id?: string;
+          media_id?: string;
+          public_path?: string;
+          resolution?: string | null;
+          resolved_at?: string | null;
+          revision_id?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_media_public_copy_attempts_approval_attempt_id_fkey";
+            columns: ["approval_attempt_id"];
+            isOneToOne: false;
+            referencedRelation: "story_publication_attempts";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "story_media_public_copy_attempts_media_id_fkey";
+            columns: ["media_id"];
+            isOneToOne: false;
+            referencedRelation: "story_media";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "story_media_public_copy_attempts_revision_id_fkey";
+            columns: ["revision_id"];
+            isOneToOne: false;
+            referencedRelation: "story_revisions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      story_publication_attempts: {
+        Row: {
+          created_at: string;
+          id: string;
+          initiated_by: string;
+          resolved_at: string | null;
+          revision_id: string;
+          status: Database["public"]["Enums"]["story_publication_attempt_status"];
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          initiated_by: string;
+          resolved_at?: string | null;
+          revision_id: string;
+          status?: Database["public"]["Enums"]["story_publication_attempt_status"];
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          initiated_by?: string;
+          resolved_at?: string | null;
+          revision_id?: string;
+          status?: Database["public"]["Enums"]["story_publication_attempt_status"];
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_publication_attempts_revision_id_fkey";
+            columns: ["revision_id"];
+            isOneToOne: false;
+            referencedRelation: "story_revisions";
             referencedColumns: ["id"];
           },
         ];
@@ -982,6 +1121,14 @@ export type Database = {
         Args: { p_revision_id: string };
         Returns: string;
       };
+      _can_access_story_media: {
+        Args: { p_media_id: string };
+        Returns: boolean;
+      };
+      _can_write_reserved_media_path: {
+        Args: { p_object_name: string };
+        Returns: boolean;
+      };
       _generate_story_slug: { Args: { p_title: string }; Returns: string };
       _is_story_owner: { Args: { p_story_id: string }; Returns: boolean };
       _latest_valid_consent_for_revision: {
@@ -1034,20 +1181,31 @@ export type Database = {
         Args: { p_expected_version: number; p_story_id: string };
         Returns: undefined;
       };
-      attach_story_media: {
-        Args: {
-          p_alt_text?: string;
-          p_caption?: string;
-          p_decorative?: boolean;
-          p_expected_version: number;
-          p_height?: number;
-          p_private_storage_path: string;
-          p_revision_id: string;
-          p_source_file_size_bytes?: number;
-          p_source_mime_type: string;
-          p_width?: number;
-        };
+      authorize_story_media_preview: {
+        Args: { p_media_id: string };
+        Returns: undefined;
+      };
+      begin_story_media_copy_attempt: {
+        Args: { p_approval_attempt_id: string; p_media_id: string };
+        Returns: {
+          content_hash: string;
+          public_path: string;
+        }[];
+      };
+      begin_story_media_upload: {
+        Args: { p_revision_id: string; p_source_mime_type: string };
+        Returns: {
+          media_id: string;
+          reserved_path: string;
+        }[];
+      };
+      begin_story_publication_attempt: {
+        Args: { p_revision_id: string };
         Returns: string;
+      };
+      cancel_pending_story_media_upload: {
+        Args: { p_media_id: string };
+        Returns: undefined;
       };
       create_editorial_import_draft: {
         Args: {
@@ -1114,6 +1272,23 @@ export type Database = {
           p_revision_id: string;
         };
         Returns: undefined;
+      };
+      finalize_story_media_upload: {
+        Args: { p_expected_version: number; p_media_id: string };
+        Returns: undefined;
+      };
+      finalize_story_publication: {
+        Args: {
+          p_approval_attempt_id: string;
+          p_editor_note?: string;
+          p_revision_id: string;
+          p_user_facing_reason?: string;
+        };
+        Returns: undefined;
+      };
+      get_media_private_path_for_preview: {
+        Args: { p_media_id: string };
+        Returns: string;
       };
       get_moderation_queue: {
         Args: never;
@@ -1213,6 +1388,29 @@ export type Database = {
           revision_status: Database["public"]["Enums"]["story_revision_status"];
           story_id: string;
           title: string;
+        }[];
+      };
+      get_story_preview: {
+        Args: { p_story_id: string };
+        Returns: {
+          attribution_type: Database["public"]["Enums"]["attribution_type"];
+          attribution_value: string;
+          content_json: Json;
+          excerpt: string;
+          lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
+          media: Json;
+          revision_id: string;
+          revision_status: Database["public"]["Enums"]["story_revision_status"];
+          source_kind: Database["public"]["Enums"]["story_source_kind"];
+          story_id: string;
+          title: string;
+          total_expense_nzd_cents: number;
+          travel_style: string;
+          trip_end_date: string;
+          trip_start_date: string;
+          trip_year: number;
+          version: number;
+          viewer_relationship: string;
         }[];
       };
       has_role: {
@@ -1334,6 +1532,14 @@ export type Database = {
         };
         Returns: undefined;
       };
+      maintenance_cancel_abandoned_reservation: {
+        Args: { p_media_id: string };
+        Returns: undefined;
+      };
+      maintenance_resolve_orphaned_copy_attempt: {
+        Args: { p_copy_attempt_id: string };
+        Returns: undefined;
+      };
       mark_editorial_draft_awaiting_approval: {
         Args: { p_story_id: string };
         Returns: undefined;
@@ -1348,15 +1554,38 @@ export type Database = {
         };
         Returns: undefined;
       };
-      promote_story_media: {
+      record_processed_story_media: {
         Args: {
-          p_approved_public_storage_path: string;
-          p_height: number;
           p_media_id: string;
           p_processed_file_size_bytes: number;
+          p_processed_height: number;
           p_processed_mime_type: string;
+          p_processed_private_storage_path: string;
+          p_processed_width: number;
           p_sha256: string;
-          p_width: number;
+          p_source_height: number;
+          p_source_mime_type: string;
+          p_source_width: number;
+        };
+        Returns: undefined;
+      };
+      record_story_media_copy_failed: {
+        Args: {
+          p_approval_attempt_id: string;
+          p_error_code: string;
+          p_media_id: string;
+        };
+        Returns: undefined;
+      };
+      record_story_media_copy_verified: {
+        Args: { p_approval_attempt_id: string; p_media_id: string };
+        Returns: undefined;
+      };
+      record_story_media_processing_failed: {
+        Args: {
+          p_error_code?: string;
+          p_failure_reason: string;
+          p_media_id: string;
         };
         Returns: undefined;
       };
@@ -1471,6 +1700,15 @@ export type Database = {
         | "published"
         | "rejected"
         | "archived";
+      story_media_processing_state:
+        | "pending_upload"
+        | "uploaded"
+        | "processing"
+        | "processed"
+        | "failed"
+        | "promotion_pending"
+        | "promoted";
+      story_publication_attempt_status: "active" | "finalized" | "abandoned";
       story_revision_status:
         | "draft"
         | "submitted"
@@ -1634,6 +1872,16 @@ export const Constants = {
         "rejected",
         "archived",
       ],
+      story_media_processing_state: [
+        "pending_upload",
+        "uploaded",
+        "processing",
+        "processed",
+        "failed",
+        "promotion_pending",
+        "promoted",
+      ],
+      story_publication_attempt_status: ["active", "finalized", "abandoned"],
       story_revision_status: [
         "draft",
         "submitted",
