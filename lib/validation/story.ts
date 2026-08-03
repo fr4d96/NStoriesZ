@@ -190,6 +190,29 @@ export const revisionInputSchema = z
 
 export type RevisionInput = z.infer<typeof revisionInputSchema>;
 
+// A deliberately looser schema for "start a new draft" — the full
+// revisionInputSchema's "at least some content" rule is a save-time /
+// submit-time friendliness rule, not something a brand-new, still-empty
+// shell revision should be blocked on creating. create_self_service_draft
+// itself defaults content_json to '[]'::jsonb server-side.
+export const createDraftSchema = z.object({
+  title: z.string().trim().min(1, "Title is required.").max(200),
+});
+
+export type CreateDraftInput = z.infer<typeof createDraftSchema>;
+
+// Locations/work types/tags — same identifiers set_revision_locations /
+// set_revision_work_types / set_revision_tags expect, validated client-side
+// before every call (Rule: validate at every trust boundary).
+export const revisionLocationSchema = z.object({
+  regionId: z.uuid(),
+  destinationId: z.uuid().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+export const revisionLocationsSchema = z.array(revisionLocationSchema).max(20);
+export const revisionIdsSchema = z.array(z.uuid()).max(20);
+
 export const confirmationMethods = [
   "account",
   "email",

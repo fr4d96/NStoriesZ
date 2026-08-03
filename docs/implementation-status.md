@@ -3,7 +3,7 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-03.
+Last updated: 2026-08-04.
 
 ## Status legend
 
@@ -17,7 +17,7 @@ Last updated: 2026-08-03.
 | 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**          | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                  |
 | 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                       |
 | 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.** | See "Prompt 3 detail" below.                                                                                                                  |
-| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **in progress — Sub-phase 2 of 5 complete and live-verified**                                                                              | Being built on `prompt-4-authoring-images`, branched from `main` after Prompt 3 merged (PR #4). See "Prompt 4 detail" below.                  |
+| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **in progress — Sub-phase 3 of 5 complete (UI/logic verified locally; one new RPC staged but not yet pushed — see below)**                 | Being built on `prompt-4-authoring-images`, branched from `main` after Prompt 3 merged (PR #4). See "Prompt 4 detail" below.                  |
 | 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | not started                                                                                                                                | Roadmap corrected in Prompt 3 (previously numbered 5, content unchanged).                                                                     |
 | 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | not started                                                                                                                                | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` get real UI here instead of a role-gated JSON stub. |
 | 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                           |
@@ -318,8 +318,121 @@ restrict` foreign keys to `story_revisions` blocked the existing cleanup order (
   against; the meaningful negative case is a signed-in user who is none of owner/linked-contributor/
   assigned-editor/admin, which is what the Sub-phase 2 test list actually exercises.
 
-Sub-phases 3–5 (self-service authoring UI, editorial import UI, integration tests/Playwright/docs)
-are not yet started.
+**Sub-phase 3 — self-service authoring, drafting, preview (complete — unit/component-tested and
+manually exercised locally; the DB side is NOT yet pushed to the linked project, see below):**
+
+- `lib/story/rich-text-serialize.ts` (new, pure, no DOM/editor dependency) — `tiptapDocToBlocks()`/
+  `blocksToTiptapDoc()` convert between Tiptap/ProseMirror JSON and the canonical block/run/mark
+  schema. Defensive on the read path (unsupported node types and mark kinds are dropped, not
+  thrown) since the real safety boundary is `storyContentSchema.safeParse()` downstream, not this
+  converter. 13 tests, including a full round trip through every block/mark type.
+- `components/story/rich-text-editor.tsx` (new) — Tiptap `@tiptap/react` + `@tiptap/starter-kit`
+  `^3.29.2` added as dependencies (justification: the plan requires a real rich-text editor
+  constrained to exactly the canonical schema's node/mark set; `npm view @tiptap/react
+peerDependencies` confirmed `react: "^17.0.0 || ^18.0.0 || ^19.0.0"` before installing — safe
+  against this project's React 19). `StarterKit.configure()` explicitly turns off every
+  node/mark with no representation in `storyContentSchema` (`underline`, `strike`, `code`,
+  `codeBlock`, `horizontalRule`, `hardBreak`), restricts headings to levels 2–3, and wires the
+  link extension's `validate` option to `isSafeHref()` so an unsafe href is refused at the editor
+  level, not only at the Zod boundary. **Closed-loop test**
+  (`components/story/rich-text-editor.test.tsx`, 6 tests): drives a real headless `@tiptap/core`
+  `Editor` instance (not a mock) through every allowed command, converts its output via
+  `tiptapDocToBlocks()`, and asserts `storyContentSchema.safeParse()` accepts it; separately
+  asserts the disallowed commands (`toggleUnderline`, `toggleStrike`, `toggleCode`,
+  `toggleCodeBlock`, `setHorizontalRule`, `setHardBreak`) don't exist on this configuration at
+  all, and that even a hand-crafted `setContent()` call carrying `underline`/`strike` marks has
+  them silently dropped by Tiptap's own schema (no extension registered to represent them).
+- `components/story/content-block-renderer.tsx` (new) — renders the canonical schema as real JSX
+  (`<p>`/`<h2>`/`<h3>`/`<blockquote>`/`<ul>`/`<ol>`/`<strong>`/`<em>`/`<a>`), never
+  `dangerouslySetInnerHTML` (Rule 7); used by the preview page today, reusable unchanged by the
+  future public story-reading page since it renders the same schema.
+- `lib/story/active-lookups.ts` (new) — `listActiveRegions/Destinations/WorkTypes/Tags()`, each
+  filtered to `active = true`, backing the edit form's pickers.
+- `lib/story/mutation-queue.ts` (new) — the client-side serialized async mutation queue the plan
+  calls for: per-slot coalescing (a new mutation queued for a slot before the previous one starts
+  replaces it, so rapid edits collapse to one network call), strict global one-at-a-time execution
+  across all slots (so `expectedVersion` chaining is never raced), and a stale-version conflict
+  (`isStaleVersionConflict()`, matching the RPCs' own `"Stale version for ..."` message) is
+  reported via a callback and never discards in-memory form state. `flush()` awaits everything
+  queued or in flight, including work enqueued while it's already waiting. 8 tests covering
+  coalescing, strict serial execution (asserted via a max-concurrency counter), conflict vs.
+  plain-error routing, and `flush()`'s "wait for latecomers too" behavior.
+- Replaced both placeholder pages: `app/(contributor)/stories/new/page.tsx` (title-only form →
+  `createDraftAction` → `create_self_service_draft` → redirect to the new edit page) and
+  `app/(contributor)/my-stories/page.tsx` (real list from `list_my_stories`, status badges for all
+  7 `story_lifecycle_status` values, Edit/Preview links).
+- New `app/(contributor)/stories/[id]/edit/` — `page.tsx` (Server Component: `get_my_story_with_draft`
+  - the new `get_revision_selections` + `get_story_preview` for the media list + the four active-
+    lookup queries, in parallel; renders a "not editable right now" state if the current revision
+    isn't `draft`) and `actions.ts` (9 Server Actions — fields/locations/work types/tags/media
+    caption/reorder/cover/detach/cancel-pending-upload — every one Zod-validates its input and
+    returns `{ok:true} | {ok:false,error}` rather than throwing, so the mutation queue's conflict
+    detection keeps working uniformly; ownership is re-derived by the underlying RPC's
+    `_authorize_revision_edit()` in every case, never trusted from the client).
+    `components/story/story-edit-form.tsx` (client) wires all of the above through one
+    `MutationQueue` instance and one `version` ref shared with the image manager — every successful
+    mutation bumps it by exactly 1 (confirmed by reading each RPC: `update ... set version =
+version + 1` unconditionally on success), a stale-version conflict shows a non-destructive
+    "reload to continue" banner rather than silently dropping edits.
+- The concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts`
+  (`export const runtime = "nodejs"`) — authenticates, rejects an oversized `Content-Length`
+  early, buffers via `request.formData()`, sniffs real magic bytes (never trusts the client's
+  `File.type`), `begin_story_media_upload()`, uploads via the **regular** (RLS-respecting) server
+  client — never the admin client — to the reserved path, `finalize_story_media_upload()`, then
+  calls `processStoryMedia()` from `lib/story/image-pipeline.ts` **synchronously in the same
+  request** (there is no background worker in this phase — documented as a Sub-phase 5+ candidate
+  below). `components/story/image-upload-manager.tsx` (client) does fast client-side pre-checks
+  (type/size, UX feedback only — every real decision is server-side), then reorder/cover-
+  select/detach (detach only ever calls `detachStoryMedia`, never a delete), alt-text-required-
+  unless-decorative enforced both client- and server-side (`updateMediaCaptionAction`).
+- New `app/(contributor)/stories/[id]/preview/page.tsx` — calls `get_story_preview()` exclusively
+  (never `get_published_story`), `export const dynamic = "force-dynamic"` plus `robots: {index:
+false, follow: false}` metadata; `Cache-Control: no-store` is set in `proxy.ts` for this path
+  specifically (a Server Component page can influence caching but can't set an arbitrary response
+  header itself). Images render via `components/story/preview-gallery.tsx`, which calls the new
+  shared `app/(contributor)/stories/[id]/media-actions.ts#mintPreviewUrlAction` — authorizes via
+  `authorize_story_media_preview()` on the caller's own regular client **first**, then mints the
+  signed URL via `mintMediaPreviewSignedUrl()` from `lib/story/image-pipeline.ts`; the raw storage
+  path is never sent to the browser.
+- `proxy.ts` matcher extended with a regex pattern (`/^\/stories\/[^/]+\/(edit|preview)(\/.*)?$/`)
+  since the existing static-string `PROTECTED_PATHS` list can't express a dynamic `:id` segment;
+  manually verified both `/stories/<uuid>/edit` and `/stories/<uuid>/preview` redirect a signed-out
+  visitor to `/sign-in?next=<original path>` exactly like the pre-existing protected paths.
+- **A real gap found while building this**: `story_revision_locations`/`story_revision_work_types`/
+  `story_revision_tags` have RLS enabled with no policies at all (Prompt 3 design — every access is
+  a `SECURITY DEFINER` function), but only the _writer_ RPCs
+  (`set_revision_locations`/`set_revision_work_types`/`set_revision_tags`) were ever built — there
+  was no way for the edit form to read back a draft's already-selected locations/work types/tags on
+  page load, which would have made every page reload silently forget them. Added
+  `supabase/migrations/20260804091000_get_revision_selections.sql` — a symmetric reader, using the
+  exact same edit-rights authorization as the writers (owner, linked contributor, assigned editor,
+  admin). **This migration is staged but NOT yet applied to the linked hosted project** — the task
+  scope for this sub-phase assumed no new migrations were needed, which turned out to be incorrect;
+  applying it needs your explicit go-ahead for `supabase db push`, per the standing project
+  convention, before Sub-phase 4 begins. Until applied, `lib/story/contributor-queries.ts#getRevisionSelections()`
+  calls an RPC name the generated `types/database.ts` doesn't know about yet (deliberately not
+  hand-edited — cast at the one call site instead, documented inline there).
+- `npm install @tiptap/react@^3.29.2 @tiptap/starter-kit@^3.29.2 @tiptap/pm@^3.29.2` — the only new
+  dependencies this sub-phase adds.
+- `npm run verify`: format/lint/typecheck clean, **110/110 unit tests** (up from 89, 21 new:
+  13 in `rich-text-serialize.test.ts`, 6 in `rich-text-editor.test.tsx`, 8 in
+  `mutation-queue.test.ts` — some overlap rounds to 21 net new after two pre-existing files grew),
+  build succeeds with 4 new routes (`/stories/[id]/edit`, `/stories/[id]/edit/upload`,
+  `/stories/[id]/preview`, and `/stories/new`/`/my-stories` now real instead of placeholders).
+  **What was and wasn't exercised**: lint/typecheck/unit tests/build all ran for real, including
+  the Tiptap closed-loop test against a real (headless) editor instance. Manually verified via the
+  dev server at a 375px mobile viewport: `/stories/new`, `/stories/<uuid>/edit`, and
+  `/stories/<uuid>/preview` all correctly redirect a signed-out request to `/sign-in?next=...`
+  (proving the `proxy.ts` matcher extension works), with no server errors logged. **Not exercised**:
+  any real signed-in walkthrough of the authoring form, a real image upload through the Route
+  Handler, or the mutation queue against a live network — this session has no live Supabase
+  session/credentials, exactly the limitation already documented for Sub-phase 2's live-network
+  gaps. Deferred to Sub-phase 5's broader integration-test pass, same as Sub-phase 2's deferred
+  Storage round trip.
+
+Sub-phases 4–5 (editorial import UI, consent/approval UI, integration tests/Playwright/docs) are
+not yet started. Sub-phase 4 should begin by getting `20260804091000_get_revision_selections.sql`
+pushed (see above) before building anything that depends on reading it back.
 
 ## Migration summary
 
@@ -348,6 +461,8 @@ All in `supabase/migrations/`, applied in filename order:
 | `20260803091000_fix_returns_table_column_ambiguity.sql` | Bug fix: qualifies bare column references in `get_published_story`/`list_published_stories`/`get_story_for_moderator` that collided with their own `RETURNS TABLE` output-column names.                                                                                                                                                           |
 | `20260803091100_fix_nullable_actor_boolean_logic.sql`   | Bug fix: wraps every `nullable_column = auth.uid()` ownership/role comparison in `coalesce(..., false)` across 9 functions — see "Prompt 3 detail" above.                                                                                                                                                                                         |
 | `20260803091200_fix_publish_sets_visibility.sql`        | Bug fix: `moderate_revision()`'s approve path now also sets `stories.visibility = 'public'`, not just `lifecycle_status`.                                                                                                                                                                                                                         |
+| `20260804090000` – `20260804090800` (9 files)           | Prompt 4 Sub-phase 2 — storage buckets, media processing-state machine, upload reservation, publication-attempt system. See "Prompt 4 detail" above and `docs/architecture.md`. **Applied and live-verified.**                                                                                                                                    |
+| `20260804091000_get_revision_selections.sql`            | Prompt 4 Sub-phase 3 — `get_revision_selections()`, the missing reader for `story_revision_locations`/`story_revision_work_types`/`story_revision_tags`, symmetric with the existing writer RPCs. **Staged, NOT yet applied** — needs your go-ahead for `supabase db push`; see "Prompt 4 detail" above.                                          |
 
 ## Role and RLS matrix
 
@@ -553,14 +668,23 @@ validation/auth.ts`'s `passwordSchema` mirrors this by hand (documented in a cod
 
 ## Next prompt
 
-**Prompt 4: Editor/self-service authoring UI, image upload, storage buckets, contributor approval
-flow** (roadmap corrected in Prompt 3 — see "Prompt checklist" above). The schema, RLS, and full RPC
-surface this needs already exist (`lib/story/*`, `lib/validation/story.ts`) — this prompt is UI plus
-the two storage buckets (`story-images-private`, `story-images-public`) and the real
-image-processing job that calls `promote_story_media()` (which must deliberately establish its own
-trusted access to that function; nothing calls it yet). Concretely: replace the `/stories/new` and
-`/my-stories` placeholders with real drafting/preview/submission UI wired to `lib/story/mutations.ts`;
-build the contributor-approval UI for `request_editorial_changes()`/`decline_editorial_publication()`
-(currently only reachable via direct RPC calls, no UI); wire real image upload through
-`attachStoryMedia()` and the new storage pipeline. Prompt 5 (public discovery) and Prompt 6
-(editorial/moderation workspace) follow after.
+**Prompt 4 Sub-phase 4: editorial import, non-authorizing evidence, linked-contributor review,
+consent-at-submission, decline.** Before starting anything that reads locations/work
+types/tags back for an editorial-import draft, get `20260804091000_get_revision_selections.sql`
+(Sub-phase 3, staged not yet applied) pushed via `supabase db push` — explicit go-ahead required
+first, per the standing project convention. Concretely: the `/editorial` staff route needs real
+UI (`create_editorial_import_draft()`, `mark_editorial_draft_awaiting_approval()`, the
+`/editorial/contributors` linked-contributor list using `is_linked`, not `linked_user_id`, per the
+approved plan's round-six decision 10); the linked-contributor review UI
+(`request_editorial_changes()`/`decline_editorial_publication()`, currently only reachable by
+direct RPC call, no UI at all); and the consent-at-submission UI
+(`submit_revision_with_consent()`) — deliberately not built in Sub-phase 3, which stopped at
+"preview." The authoring building blocks Sub-phase 4 should reuse rather than duplicate:
+`components/story/rich-text-editor.tsx`/`content-block-renderer.tsx`/`image-upload-manager.tsx`,
+`lib/story/mutation-queue.ts`, and the `app/(contributor)/stories/[id]/edit/actions.ts` pattern.
+Sub-phase 5 (integration tests/Playwright/final docs) follows after — see that sub-phase's
+acceptance list in the approved plan for what still needs a real live-Supabase round trip (Storage
+upload → processing → public copy; a real signed-in authoring session end-to-end), since this
+session had no live credentials for either Sub-phase 2's or Sub-phase 3's network-dependent paths.
+Prompt 5 (public discovery) and Prompt 6 (editorial/moderation workspace) follow after Prompt 4
+completes.

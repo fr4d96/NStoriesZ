@@ -2,10 +2,19 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PROTECTED_PATHS = ["/my-stories", "/stories/new", "/account"];
+// Dynamic authoring routes added in Prompt 4 Sub-phase 3 — /stories/:id/edit
+// (plus its nested upload Route Handler) and /stories/:id/preview both
+// require a signed-in session; a static string list can't express the :id
+// segment, so these get their own pattern.
+const PROTECTED_DYNAMIC_STORY_PATH =
+  /^\/stories\/[^/]+\/(edit|preview)(\/.*)?$/;
+const PREVIEW_PATH = /^\/stories\/[^/]+\/preview(\/.*)?$/;
 
 function isProtectedPath(pathname: string) {
-  return PROTECTED_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  return (
+    PROTECTED_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`),
+    ) || PROTECTED_DYNAMIC_STORY_PATH.test(pathname)
   );
 }
 
@@ -54,9 +63,22 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
+  // The preview page can render draft/unpublished content — never cached at
+  // any layer, on top of the page itself already opting out via
+  // `export const dynamic = "force-dynamic"`.
+  if (PREVIEW_PATH.test(request.nextUrl.pathname)) {
+    response.headers.set("Cache-Control", "no-store");
+  }
+
   return response;
 }
 
 export const config = {
-  matcher: ["/my-stories/:path*", "/stories/new", "/account/:path*"],
+  matcher: [
+    "/my-stories/:path*",
+    "/stories/new",
+    "/account/:path*",
+    "/stories/:id/edit/:path*",
+    "/stories/:id/preview/:path*",
+  ],
 };

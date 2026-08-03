@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PlaceholderPage } from "@/components/placeholder-page";
+import { NewStoryForm } from "./new-story-form";
 
 export const metadata: Metadata = {
   title: "New Story",
@@ -7,8 +7,16 @@ export const metadata: Metadata = {
 
 export default function NewStoryPage() {
   return (
-    <PlaceholderPage title="New Story">
-      <p>The story drafting editor isn&apos;t built yet. Coming soon.</p>
-    </PlaceholderPage>
+    <div className="mx-auto max-w-xl px-4 py-12 sm:px-6 sm:py-16">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        New Story
+      </h1>
+      <p className="mt-2 text-black/70 dark:text-white/70">
+        Give it a working title to get started — you can write and edit
+        everything else on the next page, and nothing here is published until
+        you submit it.
+      </p>
+      <NewStoryForm />
+    </div>
   );
 }

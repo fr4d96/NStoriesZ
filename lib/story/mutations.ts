@@ -32,6 +32,24 @@ function revisionArgs(input: RevisionInput) {
   };
 }
 
+/**
+ * Creates a bare, still-empty draft shell (title only) so a contributor can
+ * land straight in the editor from "New Story" — the full revisionInputSchema
+ * (used by saveRevisionDraft) requires at least one content block, which is
+ * a save-time friendliness rule, not something a brand-new draft should be
+ * blocked on. create_self_service_draft() itself defaults content_json to
+ * '[]'::jsonb server-side.
+ */
+export async function createSelfServiceDraftShell(title: string) {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("create_self_service_draft", {
+    p_title: title,
+  });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
 export async function createSelfServiceDraft(input: RevisionInput) {
   await requireUser();
   const supabase = await createClient();

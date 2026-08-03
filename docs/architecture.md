@@ -30,7 +30,13 @@ app/
     layout.tsx                 # the ONLY place that resolves the session (getCurrentUser());
                                 # redirects to /sign-in or renders its own contributor nav
     actions.ts                 # 'use server' — profile update, contributor identity create/update
-    my-stories/, stories/new/   # still placeholders — schema/RPCs exist (Prompt 3), UI is Prompt 4
+    my-stories/                 # real: list from list_my_stories(), status badges, Edit/Preview links
+    stories/new/                 # real: title-only form -> create_self_service_draft -> redirect
+    stories/[id]/
+      edit/page.tsx, actions.ts   # authoring form (Server Actions) + mutation-queue-driven client form
+      edit/upload/route.ts        # Node-runtime Route Handler — see "Upload reservation flow"
+      preview/page.tsx             # force-dynamic, no-store, noindex — get_story_preview() only
+      media-actions.ts             # shared signed-URL minting, used by edit + preview
     account/                    # real: profile form, contributor-identity form, sign-out
   (editor)/editorial/route.ts       # Route Handlers, not pages — see "Staff routes" below
   (moderation)/moderation/route.ts
@@ -59,12 +65,22 @@ lib/
     contributor-queries.ts     # caller-derived (session, never a userId param) owner-facing reads
     mutations.ts                # thin wrappers over every author/submit/consent/media RPC
     moderation.ts               # staff-facing reads + moderate/report RPC wrappers
+    image-validation.ts, image-pipeline.ts  # magic-byte sniffing + the sharp-based pipeline (Sub-phase 2)
+    active-lookups.ts           # active-only regions/destinations/work_types/tags (Sub-phase 3)
+    rich-text-serialize.ts      # pure Tiptap JSON <-> canonical block/run/mark schema converters
+    mutation-queue.ts           # client-side serialized, per-slot-coalescing async mutation queue
 components/
   site-header.tsx, site-footer.tsx, mobile-nav-toggle.tsx, contributor-nav.tsx,
   placeholder-page.tsx
+  story/
+    rich-text-editor.tsx        # Tiptap, constrained to exactly the canonical schema's node/mark set
+    content-block-renderer.tsx  # renders the canonical schema as JSX, never dangerouslySetInnerHTML
+    image-upload-manager.tsx    # client-side pre-checks + reorder/cover/detach/caption UI
+    preview-gallery.tsx         # signed-URL image gallery for the preview page
+    story-edit-form.tsx         # the authoring form, owns the shared MutationQueue + version ref
 proxy.ts                       # session-cookie refresh AND the redirect-to-sign-in-with-next
-                                # decision for signed-out requests, matcher scoped to /my-stories,
-                                # /stories/new, /account only
+                                # decision for signed-out requests; matcher covers /my-stories,
+                                # /stories/new, /account, and /stories/:id/(edit|preview)
 supabase/
   config.toml, migrations/ (profiles/user_roles/contributors/contributor_links from Prompt 2; the
   full story domain — stories, story_revisions, relations, media, consent, moderation, all
@@ -619,10 +635,20 @@ call after the row has already moved past `pending_upload` is a no-op. No automa
 inside these functions; an abandoned reservation is cleaned up only by explicit cancellation or the
 maintenance script (below).
 
-Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` (Sub-phase 3),
-Node runtime, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler authenticates, calls `begin_`,
-uploads via the regular (RLS-respecting) server client — never the admin client — then calls
-`finalize_`.
+Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` (Sub-phase 3,
+built), `export const runtime = "nodejs"`, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler
+authenticates, rejects an oversized `Content-Length` header early, buffers the multipart body via
+`request.formData()`, sniffs real magic bytes from the buffered bytes (never trusts the client's
+reported `File.type`), calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
+server client — never the admin client — to the reserved path, calls
+`finalize_story_media_upload()`, and then calls `processStoryMedia()` **synchronously, in the same
+request** — there is no background worker/queue in this phase, so the upload response doesn't
+return until processing has actually finished (or recorded a specific failure). Any failure after
+the reservation step (storage upload fails, `finalize_` rejects a stale version) cancels the
+reservation (`cancelPendingStoryMediaUpload`) and best-effort removes any already-uploaded bytes,
+so a failed request never leaves an orphaned `pending_upload` row for longer than the request
+itself — the maintenance script below is a backstop for the cases that still slip through (e.g. the
+client's connection dropping mid-request), not the primary cleanup path.
 
 ### Processing (`lib/story/image-pipeline.ts` — the one module allowed to import `lib/supabase/admin.ts`)
 
@@ -738,12 +764,72 @@ internally), not this project's own directly-installed `sharp@^0.35.3`, which is
 version. Same pre-existing, already-documented `next`-transitive risk as the `postcss` advisory,
 not a new one introduced here.
 
+## Self-service authoring UI (Prompt 4 Sub-phase 3)
+
+Built entirely on top of the Sub-phase 2 backend above — no new migrations were needed for the
+authoring form/upload/preview flow itself (one narrow exception, noted below).
+
+- **Rich text**: `lib/story/rich-text-serialize.ts` (pure) converts Tiptap/ProseMirror JSON to and
+  from the canonical block/run/mark schema. `components/story/rich-text-editor.tsx` wraps
+  `@tiptap/react` + `@tiptap/starter-kit` (added as dependencies — React 19 support confirmed via
+  `npm view @tiptap/react peerDependencies` before installing), configured to disable every
+  node/mark the schema doesn't support (underline, strike, code, code block, horizontal rule, hard
+  break), cap headings to H2/H3, and validate link hrefs through `isSafeHref()` at the editor
+  level, not only at the Zod boundary. Its closed-loop test drives a real headless `Editor`
+  instance through every allowed command and proves the disallowed ones don't exist on the
+  configuration at all.
+- **Rendering**: `components/story/content-block-renderer.tsx` renders the same schema as real
+  JSX — no `dangerouslySetInnerHTML` anywhere in this stack (Rule 7) — used today by the preview
+  page, reusable unchanged by the future public story page.
+- **Mutation queue**: `lib/story/mutation-queue.ts` is the client-side answer to "many small
+  autosave-style mutations, each carrying an `expectedVersion`, must never race each other in
+  flight." Per-slot coalescing collapses rapid edits (e.g. every keystroke) into one call; strict
+  global serial execution means a later mutation always observes the version the previous one
+  produced; a stale-version conflict is reported via callback and never silently discards
+  in-memory form state.
+- **Edit page**: `app/(contributor)/stories/[id]/edit/page.tsx` + `actions.ts` — nine Server
+  Actions (fields/locations/work types/tags/media caption/reorder/cover/detach/cancel-pending-
+  upload), each Zod-validating input and returning `{ok:true} | {ok:false, error}` instead of
+  throwing (so the mutation queue's conflict detection, which pattern-matches the RPCs' own
+  `"Stale version for ..."` error text, works uniformly). `components/story/story-edit-form.tsx`
+  (client) owns one `MutationQueue` and one shared `version` ref for the whole form, including the
+  image manager.
+- **Images**: `components/story/image-upload-manager.tsx` does fast client-side pre-checks
+  (type/size — UX feedback only) before POSTing to the upload Route Handler (see "Upload
+  reservation flow" above), then reorder/cover-select/detach (detach-and-retain only, never
+  delete) and alt-text-required-unless-decorative, enforced both client- and server-side.
+- **Preview**: `app/(contributor)/stories/[id]/preview/page.tsx` calls `get_story_preview()`
+  exclusively, `export const dynamic = "force-dynamic"` plus `robots: {index:false,follow:false}`;
+  `proxy.ts` sets `Cache-Control: no-store` for this path specifically, since a Server Component
+  page can influence caching but can't append an arbitrary response header itself.
+  `components/story/preview-gallery.tsx` and the image manager's thumbnails both go through the
+  shared `app/(contributor)/stories/[id]/media-actions.ts#mintPreviewUrlAction` — authorize via
+  `authorize_story_media_preview()` on the caller's own regular client first, then mint via
+  `mintMediaPreviewSignedUrl()`; the raw storage path is never sent to the browser. Signed URLs
+  expire after 120 seconds; a thumbnail minted early in a long editing session can go stale before
+  the page is closed — accepted as a known limitation for this sub-phase rather than building
+  proactive refresh logic.
+- **Routing**: `proxy.ts`'s protected-path matcher gained a regex
+  (`/^\/stories\/[^/]+\/(edit|preview)(\/.*)?$/`) alongside the pre-existing static-string list,
+  since a dynamic `:id` segment can't be expressed as a literal path.
+- **The one narrow migration this sub-phase actually needed**:
+  `story_revision_locations`/`story_revision_work_types`/`story_revision_tags` (Prompt 3) have RLS
+  enabled with no policies — every access is a `SECURITY DEFINER` function — but only the writer
+  RPCs existed; there was no reader for the edit form to load a draft's prior selections on page
+  load. `supabase/migrations/20260804091000_get_revision_selections.sql` adds
+  `get_revision_selections()`, symmetric with the writers, same edit-rights authorization.
+  **Staged but not yet applied to the linked hosted project** — see
+  [docs/implementation-status.md](implementation-status.md) for why (a gap found during this
+  sub-phase, not anticipated when it was scoped) and what needs to happen before Sub-phase 4 reads
+  it.
+
 ## Roadmap (corrected)
 
 - **Prompt 4** — editor/self-service authoring UI, image upload, storage buckets, contributor
-  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend) is
-  complete — see "Media processing and publication pipeline" above. Sub-phases 3–5 (self-service
-  authoring UI, editorial import UI, integration tests/docs) remain.
+  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend) and
+  Sub-phase 3 (self-service authoring/drafting/preview UI) are complete — see "Media processing
+  and publication pipeline" and "Self-service authoring UI" above. Sub-phases 4–5 (editorial
+  import UI, consent/approval UI, integration tests/docs) remain.
 - **Prompt 5** — public discovery: browse/filter/detail pages, SEO, sitemap, cost-band UI (the exact
   cost-band thresholds are a Prompt 5 design decision — deliberately not invented in Prompt 3).
 - **Prompt 6** — editorial and moderation workspace (queue UI, reports triage).
