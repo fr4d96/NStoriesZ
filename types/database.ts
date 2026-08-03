@@ -1358,6 +1358,14 @@ export type Database = {
           sort_order: number;
         }[];
       };
+      get_revision_selections: {
+        Args: { p_revision_id: string };
+        Returns: {
+          locations: Json;
+          tag_ids: string[];
+          work_type_ids: string[];
+        }[];
+      };
       get_story_for_editor: {
         Args: { p_story_id: string };
         Returns: {

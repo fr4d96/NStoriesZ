@@ -818,10 +818,9 @@ authoring form/upload/preview flow itself (one narrow exception, noted below).
   RPCs existed; there was no reader for the edit form to load a draft's prior selections on page
   load. `supabase/migrations/20260804091000_get_revision_selections.sql` adds
   `get_revision_selections()`, symmetric with the writers, same edit-rights authorization.
-  **Staged but not yet applied to the linked hosted project** — see
-  [docs/implementation-status.md](implementation-status.md) for why (a gap found during this
-  sub-phase, not anticipated when it was scoped) and what needs to happen before Sub-phase 4 reads
-  it.
+  **Applied** to the linked hosted project (with explicit go-ahead) and confirmed in sync — see
+  [docs/implementation-status.md](implementation-status.md) for why this migration was needed (a
+  gap found during this sub-phase, not anticipated when it was scoped).
 
 ## Roadmap (corrected)
 

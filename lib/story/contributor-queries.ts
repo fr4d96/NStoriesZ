@@ -127,37 +127,26 @@ export type RevisionSelections = {
  * — the missing reader symmetric with set_revision_locations/
  * set_revision_work_types/set_revision_tags, added in this sub-phase so the
  * edit form doesn't forget the contributor's prior selections on reload.
- * NOT applied to the linked hosted project yet — see that migration's
- * header comment and this sub-phase's implementation-status entry.
- *
- * The generated Database type doesn't know this RPC yet (types/database.ts
- * is generated, never hand-edited — Prompt 4's own convention); the return
- * shape is asserted manually here instead of widening the generated type.
+ * Applied to the linked hosted project; types/database.ts is real generated
+ * output for this RPC (npm run supabase:types:linked).
  */
 export async function getRevisionSelections(
   revisionId: string,
 ): Promise<RevisionSelections> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc(
-    "get_revision_selections" as never,
-    { p_revision_id: revisionId } as never,
-  );
+  const { data, error } = await supabase.rpc("get_revision_selections", {
+    p_revision_id: revisionId,
+  });
   if (error) throw error;
-  const row = (
-    data as unknown as
-      | {
-          locations: Array<{
-            regionId: string;
-            destinationId: string | null;
-            sortOrder: number;
-          }>;
-          work_type_ids: string[];
-          tag_ids: string[];
-        }[]
-      | null
-  )?.[0];
+  const row = data?.[0];
+  const locations =
+    (row?.locations as Array<{
+      regionId: string;
+      destinationId: string | null;
+      sortOrder: number;
+    }> | null) ?? [];
   return {
-    locations: row?.locations ?? [],
+    locations,
     workTypeIds: row?.work_type_ids ?? [],
     tagIds: row?.tag_ids ?? [],
   };

@@ -63,9 +63,8 @@ with images.
   photo upload going all the way through — this working environment doesn't have a live login
   to your actual site, so that has to wait for the final testing stage (Stage 5). One small gap
   was found and fixed along the way: the database had no way to read back which regions/work
-  types/tags a contributor had already picked when they reopened a draft — that fix is written
-  and ready, but needs your go-ahead before it's turned on for real (it doesn't change or risk
-  anything already live).
+  types/tags a contributor had already picked when they reopened a draft — that fix has since
+  been turned on for real, with your go-ahead.
 - **Not yet built:** the staff screens for preparing someone else's story for publication and for
   reviewing/approving submissions. That's stages 4–5, still to come.
 

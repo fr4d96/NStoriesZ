@@ -406,12 +406,12 @@ false, follow: false}` metadata; `Cache-Control: no-store` is set in `proxy.ts` 
   page load, which would have made every page reload silently forget them. Added
   `supabase/migrations/20260804091000_get_revision_selections.sql` — a symmetric reader, using the
   exact same edit-rights authorization as the writers (owner, linked contributor, assigned editor,
-  admin). **This migration is staged but NOT yet applied to the linked hosted project** — the task
-  scope for this sub-phase assumed no new migrations were needed, which turned out to be incorrect;
-  applying it needs your explicit go-ahead for `supabase db push`, per the standing project
-  convention, before Sub-phase 4 begins. Until applied, `lib/story/contributor-queries.ts#getRevisionSelections()`
-  calls an RPC name the generated `types/database.ts` doesn't know about yet (deliberately not
-  hand-edited — cast at the one call site instead, documented inline there).
+  admin). The task scope for this sub-phase assumed no new migrations were needed, which turned out
+  to be incorrect. **Applied** via `supabase db push` (with your explicit go-ahead) and confirmed in
+  sync via `supabase migration list`; `types/database.ts` regenerated for real via
+  `npm run supabase:types:linked`, and `lib/story/contributor-queries.ts#getRevisionSelections()`'s
+  earlier `as never` type-cast workaround (needed only while the generated types didn't know about
+  this RPC yet) was removed in favor of the real generated types.
 - `npm install @tiptap/react@^3.29.2 @tiptap/starter-kit@^3.29.2 @tiptap/pm@^3.29.2` — the only new
   dependencies this sub-phase adds.
 - `npm run verify`: format/lint/typecheck clean, **110/110 unit tests** (up from 89, 21 new:
@@ -669,10 +669,10 @@ validation/auth.ts`'s `passwordSchema` mirrors this by hand (documented in a cod
 ## Next prompt
 
 **Prompt 4 Sub-phase 4: editorial import, non-authorizing evidence, linked-contributor review,
-consent-at-submission, decline.** Before starting anything that reads locations/work
-types/tags back for an editorial-import draft, get `20260804091000_get_revision_selections.sql`
-(Sub-phase 3, staged not yet applied) pushed via `supabase db push` — explicit go-ahead required
-first, per the standing project convention. Concretely: the `/editorial` staff route needs real
+consent-at-submission, decline.** `20260804091000_get_revision_selections.sql` is already applied
+(Sub-phase 3 follow-up, pushed with explicit go-ahead) — an editorial-import draft's edit form can
+read back locations/work types/tags the same way a self-service one does, nothing further needed
+there. Concretely: the `/editorial` staff route needs real
 UI (`create_editorial_import_draft()`, `mark_editorial_draft_awaiting_approval()`, the
 `/editorial/contributors` linked-contributor list using `is_linked`, not `linked_user_id`, per the
 approved plan's round-six decision 10); the linked-contributor review UI

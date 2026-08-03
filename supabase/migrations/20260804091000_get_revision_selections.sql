@@ -13,9 +13,8 @@
 -- (owner, linked contributor, assigned editor, or admin) — never a broader
 -- relationship set.
 --
--- NOT YET APPLIED to the linked hosted project as of writing — this file
--- is staged for review; do not run `supabase db push` without explicit
--- confirmation, per the standing project convention.
+-- Applied to the linked hosted project via `supabase db push`, with
+-- explicit user confirmation, per the standing project convention.
 
 create or replace function public.get_revision_selections(p_revision_id uuid)
 returns table (
