@@ -19,6 +19,30 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
+/**
+ * Calls an RPC that exists on the live linked project but isn't reflected
+ * in types/database.ts yet -- true for every function Prompt 4 Sub-phase
+ * 4's migrations add, until they're pushed and `npm run
+ * supabase:types:linked` is re-run (see docs/implementation-status.md).
+ * Same escape-hatch pattern as lib/supabase/call-untyped-rpc.ts, but
+ * returns the plain `{ data, error }` shape (rather than throwing) so the
+ * existing `expect(error)...` assertions throughout this file don't need
+ * restructuring. Remove every call site of this once real types land.
+ */
+async function untypedRpc<T>(
+  client: SupabaseClient<Database>,
+  fn: string,
+  args?: Record<string, unknown>,
+): Promise<{
+  data: T | null;
+  error: { message: string; code?: string } | null;
+}> {
+  return client.rpc(fn as never, args as never) as unknown as Promise<{
+    data: T | null;
+    error: { message: string; code?: string } | null;
+  }>;
+}
+
 function assertSafeToRun() {
   const required = [
     "SUPABASE_RLS_TEST_URL",
@@ -93,6 +117,11 @@ let moderator: { client: SupabaseClient<Database>; userId: string };
 let admin: { client: SupabaseClient<Database>; userId: string };
 let anon: SupabaseClient<Database>;
 let ownerContributorId: string;
+// Fetched once in beforeAll via current_terms_version()
+// (supabase/migrations/20260804092100_submit_consent_requires_terms_version.sql)
+// -- every submit_revision_with_consent() call in this suite passes this as
+// p_expected_terms_version, required (not defaulted) as of that migration.
+let currentTermsVersion: string;
 
 /**
  * Approves a submitted revision through the Prompt 4 publication-attempt
@@ -164,6 +193,17 @@ beforeAll(async () => {
       throw new Error(`Could not set up owner contributor: ${error?.message}`);
     ownerContributorId = data.id;
   }
+
+  const { data: termsVersion, error: termsError } = await untypedRpc<string>(
+    owner.client,
+    "current_terms_version",
+  );
+  if (termsError || !termsVersion) {
+    throw new Error(
+      `Could not fetch current_terms_version(): ${termsError?.message}`,
+    );
+  }
+  currentTermsVersion = termsVersion;
 }, 30000);
 
 afterAll(async () => {
@@ -320,6 +360,7 @@ describe("self-service first-publication lifecycle", () => {
       p_expected_version: version,
       p_confirmation_method: "account",
       p_publication_confirmed: false,
+      p_expected_terms_version: currentTermsVersion,
     });
     expect(error).not.toBeNull();
   });
@@ -330,6 +371,7 @@ describe("self-service first-publication lifecycle", () => {
       p_expected_version: version,
       p_confirmation_method: "email",
       p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
     });
     expect(error).not.toBeNull();
   });
@@ -340,6 +382,7 @@ describe("self-service first-publication lifecycle", () => {
       p_expected_version: version,
       p_confirmation_method: "account",
       p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
     });
     expect(error).toBeNull();
   });
@@ -427,6 +470,7 @@ describe("published-replacement lifecycle preserves the current publication", ()
       p_expected_version: 1,
       p_confirmation_method: "account",
       p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
     });
     await approveRevision(moderator.client, firstRevisionId);
   }, 30000);
@@ -479,6 +523,7 @@ describe("published-replacement lifecycle preserves the current publication", ()
       p_expected_version: storyAfterSave![0].version,
       p_confirmation_method: "account",
       p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
     });
 
     const { data: pub } = await anon.rpc("get_published_story", {
@@ -516,6 +561,7 @@ describe("withdrawal freezes the replacement without touching the publication", 
       p_expected_version: 1,
       p_confirmation_method: "account",
       p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
     });
     await approveRevision(moderator.client, firstRevisionId);
 
@@ -533,6 +579,7 @@ describe("withdrawal freezes the replacement without touching the publication", 
       p_expected_version: st1![0].version,
       p_confirmation_method: "account",
       p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
     });
 
     const { error } = await owner.client.rpc("withdraw_unstarted_submission", {
@@ -625,6 +672,7 @@ describe("reports", () => {
         p_expected_version: 1,
         p_confirmation_method: "account",
         p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
       },
     );
     expect(submitError).toBeNull();
@@ -649,4 +697,328 @@ describe("reports", () => {
     const { data: otherReports } = await other.client.rpc("list_my_reports");
     expect(otherReports?.some((r) => r.story_id === storyId)).toBe(true);
   }, 30000);
+});
+
+// ---------------------------------------------------------------------
+// Prompt 4 Sub-phase 4 additions below. NOTE: these require
+// supabase/migrations/20260804092000-20260804092400 to be pushed to the
+// linked project before they can pass -- as of this commit they are
+// written and ready, but NOT yet run for real (the migrations are a
+// stop-gate pending explicit go-ahead). See docs/implementation-status.md
+// "Prompt 4 Sub-phase 4 detail" for the full account.
+// ---------------------------------------------------------------------
+
+describe("assigned-editor read access to get_my_story_with_draft (migration 20260804092000)", () => {
+  it("an assigned editor can read an editorial-import draft they are not the owner/linked-contributor of", async () => {
+    const { data: contributor, error: contributorError } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: "RLS Test Editorial Contributor (assigned-editor-read)",
+        attribution_type: "display_name",
+      })
+      .select("id")
+      .single();
+    expect(contributorError).toBeNull();
+
+    const { data: created, error } = await editor.client.rpc(
+      "create_editorial_import_draft",
+      {
+        p_contributor_id: contributor!.id,
+        p_title: slug("assigned-editor-read"),
+      },
+    );
+    expect(error).toBeNull();
+    const storyId = created![0].story_id;
+
+    const { data: draft, error: readError } = await editor.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: storyId },
+    );
+    expect(readError).toBeNull();
+    expect(draft?.[0]?.story_id).toBe(storyId);
+  }, 30000);
+});
+
+describe("submit_revision_with_consent terms-version enforcement (migration 20260804092100)", () => {
+  it("rejects a mismatched p_expected_terms_version with a WHV01 error code", async () => {
+    const { data: created } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug("terms-mismatch"),
+      },
+    );
+    const revisionId = created![0].revision_id;
+
+    const { error } = await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: revisionId,
+      p_expected_version: 1,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: "some-superseded-version",
+    });
+    expect(error).not.toBeNull();
+    expect(error?.code).toBe("WHV01");
+  }, 30000);
+
+  it("succeeds when p_expected_terms_version matches current_terms_version()", async () => {
+    const { data: created } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug("terms-match"),
+      },
+    );
+    const revisionId = created![0].revision_id;
+
+    const { error } = await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: revisionId,
+      p_expected_version: 1,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    });
+    expect(error).toBeNull();
+  }, 30000);
+});
+
+describe("awaiting-contributor-approval submission path (the 'awaiting-approval submission dead-end' fix)", () => {
+  it("the linked contributor can submit (approve) a draft awaiting their review", async () => {
+    const { data: created, error: createError } = await editor.client.rpc(
+      "create_editorial_import_draft",
+      {
+        p_contributor_id: ownerContributorId,
+        p_title: slug("awaiting-approval"),
+      },
+    );
+    expect(createError).toBeNull();
+    const storyId = created![0].story_id;
+
+    const { error: markReadyError } = await editor.client.rpc(
+      "mark_editorial_draft_awaiting_approval",
+      { p_story_id: storyId },
+    );
+    expect(markReadyError).toBeNull();
+
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    expect(draft?.[0]?.lifecycle_status).toBe("awaiting_contributor_approval");
+
+    // Before the fix, this call would have been rejected outright --
+    // _revision_is_editable() excludes 'awaiting_contributor_approval', and
+    // submit_revision_with_consent() required it unconditionally.
+    const { error: submitError } = await owner.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: draft![0].revision_id,
+        p_expected_version: draft![0].version,
+        p_confirmation_method: "account",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+        p_editorial_assistance_confirmed: true,
+      },
+    );
+    expect(submitError).toBeNull();
+
+    const { data: after } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    expect(after?.[0]?.lifecycle_status).toBe("pending_review");
+  }, 30000);
+});
+
+describe("source-kind-partitioned authorization survives contributor relinking (R6-9)", () => {
+  it("owner keeps full, unaffected access to their self-service story after their contributor is unlinked/relinked to another account; the new linkee gains zero access, including no ability to submit consent for it", async () => {
+    const { data: created } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug("relink-isolation"),
+      },
+    );
+    const storyId = created![0].story_id;
+    const revisionId = created![0].revision_id;
+
+    const { error: unlinkError } = await untypedRpc(
+      editor.client,
+      "unlink_contributor_from_user",
+      { p_contributor_id: ownerContributorId },
+    );
+    expect(unlinkError).toBeNull();
+    const { error: relinkError } = await editor.client.rpc(
+      "link_contributor_to_user",
+      { p_contributor_id: ownerContributorId, p_user_id: other.userId },
+    );
+    expect(relinkError).toBeNull();
+
+    try {
+      // owner retains FULL, unaffected access via every read/write path.
+      const { data: ownerDraft, error: ownerReadError } =
+        await owner.client.rpc("get_my_story_with_draft", {
+          p_story_id: storyId,
+        });
+      expect(ownerReadError).toBeNull();
+      expect(ownerDraft?.[0]?.story_id).toBe(storyId);
+
+      const { error: ownerPreviewError } = await owner.client.rpc(
+        "get_story_preview",
+        { p_story_id: storyId },
+      );
+      expect(ownerPreviewError).toBeNull();
+
+      const { data: ownerList } = await owner.client.rpc("list_my_stories");
+      expect(ownerList?.some((s) => s.id === storyId)).toBe(true);
+
+      const { error: ownerSaveError } = await owner.client.rpc(
+        "save_revision_draft",
+        {
+          p_revision_id: revisionId,
+          p_expected_version: ownerDraft![0].version,
+          p_title: slug("relink-isolation-updated"),
+        },
+      );
+      expect(ownerSaveError).toBeNull();
+
+      // `other` (now the linked contributor for this SAME underlying
+      // contributor row) gains ZERO access to owner's self-service story.
+      const { data: otherDraft, error: otherReadError } =
+        await other.client.rpc("get_my_story_with_draft", {
+          p_story_id: storyId,
+        });
+      expect(otherDraft).toBeNull();
+      expect(otherReadError).not.toBeNull();
+
+      const { error: otherPreviewError } = await other.client.rpc(
+        "get_story_preview",
+        { p_story_id: storyId },
+      );
+      expect(otherPreviewError).not.toBeNull();
+
+      const { data: otherList } = await other.client.rpc("list_my_stories");
+      expect(otherList?.some((s) => s.id === storyId)).toBe(false);
+
+      // Including: `other` cannot submit consent for owner's story via
+      // account confirmation either -- the fifth source-kind-partition site
+      // this sub-phase found independently, inside
+      // submit_revision_with_consent() itself.
+      const { data: currentDraft } = await owner.client.rpc(
+        "get_my_story_with_draft",
+        { p_story_id: storyId },
+      );
+      const { error: otherSubmitError } = await other.client.rpc(
+        "submit_revision_with_consent",
+        {
+          p_revision_id: currentDraft![0].revision_id,
+          p_expected_version: currentDraft![0].version,
+          p_confirmation_method: "account",
+          p_publication_confirmed: true,
+          p_expected_terms_version: currentTermsVersion,
+        },
+      );
+      expect(otherSubmitError).not.toBeNull();
+    } finally {
+      // Restore the fixed account pool's invariant (ownerContributorId
+      // linked to owner) for every OTHER test in this suite/session that
+      // assumes it, regardless of whether the assertions above passed.
+      await untypedRpc(editor.client, "unlink_contributor_from_user", {
+        p_contributor_id: ownerContributorId,
+      });
+      await editor.client.rpc("link_contributor_to_user", {
+        p_contributor_id: ownerContributorId,
+        p_user_id: owner.userId,
+      });
+    }
+  }, 30000);
+});
+
+describe("contributor_links audit trail (R6-8)", () => {
+  it("reads as a coherent link -> unlink -> relink timeline", async () => {
+    const { error: unlinkError } = await untypedRpc(
+      editor.client,
+      "unlink_contributor_from_user",
+      { p_contributor_id: ownerContributorId, p_note: "rls-test unlink" },
+    );
+    expect(unlinkError).toBeNull();
+    const { error: relinkError } = await editor.client.rpc(
+      "link_contributor_to_user",
+      {
+        p_contributor_id: ownerContributorId,
+        p_user_id: other.userId,
+        p_note: "rls-test relink to other",
+      },
+    );
+    expect(relinkError).toBeNull();
+
+    try {
+      // contributor_links.event_type doesn't exist in the generated types
+      // yet either (same not-yet-pushed migration) -- cast the row shape
+      // rather than the whole query.
+      const { data: history, error: historyError } = (await editor.client
+        .from("contributor_links")
+        .select("event_type, user_id, linked_at")
+        .eq("contributor_id", ownerContributorId)
+        .order("linked_at", { ascending: true })) as unknown as {
+        data:
+          { event_type: string; user_id: string; linked_at: string }[] | null;
+        error: { message: string } | null;
+      };
+      expect(historyError).toBeNull();
+      const tail = history!.slice(-2);
+      expect(tail.map((r) => r.event_type)).toEqual(["unlinked", "linked"]);
+      expect(tail[0].user_id).toBe(owner.userId);
+      expect(tail[1].user_id).toBe(other.userId);
+    } finally {
+      await untypedRpc(editor.client, "unlink_contributor_from_user", {
+        p_contributor_id: ownerContributorId,
+      });
+      await editor.client.rpc("link_contributor_to_user", {
+        p_contributor_id: ownerContributorId,
+        p_user_id: owner.userId,
+      });
+    }
+  }, 30000);
+});
+
+describe("GUC-bypass unreachability and direct-UPDATE rejection (R6-2)", () => {
+  it("an editor cannot call set_config or _set_contributor_linked_user directly", async () => {
+    // set_config is a Postgres builtin, never exposed as a public-schema
+    // RPC regardless of any of this sub-phase's migrations -- this half of
+    // the assertion is already true today. The cast is only for
+    // TypeScript's benefit (the function name was never a valid RPC name
+    // in the generated types either).
+    const { error: setConfigError } = await untypedRpc(
+      editor.client,
+      "set_config",
+      {
+        setting_name: "app.contributor_link_operation",
+        new_value: "link",
+        is_local: true,
+      },
+    );
+    expect(setConfigError).not.toBeNull();
+
+    const { error: helperError } = await untypedRpc(
+      editor.client,
+      "_set_contributor_linked_user",
+      {
+        p_contributor_id: ownerContributorId,
+        p_new_linked_user_id: other.userId,
+        p_operation: "link",
+      },
+    );
+    expect(helperError).not.toBeNull();
+  });
+
+  it("a direct UPDATE on linked_user_id by an editor is rejected in both the assign and clear direction", async () => {
+    const { error: assignError } = await editor.client
+      .from("contributors")
+      .update({ linked_user_id: other.userId })
+      .eq("id", ownerContributorId);
+    expect(assignError).not.toBeNull();
+
+    const { error: clearError } = await editor.client
+      .from("contributors")
+      .update({ linked_user_id: null })
+      .eq("id", ownerContributorId);
+    expect(clearError).not.toBeNull();
+  });
 });

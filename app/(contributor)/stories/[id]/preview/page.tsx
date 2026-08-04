@@ -4,6 +4,8 @@ import { getStoryPreview } from "@/lib/story/contributor-queries";
 import { storyContentSchema } from "@/lib/validation/story";
 import { ContentBlockRenderer } from "@/components/story/content-block-renderer";
 import { PreviewGallery } from "@/components/story/preview-gallery";
+import { SubmitConsentPanel } from "@/components/story/submit-consent-panel";
+import { ContributorReviewPanel } from "@/components/story/contributor-review-panel";
 
 // Never statically generated or cached — this can show unpublished,
 // draft-only content, so every request must re-authorize against the live
@@ -33,6 +35,28 @@ export default async function StoryPreviewPage({
   if (!preview) notFound();
 
   const parsedContent = storyContentSchema.safeParse(preview.contentJson);
+
+  // Contributor-review "approve"/request-changes/decline (Prompt 4
+  // Sub-phase 4): shown only to the linked contributor, only while the
+  // story is awaiting THEIR approval of an editor-prepared draft.
+  const isAwaitingThisContributorsApproval =
+    preview.viewerRelationship === "linked_contributor" &&
+    preview.lifecycleStatus === "awaiting_contributor_approval";
+
+  // Ordinary consent-at-submission: owner (self-service) or linked
+  // contributor (editorial import, once out of contributor-review limbo),
+  // only while the current revision is still a submittable draft -- not
+  // already submitted/approved/rejected/etc. Mirrors the server-side
+  // submittability rule in submit_revision_with_consent() closely enough
+  // for a "should we show this button at all" UI decision; the RPC itself
+  // remains the authoritative check regardless of what this renders.
+  const canSubmitOwnConsent =
+    !isAwaitingThisContributorsApproval &&
+    (preview.viewerRelationship === "owner" ||
+      preview.viewerRelationship === "linked_contributor") &&
+    preview.revisionStatus === "draft" &&
+    (preview.lifecycleStatus === "draft" ||
+      preview.lifecycleStatus === "published");
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
@@ -69,6 +93,34 @@ export default async function StoryPreviewPage({
           </p>
         )}
       </div>
+
+      {isAwaitingThisContributorsApproval && (
+        <div className="mt-8">
+          <ContributorReviewPanel
+            storyId={preview.storyId}
+            revisionId={preview.revisionId}
+            expectedVersion={preview.version}
+            hasMedia={preview.media.length > 0}
+          />
+        </div>
+      )}
+
+      {canSubmitOwnConsent && (
+        <div className="mt-8">
+          <SubmitConsentPanel
+            storyId={preview.storyId}
+            revisionId={preview.revisionId}
+            expectedVersion={preview.version}
+            hasMedia={preview.media.length > 0}
+            isEditorialImport={preview.sourceKind === "editorial_import"}
+            submitLabel={
+              preview.lifecycleStatus === "published"
+                ? "Submit correction for review"
+                : "Submit for review"
+            }
+          />
+        </div>
+      )}
     </div>
   );
 }

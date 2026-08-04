@@ -113,6 +113,57 @@ describe("MutationQueue conflict handling", () => {
   });
 });
 
+describe("MutationQueue.hasPending across concurrent slots (R6-7)", () => {
+  // Regression test for a real bug in components/story/story-edit-form.tsx:
+  // its MutationQueue was constructed with `onSettled: () => setSaving(false)`,
+  // which could flip the "Saving.../Saved" indicator to "Saved" the instant
+  // ONE slot's mutation finished even if a DIFFERENT slot still had work
+  // queued or in flight. The fix reads queue.hasPending() at the moment of
+  // settling instead of hardcoding false. This test proves the underlying
+  // primitive (hasPending()) already reports the right thing at exactly the
+  // moment each mutation settles -- the bug was in the consumer trusting a
+  // hardcoded value instead of asking the queue.
+  it("still reports pending work after one of two concurrently-queued slots resolves", async () => {
+    const settledSlots: string[] = [];
+    const pendingAtSettle: boolean[] = [];
+    const queue = new MutationQueue({
+      onSettled: (slot) => {
+        settledSlots.push(slot);
+        pendingAtSettle.push(queue.hasPending());
+      },
+    });
+
+    const locations = deferred<void>();
+    const fields = deferred<void>();
+
+    // Enqueue both, synchronously, before either has started -- two
+    // different slots, both genuinely pending at once.
+    queue.enqueue("locations", () => locations.promise);
+    queue.enqueue("fields", () => fields.promise);
+
+    // Let microtasks run so the queue actually starts draining and is
+    // sitting inside the first mutation's await.
+    await Promise.resolve();
+    expect(queue.hasPending("fields")).toBe(true);
+
+    // Resolve the first (locations) mutation. At the moment it settles, the
+    // second (fields) mutation is still queued -- hasPending() must be
+    // true, proving `saving` should stay true across this gap.
+    locations.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settledSlots).toEqual(["locations"]);
+    expect(pendingAtSettle).toEqual([true]);
+
+    // Now resolve the second mutation. Once IT settles, nothing remains
+    // queued or in flight -- hasPending() must be false.
+    fields.resolve();
+    await queue.flush();
+    expect(settledSlots).toEqual(["locations", "fields"]);
+    expect(pendingAtSettle).toEqual([true, false]);
+  });
+});
+
 describe("MutationQueue.flush", () => {
   it("waits for mutations enqueued while flush() is already waiting", async () => {
     const queue = new MutationQueue();

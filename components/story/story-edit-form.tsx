@@ -7,8 +7,12 @@ import {
   travelStyles,
   type StoryContentBlock,
 } from "@/lib/validation/story";
-import { RichTextEditor } from "@/components/story/rich-text-editor";
+import {
+  RichTextEditor,
+  type RichTextEditorHandle,
+} from "@/components/story/rich-text-editor";
 import { ImageUploadManager } from "@/components/story/image-upload-manager";
+import { ContentImportPanel } from "@/components/story/content-import-panel";
 import { MutationQueue } from "@/lib/story/mutation-queue";
 import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
 import type {
@@ -49,6 +53,15 @@ export type StoryEditFormProps = {
   destinations: ActiveDestination[];
   workTypes: ActiveWorkType[];
   tags: ActiveTag[];
+  /**
+   * Editorial-only addition (Prompt 4 Sub-phase 4): shows the paste/convert
+   * content-import panel above the rich text editor. Omitted (falsy) by
+   * every self-service call site, which is what keeps this component's
+   * existing self-service behavior completely unchanged -- the import
+   * panel and its mutation-queue integration only exist when a caller
+   * explicitly opts in.
+   */
+  showContentImport?: boolean;
 };
 
 const FIELDS_SAVE_DEBOUNCE_MS = 600;
@@ -74,6 +87,7 @@ export function StoryEditForm({
   destinations,
   workTypes,
   tags,
+  showContentImport,
 }: StoryEditFormProps) {
   const versionRef = useRef(initialVersion);
   const [conflict, setConflict] = useState(false);
@@ -81,16 +95,23 @@ export function StoryEditForm({
   const [saving, setSaving] = useState(false);
   const [, forceRerender] = useState(0);
 
-  const queue = useMemo(
-    () =>
-      new MutationQueue({
-        onVersionConflict: () => setConflict(true),
-        onError: (_slot, error) =>
-          setSaveError(error instanceof Error ? error.message : "Save failed."),
-        onSettled: () => setSaving(false),
-      }),
-    [],
-  );
+  const queue = useMemo(() => {
+    const q = new MutationQueue({
+      onVersionConflict: () => setConflict(true),
+      onError: (_slot, error) =>
+        setSaveError(error instanceof Error ? error.message : "Save failed."),
+      // `saving` must stay true whenever ANY mutation is queued or running
+      // across ANY slot -- not merely "the mutation that just settled did."
+      // Reading queue.hasPending() at the moment of settling (rather than
+      // hardcoding false) is what keeps the indicator correct across the
+      // gap between one slot's mutation finishing and a still-pending
+      // different slot's mutation starting. See
+      // lib/story/mutation-queue.test.ts's "R6-7" describe block for the
+      // regression test on the underlying primitive.
+      onSettled: () => setSaving(q.hasPending()),
+    });
+    return q;
+  }, []);
 
   function bumpVersion() {
     forceRerender((n) => n + 1);
@@ -124,6 +145,14 @@ export function StoryEditForm({
   const [tagIds, setTagIds] = useState<string[]>(initialTagIds);
 
   const debounceHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Synchronous ref, not just React state -- checked from inside the
+  // debounce timer's callback (a plain closure, not a re-render), so a
+  // keystroke-triggered autosave scheduled just before an import-apply
+  // starts can never fire during it and race the destructive replace.
+  // React state (applyingImport, below) exists only to drive UI disabling.
+  const applyingImportRef = useRef(false);
+  const [applyingImport, setApplyingImport] = useState(false);
+  const richTextEditorRef = useRef<RichTextEditorHandle>(null);
 
   const queueFieldsSave = useCallback(
     (next: {
@@ -141,6 +170,14 @@ export function StoryEditForm({
       if (debounceHandle.current) clearTimeout(debounceHandle.current);
       setSaving(true);
       debounceHandle.current = setTimeout(() => {
+        // An import-apply is in progress -- it owns the "fields" slot for
+        // its own destructive replace; a stale keystroke-triggered autosave
+        // from just before the import started must become a no-op rather
+        // than racing it.
+        if (applyingImportRef.current) {
+          setSaving(false);
+          return;
+        }
         const parsed = revisionInputSchema.safeParse({
           title: next.title,
           excerpt: next.excerpt,
@@ -170,7 +207,13 @@ export function StoryEditForm({
             parsed.data,
           );
           if (result.ok) {
-            versionRef.current += 1;
+            // Authoritative: the server's own new version, not an assumed
+            // "+1" (Prompt 4 Sub-phase 4: save_revision_draft() now returns
+            // it). Every OTHER mutation on this form still does `+= 1`
+            // deliberately -- their RPCs have nothing else useful to return
+            // and always bump by exactly 1 unconditionally on success, so
+            // that remains correct, not a bug.
+            versionRef.current = result.version;
             bumpVersion();
           } else {
             throw new Error(result.error);
@@ -220,6 +263,83 @@ export function StoryEditForm({
       contributorNote,
       ...overrides,
     });
+  }
+
+  /**
+   * Editorial content-import "Use this content": a destructive replacement
+   * of the story body, on the SAME "fields" mutation-queue slot the normal
+   * debounced autosave uses (so it coalesces with, rather than races,
+   * anything already queued there). Unlike ordinary typing, visible editor
+   * state (setContent) is only updated AFTER a successful save -- an
+   * import that fails to save leaves the on-screen content exactly as it
+   * was, and the caller (ContentImportPanel) keeps the converted blocks in
+   * its own local state so the editor can retry without re-pasting.
+   */
+  async function applyImportedContent(
+    blocks: StoryContentBlock[],
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    applyingImportRef.current = true;
+    setApplyingImport(true);
+    if (debounceHandle.current) {
+      clearTimeout(debounceHandle.current);
+      debounceHandle.current = null;
+    }
+    try {
+      const parsed = revisionInputSchema.safeParse({
+        title,
+        excerpt,
+        contentJson: blocks,
+        tripStartDate: dateMode === "range" ? tripStartDate : "",
+        tripEndDate: dateMode === "range" ? tripEndDate : "",
+        tripYear:
+          dateMode === "year" && tripYear ? Number(tripYear) : undefined,
+        travelStyle: travelStyle || undefined,
+        totalExpenseNzdCents: expenseDollars
+          ? Math.round(Number(expenseDollars) * 100)
+          : undefined,
+        contributorNote,
+      });
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: parsed.error.issues[0]?.message ?? "Invalid content.",
+        };
+      }
+
+      setSaving(true);
+      return await new Promise<{ ok: true } | { ok: false; error: string }>(
+        (resolve) => {
+          queue.enqueue("fields", async () => {
+            const result = await saveRevisionFieldsAction(
+              revisionId,
+              versionRef.current,
+              parsed.data,
+            );
+            if (result.ok) {
+              versionRef.current = result.version;
+              setContent(blocks);
+              // The rich text editor is deliberately uncontrolled (see
+              // rich-text-editor.tsx) -- setContent() alone updates the
+              // React state used to build the NEXT snapshot, but the
+              // visible ProseMirror document needs its own imperative
+              // resync, or a subsequent keystroke's onChange would derive
+              // its snapshot from the stale pre-import document and
+              // silently undo the import on the next autosave.
+              richTextEditorRef.current?.replaceContent(blocks);
+              setSaveError(null);
+              bumpVersion();
+              resolve({ ok: true });
+            } else {
+              resolve({ ok: false, error: result.error });
+              throw new Error(result.error);
+            }
+          });
+        },
+      );
+    } finally {
+      applyingImportRef.current = false;
+      setApplyingImport(false);
+    }
   }
 
   function toggleWorkType(id: string) {
@@ -390,10 +510,18 @@ export function StoryEditForm({
           />
         </div>
 
+        {showContentImport && (
+          <ContentImportPanel
+            onApply={applyImportedContent}
+            disabled={applyingImport}
+          />
+        )}
+
         <div>
           <span className="block text-sm font-medium">Story</span>
           <div className="mt-1">
             <RichTextEditor
+              ref={richTextEditorRef}
               initialContent={initialContentJson}
               onChange={(blocks) => {
                 setContent(blocks);

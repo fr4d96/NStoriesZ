@@ -2,7 +2,7 @@
 
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { isSafeHref, type StoryContentBlock } from "@/lib/validation/story";
 import {
   blocksToTiptapDoc,
@@ -48,6 +48,21 @@ export type RichTextEditorProps = {
   onChange: (blocks: StoryContentBlock[]) => void;
   editable?: boolean;
   ariaLabel?: string;
+};
+
+/**
+ * Imperative escape hatch from the "uncontrolled, initialContent loaded
+ * once" design below, added in Prompt 4 Sub-phase 4 for exactly one
+ * caller: the editorial content-import panel's "Use this content," which
+ * replaces the ENTIRE document wholesale after a successful save -- a
+ * one-shot external replacement, not the continuous re-sync-on-every-render
+ * this component deliberately avoids (which would fight the user's cursor
+ * position during normal typing). Every other caller (self-service
+ * authoring) never touches this ref, so its existing behavior is
+ * unaffected.
+ */
+export type RichTextEditorHandle = {
+  replaceContent: (blocks: StoryContentBlock[]) => void;
 };
 
 function ToolbarButton({
@@ -187,12 +202,13 @@ function Toolbar({ editor }: { editor: Editor }) {
   );
 }
 
-export function RichTextEditor({
-  initialContent,
-  onChange,
-  editable = true,
-  ariaLabel = "Story content",
-}: RichTextEditorProps) {
+export const RichTextEditor = forwardRef<
+  RichTextEditorHandle,
+  RichTextEditorProps
+>(function RichTextEditor(
+  { initialContent, onChange, editable = true, ariaLabel = "Story content" },
+  ref,
+) {
   // Only the very first initialContent is ever loaded into the editor —
   // this is an uncontrolled editor by design (Tiptap's own recommended
   // pattern); re-syncing on every parent re-render would fight the user's
@@ -216,6 +232,16 @@ export function RichTextEditor({
     editor?.setEditable(editable);
   }, [editor, editable]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      replaceContent: (blocks: StoryContentBlock[]) => {
+        editor?.commands.setContent(blocksToTiptapDoc(blocks));
+      },
+    }),
+    [editor],
+  );
+
   if (!editor) {
     return (
       <div className="rounded-md border border-black/10 p-3 text-sm text-black/50 dark:border-white/10 dark:text-white/50">
@@ -234,4 +260,4 @@ export function RichTextEditor({
       />
     </div>
   );
-}
+});

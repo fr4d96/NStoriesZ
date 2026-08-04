@@ -17,6 +17,7 @@ export type Database = {
       contributor_links: {
         Row: {
           contributor_id: string;
+          event_type: string;
           id: string;
           linked_at: string;
           linked_by: string;
@@ -25,6 +26,7 @@ export type Database = {
         };
         Insert: {
           contributor_id: string;
+          event_type?: string;
           id?: string;
           linked_at?: string;
           linked_by: string;
@@ -33,6 +35,7 @@ export type Database = {
         };
         Update: {
           contributor_id?: string;
+          event_type?: string;
           id?: string;
           linked_at?: string;
           linked_by?: string;
@@ -1166,6 +1169,14 @@ export type Database = {
         Args: { p_revision_id: string };
         Returns: boolean;
       };
+      _set_contributor_linked_user: {
+        Args: {
+          p_contributor_id: string;
+          p_new_linked_user_id: string;
+          p_operation: string;
+        };
+        Returns: undefined;
+      };
       _terminalize_active_revision: {
         Args: { p_story_id: string };
         Returns: undefined;
@@ -1261,6 +1272,7 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      current_terms_version: { Args: never; Returns: string };
       decline_editorial_publication: {
         Args: { p_note: string; p_story_id: string };
         Returns: undefined;
@@ -1285,6 +1297,10 @@ export type Database = {
           p_user_facing_reason?: string;
         };
         Returns: undefined;
+      };
+      get_consent_terms_version: {
+        Args: { p_revision_id: string };
+        Returns: string;
       };
       get_media_private_path_for_preview: {
         Args: { p_media_id: string };
@@ -1631,7 +1647,7 @@ export type Database = {
           p_trip_start_date?: string;
           p_trip_year?: number;
         };
-        Returns: undefined;
+        Returns: number;
       };
       set_revision_locations: {
         Args: {
@@ -1669,12 +1685,17 @@ export type Database = {
         Args: {
           p_confirmation_method: string;
           p_editorial_assistance_confirmed?: boolean;
+          p_expected_terms_version: string;
           p_expected_version: number;
           p_identifiable_people_state?: Database["public"]["Enums"]["identifiable_people_state"];
           p_image_rights_confirmed?: boolean;
           p_publication_confirmed: boolean;
           p_revision_id: string;
         };
+        Returns: undefined;
+      };
+      unlink_contributor_from_user: {
+        Args: { p_contributor_id: string; p_note?: string };
         Returns: undefined;
       };
       update_story_media_caption: {

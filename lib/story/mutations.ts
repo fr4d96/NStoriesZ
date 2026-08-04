@@ -77,6 +77,29 @@ export async function createEditorialImportDraft(
   return data?.[0] ?? null;
 }
 
+/**
+ * Title-only shell, mirroring createSelfServiceDraftShell() -- lets an
+ * editor land straight in the editorial edit page (where the real content-
+ * import panel lives) instead of requiring a full RevisionInput up front.
+ * create_editorial_import_draft() itself defaults p_content_json to
+ * '[]'::jsonb server-side.
+ */
+export async function createEditorialImportDraftShell(
+  contributorId: string,
+  title: string,
+  assignedEditorId?: string,
+) {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("create_editorial_import_draft", {
+    p_contributor_id: contributorId,
+    p_title: title,
+    p_assigned_editor_id: assignedEditorId,
+  });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
 export async function markEditorialDraftAwaitingApproval(storyId: string) {
   await requireUser();
   const supabase = await createClient();
@@ -89,19 +112,26 @@ export async function markEditorialDraftAwaitingApproval(storyId: string) {
   if (error) throw error;
 }
 
+/**
+ * Returns the authoritative new story.version (the RPC's own return value,
+ * as of Prompt 4 Sub-phase 4's save_revision_draft() signature change --
+ * previously void). Callers should use this instead of assuming the server
+ * incremented by exactly 1.
+ */
 export async function saveRevisionDraft(
   revisionId: string,
   expectedVersion: number,
   input: RevisionInput,
-) {
+): Promise<number> {
   await requireUser();
   const supabase = await createClient();
-  const { error } = await supabase.rpc("save_revision_draft", {
+  const { data, error } = await supabase.rpc("save_revision_draft", {
     p_revision_id: revisionId,
     p_expected_version: expectedVersion,
     ...revisionArgs(input),
   });
   if (error) throw error;
+  return data;
 }
 
 export async function submitRevisionWithConsent(input: SubmitRevisionInput) {
@@ -112,11 +142,26 @@ export async function submitRevisionWithConsent(input: SubmitRevisionInput) {
     p_expected_version: input.expectedVersion,
     p_confirmation_method: input.confirmationMethod,
     p_publication_confirmed: input.publicationConfirmed,
+    p_expected_terms_version: input.expectedTermsVersion,
     p_image_rights_confirmed: input.imageRightsConfirmed,
     p_identifiable_people_state: input.identifiablePeopleState,
     p_editorial_assistance_confirmed: input.editorialAssistanceConfirmed,
   });
   if (error) throw error;
+}
+
+/**
+ * The current terms-of-service version string
+ * (supabase/migrations/20260804092100_submit_consent_requires_terms_version.sql#current_terms_version()).
+ * Callers fetch this immediately before calling submitRevisionWithConsent()
+ * and pass it as expectedTermsVersion, minimizing the staleness window
+ * before the RPC's own WHV01 mismatch check.
+ */
+export async function getCurrentTermsVersion(): Promise<string> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("current_terms_version");
+  if (error) throw error;
+  return data;
 }
 
 export async function createNextDraftRevision(storyId: string) {

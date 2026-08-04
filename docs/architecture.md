@@ -38,9 +38,12 @@ app/
       preview/page.tsx             # force-dynamic, no-store, noindex — get_story_preview() only
       media-actions.ts             # shared signed-URL minting, used by edit + preview
     account/                    # real: profile form, contributor-identity form, sign-out
-  (editor)/editorial/route.ts       # Route Handlers, not pages — see "Staff routes" below
-  (moderation)/moderation/route.ts
-  (admin)/admin/route.ts
+  (editor)/editorial/           # real UI as of Prompt 4 Sub-phase 4 — layout.tsx does the role
+                                 # check (notFound()), proxy.ts's middleware is the real 404
+                                 # guarantee (see "Staff routes" below); dashboard, new/, contributors/,
+                                 # [id]/edit/, import-actions.ts
+  (moderation)/moderation/route.ts  # still a Route Handler stub — see "Staff routes" below
+  (admin)/admin/route.ts            # still a Route Handler stub
 lib/
   env.server.ts               # server-only, Zod-validated Supabase env vars
   supabase/
@@ -102,11 +105,12 @@ e2e/
 ```
 
 Target/deferred pieces not yet built: `stories/[slug]`, `contributors/[slug]`, `sitemap.ts`/
-`robots.ts`, real authoring/editorial UI (the schema, RPCs, storage buckets, and image pipeline all
-exist as of Prompt 4 Sub-phase 2; `/stories/new`, `/my-stories`, and the three staff routes are
-still placeholders/role-gated API stubs — Sub-phases 3–4 build the UI), and any moderation UI at
-all (Prompt 4 builds the publication _backend_ only — see "Media processing and publication
-pipeline (Prompt 4)" below — Prompt 6 owns the moderation workspace that will call it).
+`robots.ts` (Prompt 5), and any moderation/admin UI at all (Prompt 4 builds the publication
+_backend_ only for those roles — see "Media processing and publication pipeline (Prompt 4)" below —
+Prompt 6 owns the moderation workspace that will call it). Self-service authoring (`/stories/new`,
+`/my-stories`, `/stories/:id/edit`, `/stories/:id/preview`) and editorial import/consent-approval
+(`/editorial/*`) are real UI as of Prompt 4 Sub-phases 3–4 respectively — see "Self-service
+authoring UI" and "Editorial import + consent/approval UI" below.
 
 ## Authentication boundaries
 
@@ -145,20 +149,44 @@ pipeline (Prompt 4)" below — Prompt 6 owns the moderation workspace that will 
 
 ## Staff routes (Editorial / Moderation / Admin) — role-gated, still fail closed
 
-`/editorial`, `/moderation`, and `/admin` are still **Route Handlers** (`route.ts`), not pages, now
-performing a real role check (`getCurrentUserRole()` + `resolveStaffAccess()`) instead of an
-unconditional 404. The reason they stay Route Handlers is unchanged from Prompt 1: a page component
-calling `next/navigation`'s `notFound()` gets streamed, and if the route is prerendered (or even
-forced dynamic) the initial shell can flush as HTTP 200 before the 404 is attached deeper in the
-render tree — verified directly during Prompt 1's build (`curl` showed `200 OK` for a page-based
+`/moderation` and `/admin` are still **Route Handlers** (`route.ts`), not pages, performing a real
+role check (`getCurrentUserRole()` + `resolveStaffAccess()`) instead of an unconditional 404. The
+reason they stay Route Handlers is unchanged from Prompt 1: a page component calling
+`next/navigation`'s `notFound()` gets streamed, and if the route is prerendered (or even forced
+dynamic) the initial shell can flush as HTTP 200 before the 404 is attached deeper in the render
+tree — verified directly during Prompt 1's build (`curl` showed `200 OK` for a page-based
 `notFound()` even under `export const dynamic = "force-dynamic"`). A Route Handler sets the status
-directly, with no rendering pipeline in between, so it reliably returns 404.
+directly, with no rendering pipeline in between, so it reliably returns 404. Their real UI is
+Prompt 6+ (moderation) — no navigation anywhere links to `/moderation`/`/admin` yet.
+
+`/editorial` gained its real UI in Prompt 4 Sub-phase 4 — the JSON-stub Route Handler was removed
+and replaced with real pages under `app/(editor)/editorial/`. This reintroduced exactly the failure
+mode above, confirmed live: `app/(editor)/editorial/layout.tsx`'s role check (a plain,
+non-streaming Server Component with no `loading.tsx`/Suspense anywhere under it, `notFound()`
+called synchronously at the top) still returned **HTTP 200** for a signed-out `curl -i` request,
+with the real 404 only appearing deep in the streamed RSC payload
+(`NEXT_HTTP_ERROR_FALLBACK;404`) — a non-streaming layout alone was not sufficient to avoid the
+Prompt 1 failure mode, contrary to what might be assumed from the code alone. **Fixed by moving the
+authorization gate into `proxy.ts` (middleware)**, which runs before any RSC streaming and can set
+a real response status directly: `/editorial` and every sub-path (`/editorial/new`,
+`/editorial/contributors`, `/editorial/:id/edit`, ...) now query the caller's own role
+(`user_roles`, via the same RLS-scoped "read own role" policy every other role check uses) inside
+the middleware itself and return the identical flat `{ error: "Not Found" }` / 404 JSON body the
+`/moderation`/`/admin` Route Handlers already use, for both signed-out and
+signed-in-with-the-wrong-role requests — verified via `curl -i` after the fix, and covered by
+`e2e/home.spec.ts`'s pre-existing `"staff routes fail closed with a not-found response"` test
+(which already asserted `/editorial` specifically, now genuinely exercising the real HTTP status).
+The `layout.tsx` role check is kept as a defense-in-depth backstop, but the middleware check is
+what actually provides the guarantee — the general lesson (a page-based `notFound()`, even
+non-streaming, is not reliably a true HTTP 404 in this framework version; middleware is, since it
+runs before any rendering) should be assumed for any future staff page-based route, not just this
+one.
 
 Anyone without the required role — including a perfectly valid session with the wrong role — gets
 the identical flat 404 as a signed-out visitor; `resolveStaffAccess()`'s `{ ok: false }` case
-deliberately carries no reason, so there is no behavioral difference to probe. Authorized staff
-currently get a minimal JSON stub (`{ ok: true, role, message: "... not built yet" }`) — the real
-editorial/moderation/admin UI is Prompt 7+. No navigation anywhere links to these routes yet.
+deliberately carries no reason, so there is no behavioral difference to probe. `/editorial`'s real
+UI is documented in "Editorial import + consent/approval UI (Prompt 4 Sub-phase 4)" below;
+`/moderation`/`/admin`'s real UI remains Prompt 6+.
 
 ## Data-access conventions
 
@@ -822,13 +850,126 @@ authoring form/upload/preview flow itself (one narrow exception, noted below).
   [docs/implementation-status.md](implementation-status.md) for why this migration was needed (a
   gap found during this sub-phase, not anticipated when it was scoped).
 
+## Editorial import + consent/approval UI (Prompt 4 Sub-phase 4)
+
+Complete — all 8 migrations (the 5 originally planned, plus 3 corrective migrations written after a
+live `test:rls` run against the newly-pushed schema found two real bugs) are pushed and
+live-verified against the hosted project (`test:rls` 33/33, both new Playwright specs passing). See
+[docs/implementation-status.md](implementation-status.md) "Prompt 4 Sub-phase 4 detail" for the full
+account, including every bug found (both before and after the push) and the corrective migrations
+that fixed them.
+
+- **Source-kind-partitioned authorization, made explicit and structural.** A story's real owner for
+  access-control purposes was, before this sub-phase, resolved by `_is_story_owner()`/several other
+  functions checking `stories.owner_user_id OR the story's contributor's linked_user_id` together —
+  correct-looking, but wrong once contributors can be relinked (this sub-phase's own new RPCs, below,
+  make that a normal operation): `owner_user_id` is only ever meaningful for
+  `source_kind = 'self_submitted'` (fixed at creation, never re-derived from contributor linkage);
+  the contributor's _live_ `linked_user_id` is only ever meaningful for `source_kind =
+'editorial_import'` (where `owner_user_id` is a stale creation-time snapshot, frequently null).
+  Every place that resolves "is this caller allowed to act as the story's owner" now branches on
+  `source_kind` first and checks only the ONE relevant field — never an OR across both regardless of
+  source kind. Fixed in `_is_story_owner()`, `list_my_stories()`, `get_story_preview()`,
+  `_can_write_reserved_media_path()` (migration `20260804092200`), and
+  `submit_revision_with_consent()`'s own inlined `confirmation_method = 'account'` check (migration
+  `20260804092100`, found independently during this sub-phase, not named in the approved plan's own
+  list of 4). `assigned_editor_id`/admin checks are a different, always-valid relationship in both
+  source kinds and are unaffected by this partition.
+- **Restricted, audited contributor linking.** `contributors.linked_user_id` could previously be
+  changed by any staff caller via a bare `UPDATE` (the existing
+  `contributors_protect_privileged_fields()` trigger only ever blocked _non-staff_ assignment,
+  never staff, and never audited the change at all outside `link_contributor_to_user()`'s own
+  narrow path). `20260804092400_restrict_contributor_linking_to_named_rpcs.sql` closes this: a new
+  private `_set_contributor_linked_user()` helper sets a transaction-local GUC
+  (`app.contributor_link_operation`, `is_local = true` — scoped to exactly the one `UPDATE`
+  statement's transaction, never manually cleared) that the trigger now requires to match the
+  transition direction for _every_ caller including staff, with the single narrow exemption for the
+  literal `ON DELETE SET NULL` FK cascade (detected precisely: `new.linked_user_id is null AND
+auth.uid() is null` together — the only trigger-firing context in this schema with no active
+  session at all). New `unlink_contributor_from_user()` (editor/admin only) is the audited
+  counterpart to the existing `link_contributor_to_user()`; `contributor_links` gains an
+  `event_type` column (`'linked'`/`'unlinked'`) so its history reads as a coherent timeline.
+  Unlinking concerns the contributor _identity_ only — it never touches any story, and the
+  source-kind partitioning above already guarantees a self-service story's access can never be
+  affected by relinking the contributor record it happens to reference.
+- **Consent/terms-version hardening.** `submit_revision_with_consent()` gained a required (not
+  defaulted) `p_expected_terms_version` parameter — a mismatch against `current_terms_version()`
+  raises with a stable `WHV01` SQLSTATE (`lib/story/rpc-errors.ts#isTermsChangedError()`), the same
+  structured-error pattern this codebase already used for `23505`. New
+  `get_consent_terms_version(revision_id)` reader is revision-scoped (consent is bound to one
+  immutable revision, never a story-wide "latest"). Both function signature changes
+  (`submit_revision_with_consent`, `save_revision_draft` — the latter now returns the new
+  `story.version` instead of `void`) required a genuine `DROP FUNCTION` + `CREATE FUNCTION` (return
+  type and required-parameter changes are not expressible via `CREATE OR REPLACE`), verified safe
+  beforehand via `pg_depend` (zero dependents on the old signatures) against the live project.
+- **The awaiting-approval submission dead-end**, closed with a narrow carve-out inside
+  `submit_revision_with_consent()` itself (not by widening `_revision_is_editable()`, which must
+  keep rejecting every other field-editing RPC while a draft awaits contributor review — see
+  implementation-status.md for the full reasoning): a linked contributor can now actually submit
+  (i.e. "approve") the exact current draft revision of a story that is
+  `awaiting_contributor_approval`.
+- **Editorial staff UI** (`app/(editor)/editorial/`) — dashboard, new-import form, a contributors
+  list deriving `is_linked` at the TypeScript boundary (`lib/story/editorial-queries.ts`, selecting
+  `linked_user_id` server-side but never including it in anything returned to a Client Component —
+  the application-code equivalent of the story domain's curated-return-shape convention, applied to
+  a table that, unlike the story domain, does have ordinary RLS grants), and the editorial edit page
+  — reusing `components/story/story-edit-form.tsx`/`rich-text-editor.tsx`/`image-upload-manager.tsx`
+  and the existing upload Route Handler **completely unchanged** for the underlying authoring
+  mechanics (all three already worked for an assigned editor via `_authorize_revision_edit()`).
+  `story-edit-form.tsx` gained one new optional prop (`showContentImport`) purely additive — every
+  self-service call site that omits it is unaffected.
+- **Content import** (`lib/story/content-import.ts`, new `node-html-parser` dependency) —
+  `plainTextToBlocks()`/`sanitizeHtmlToBlocks()` convert arbitrary pasted text/HTML into the
+  canonical block schema with full rejection (never truncation) on byte-length/node-count/nesting-depth
+  ceilings, dangerous-subtree removal, safe-container unwrapping, nested list/blockquote flattening,
+  table/pre/code-to-plain-text conversion, deterministic `<br>` handling, and the existing
+  `isSafeHref()` reused for the link-safety matrix. "Use this content" integrates with the mutation
+  queue as a destructive replace on the same `"fields"` slot, gated by a synchronous ref
+  (`applyingImportRef`) that excludes autosave races, only updating visible state after a
+  successful save. A real gap found while wiring this up: `rich-text-editor.tsx` is deliberately
+  _uncontrolled_ (see its own code comment), so a successful import additionally needs an
+  imperative `RichTextEditorHandle.replaceContent()` (new, additive, `forwardRef` +
+  `useImperativeHandle`) to resync the visible ProseMirror document — without it, the next
+  keystroke's `onChange` would have derived its snapshot from the stale pre-import document and
+  silently reverted the import.
+- **Contributor-side review/consent UI** — `app/(contributor)/stories/[id]/preview/page.tsx` gained
+  `components/story/submit-consent-panel.tsx` (consent-at-submission, shown whenever the current
+  revision is genuinely submittable) and `components/story/contributor-review-panel.tsx`
+  (approve/request-changes/decline, shown only while `awaiting_contributor_approval` and the viewer
+  is the linked contributor). `app/(contributor)/my-stories/page.tsx` now shows a "Review" CTA
+  instead of a dead "Edit" link in that state (`current_draft_revision_id` stays set while awaiting
+  approval, but the revision itself is frozen).
+- **Server Action body-size margin** — `next.config.ts`'s
+  `experimental.serverActions.bodySizeLimit` is `"2.5mb"`, a deliberate +25% margin over
+  `lib/story/content-import.ts`'s `MAX_IMPORT_INPUT_BYTES` (2,000,000 bytes, the authoritative
+  product-level limit enforced inside the action itself) — confirmed against the installed Next
+  16.2.12's own shipped type declarations that this config key is still nested under `experimental`
+  in this version, not promoted to top-level.
+- **Testing** — `tests/integration/fixtures/tiny.png` (new, committed — a genuinely tiny valid PNG
+  generated once via `sharp`) backs a new `e2e/editorial-upload.spec.ts` exercising the real
+  multipart upload Route Handler as a signed-in editor, and `e2e/content-import-body-size.spec.ts`
+  proves the three-tier body-size behavior above. Both skip themselves (not a hard failure) when
+  `.env.test.local`'s editor credentials aren't present; both depend on
+  `get_my_story_with_draft()` authorizing the assigned editor
+  (`20260804092000`/`20260804092500` — see implementation-status.md), now pushed, and both **pass
+  for real (4/4)** against the live project. `content-import-body-size.spec.ts`'s
+  `BELOW_PRODUCT_LIMIT` fixture needed a fix while running these for real: its original text
+  produced 1000 blocks, over `storyContentSchema`'s separate 200-block cap (a real, correctly-firing
+  limit, not a bug) — reduced to stay under that cap so the test reaches the success path it's
+  actually named for. New `scripts/cleanup-editorial-e2e-fixtures.mjs` mirrors
+  `cleanup-abandoned-media-uploads.mjs`'s fail-closed pattern, deletes Storage objects through the
+  real Storage API and verifies each is actually gone via a follow-up `list()` before deleting any
+  database row — written, and (per a separate explicit go-ahead requirement) not yet executed, so
+  the fixture data these Playwright runs created is still on the hosted project.
+
 ## Roadmap (corrected)
 
 - **Prompt 4** — editor/self-service authoring UI, image upload, storage buckets, contributor
-  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend) and
-  Sub-phase 3 (self-service authoring/drafting/preview UI) are complete — see "Media processing
-  and publication pipeline" and "Self-service authoring UI" above. Sub-phases 4–5 (editorial
-  import UI, consent/approval UI, integration tests/docs) remain.
+  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend),
+  Sub-phase 3 (self-service authoring/drafting/preview UI), and Sub-phase 4 (editorial import,
+  consent/approval UI — all migrations pushed and live-verified) are complete — see
+  "Media processing and publication pipeline", "Self-service authoring UI", and "Editorial import +
+  consent/approval UI" above. Sub-phase 5 (broader integration tests/final docs) remains.
 - **Prompt 5** — public discovery: browse/filter/detail pages, SEO, sitemap, cost-band UI (the exact
   cost-band thresholds are a Prompt 5 design decision — deliberately not invented in Prompt 3).
 - **Prompt 6** — editorial and moderation workspace (queue UI, reports triage).

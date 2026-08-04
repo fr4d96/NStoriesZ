@@ -42,11 +42,26 @@ import {
 
 export type MutationResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * saveRevisionFieldsAction's success shape additionally carries the
+ * authoritative new story.version (Prompt 4 Sub-phase 4:
+ * save_revision_draft() now returns it instead of void) -- the only call
+ * site that needs it, since every other mutation's underlying RPC has
+ * nothing else useful to propagate back.
+ */
+export type SaveFieldsResult =
+  { ok: true; version: number } | { ok: false; error: string };
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
-async function requireSignedIn(): Promise<MutationResult | null> {
+// Typed as the narrower "always ok:false" shape (it never actually returns
+// ok:true) so it's assignable at every call site's own success-shaped
+// return type, including saveRevisionFieldsAction's SaveFieldsResult, which
+// requires an extra `version` field on its ok:true variant that this
+// early-return path never needs to produce.
+async function requireSignedIn(): Promise<{ ok: false; error: string } | null> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "You must be signed in." };
   return null;
@@ -56,7 +71,7 @@ export async function saveRevisionFieldsAction(
   revisionId: string,
   expectedVersion: number,
   input: RevisionInput,
-): Promise<MutationResult> {
+): Promise<SaveFieldsResult> {
   const authError = await requireSignedIn();
   if (authError) return authError;
 
@@ -68,8 +83,12 @@ export async function saveRevisionFieldsAction(
     };
   }
   try {
-    await saveRevisionDraft(revisionId, expectedVersion, parsed.data);
-    return { ok: true };
+    const version = await saveRevisionDraft(
+      revisionId,
+      expectedVersion,
+      parsed.data,
+    );
+    return { ok: true, version };
   } catch (error) {
     return { ok: false, error: errorMessage(error) };
   }

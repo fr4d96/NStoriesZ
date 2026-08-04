@@ -248,6 +248,12 @@ export const submitRevisionSchema = z.object({
   publicationConfirmed: z.literal(true, {
     error: "You must confirm you have permission to publish this story.",
   }),
+  // Required (non-defaulted) as of Prompt 4 Sub-phase 4: the caller fetches
+  // current_terms_version() immediately before submitting and passes it
+  // here, so submit_revision_with_consent() can detect (and reject, via a
+  // stable WHV01 error code) a terms-of-service change that happened
+  // between the caller loading the form and actually submitting.
+  expectedTermsVersion: z.string().trim().min(1, "Missing terms version."),
   imageRightsConfirmed: z.boolean().default(false),
   identifiablePeopleState: z.enum(identifiablePeopleStates).default("pending"),
   editorialAssistanceConfirmed: z.boolean().default(false),
