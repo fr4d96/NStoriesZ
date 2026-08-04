@@ -59,6 +59,23 @@ an admin, on an editorial-import story only. Revocation
 ever re-grants after it, matching "full deletion/restoration is a slower, human-reviewed path" below
 for the analogous case; a published story is archived automatically in the same transaction.
 
+**Implemented as of Prompt 4 (Sub-phase 4):** `submit_revision_with_consent()` gained a required
+`p_expected_terms_version` parameter and a `WHV01` safety check (a stable Postgres SQLSTATE, not
+just a message prefix, so `lib/story/rpc-errors.ts` can detect it structurally) — if the terms
+version the caller last agreed to no longer matches `current_terms_version()`, submission is
+rejected until the contributor re-confirms against the current terms, even for a revision they'd
+otherwise be free to resubmit. Four offline confirmation methods (`email`, `written_message`,
+`in_person`, `other`) were added alongside the original `confirmation_method = 'account'` path,
+for the founding editorial-import catalogue where the contributor's permission was recorded
+before the platform existed: callable only by the story's assigned editor or an admin, and only on
+an `editorial_import`-source story (never for a contributor's own self-service submission, which
+must always use `'account'`). Every offline confirmation still requires the same
+`image_rights_confirmed_at`/`identifiable_people_state` data as the self-service path — "offline"
+only changes who's asserting consent happened and how, never what's required to have happened. A
+related narrow exception: the contributor's own "approve" action in the editorial-review workflow
+below (Editorial assistance section) is allowed to resubmit the exact revision the story is
+currently `awaiting_contributor_approval` on, in addition to the ordinary editable-draft path.
+
 ## Image rights
 
 - Every image attached to a story requires a recorded confirmation that the uploader/contributor has
@@ -75,12 +92,31 @@ for the analogous case; a published story is archived automatically in the same 
 **Implemented as of Prompt 3, schema-level:** `submit_revision_with_consent()` requires
 `image_rights_confirmed_at` and a resolved `identifiable_people_state` (`confirmed`/`not_applicable`
 — never `pending`/`declined`) whenever the revision has at least one attached image.
-`moderate_revision()`'s approve path independently re-verifies every attached image is both
-processed and approved (`story_media.approved_public_storage_path is not null and
-metadata_removed_at is not null`) before publishing — an unprocessed image blocks publication
-structurally. `promote_story_media()` (the function that would set those processed/approved columns)
-exists but has **no grants at all** in this phase, so no role can self-approve an image yet — the
-actual storage buckets and the image-processing pipeline that will call it are Prompt 4.
+
+**Implemented as of Prompt 4 (Sub-phases 2 and 4), end to end:** the placeholder
+`promote_story_media()` referenced by earlier revisions of this document was dropped outright
+(`supabase/migrations/20260804090200_story_media_processing_functions.sql`) and never shipped with
+any grants — nothing should go looking for it. What actually ships and runs, live-verified
+end-to-end (including a real Storage byte round trip) by `e2e/editorial-upload.spec.ts`:
+
+- `lib/story/image-pipeline.ts` decodes every upload with `sharp`, independently re-verifies the
+  real magic bytes (never trusting the client's declared content type or the upload Route
+  Handler's own earlier sniff), strips all metadata (EXIF/GPS and similar), and resizes it —
+  running server-side, using the service-role admin client only inside this one module.
+- `record_processed_story_media()` (service-role only, never reachable via the public API) records
+  the processed result once that pipeline has actually succeeded — it is the only function allowed
+  to write the processed-image columns, and rejects any storage path that doesn't match the
+  expected content-addressed naming convention.
+- `finalize_story_publication()` is the single atomic publication transaction: it promotes each
+  attached image from the private bucket to the public one (verifying the copy landed, per
+  Engineering Rule 14) and flips the story's published pointer, all in one transaction — replacing
+  the old `moderate_revision()` approve path entirely (that function now only handles
+  reject/changes-requested; calling it with `'approve'` raises, directing callers to
+  `begin_story_publication_attempt()`/`finalize_story_publication()` instead).
+
+Draft images remain private-bucket-only until this pipeline runs and a moderator's approval
+actually promotes them (Engineering Rules 13–14) — nothing here changes that invariant, it's the
+concrete implementation of it.
 
 ## Editorial assistance
 
@@ -97,6 +133,37 @@ actual storage buckets and the image-processing pipeline that will call it are P
 (`linked_user_id IS NULL`) to prepare a founding-catalogue contributor's identity ahead of an
 account existing. **Publication consent and image-rights confirmation records are implemented as of
 Prompt 3**, per the sections above.
+
+**Implemented as of Prompt 4 (Sub-phase 4) — the actual editorial import workflow, this
+principle's first real implementation:**
+
+- `create_editorial_import_draft()` starts a new `editorial_import`-source story, either against an
+  existing unlinked contributor or a freshly-created one, and assigns the calling editor as
+  `assigned_editor_id`.
+- The editor pastes the contributor's existing plain text or HTML into the import panel
+  (`components/story/content-import-panel.tsx`); `lib/story/content-import.ts`'s
+  `plainTextToBlocks()`/`sanitizeHtmlToBlocks()` convert it into the platform's controlled block
+  schema (Engineering Rule 6) and sanitize any HTML before it ever becomes structured content
+  (Engineering Rule 7) — never `dangerouslySetInnerHTML` on the pasted input. Both return a full
+  `ImportReport` (blocks produced, anything dropped or rewritten) so the editor can see exactly what
+  changed before accepting it.
+- `log_editorial_action()` records the editor's preparatory evidence (e.g. "contributor emailed
+  permission on file") as a plain, non-authorizing audit note — logging it grants nothing on its
+  own; only the actual consent RPC (`submit_revision_with_consent()`, see Publication consent above)
+  turns it into a real publication grant.
+- `mark_editorial_draft_awaiting_approval()` (surfaced as "Mark ready for contributor review" in
+  `app/(editor)/editorial/[id]/editorial-controls.tsx`) freezes the draft and flips the story to
+  `awaiting_contributor_approval` — the editor cannot keep editing it once handed off.
+- The contributor's own review step (`components/story/contributor-review-panel.tsx`, rendered only
+  to the linked contributor while the story is in that state) is the actual moderation-adjacent
+  decision point named in this section's second bullet: approve (submits the editor-prepared
+  revision under the contributor's own consent, via the narrow `awaiting_contributor_approval`
+  submission exception described in Publication consent above), request changes
+  (`request_editorial_changes()`, hands the draft back to the editor with a note), or decline
+  (`decline_editorial_publication()`, ends the import without publishing). None of these three are
+  reachable by the editor who prepared the draft — only by the contributor it's actually about,
+  keeping "preparation" (editor) and the contributor's own publication decision structurally
+  separate, the same way Engineering Rule 5 keeps editorial prep separate from staff moderation.
 
 ## Moderation boundaries
 
