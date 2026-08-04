@@ -24,15 +24,22 @@
     "supabase:types": "supabase gen types typescript --local --schema public > types/database.ts.tmp && mv types/database.ts.tmp types/database.ts",
     "supabase:types:linked": "supabase gen types typescript --linked --schema public > types/database.ts.tmp && mv types/database.ts.tmp types/database.ts",
     "test:rls": "node --env-file=.env.test.local node_modules/.bin/vitest run --config vitest.rls.config.ts",
-    "test:rls:cleanup": "node --env-file=.env.test.local scripts/run-rls-cleanup.mjs"
+    "test:rls:cleanup": "node --env-file=.env.test.local scripts/run-rls-cleanup.mjs",
+    "media:cleanup:pending": "node --env-file=.env.maintenance.local scripts/cleanup-abandoned-media-uploads.mjs",
+    "e2e:cleanup:editorial-fixtures": "node --env-file=.env.maintenance.local scripts/cleanup-editorial-e2e-fixtures.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
+    "@tiptap/pm": "^3.29.2",
+    "@tiptap/react": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
     "next": "16.2.12",
+    "node-html-parser": "^9.0.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

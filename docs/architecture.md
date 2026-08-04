@@ -30,11 +30,20 @@ app/
     layout.tsx                 # the ONLY place that resolves the session (getCurrentUser());
                                 # redirects to /sign-in or renders its own contributor nav
     actions.ts                 # 'use server' — profile update, contributor identity create/update
-    my-stories/, stories/new/   # still placeholders — schema/RPCs exist (Prompt 3), UI is Prompt 4
+    my-stories/                 # real: list from list_my_stories(), status badges, Edit/Preview links
+    stories/new/                 # real: title-only form -> create_self_service_draft -> redirect
+    stories/[id]/
+      edit/page.tsx, actions.ts   # authoring form (Server Actions) + mutation-queue-driven client form
+      edit/upload/route.ts        # Node-runtime Route Handler — see "Upload reservation flow"
+      preview/page.tsx             # force-dynamic, no-store, noindex — get_story_preview() only
+      media-actions.ts             # shared signed-URL minting, used by edit + preview
     account/                    # real: profile form, contributor-identity form, sign-out
-  (editor)/editorial/route.ts       # Route Handlers, not pages — see "Staff routes" below
-  (moderation)/moderation/route.ts
-  (admin)/admin/route.ts
+  (editor)/editorial/           # real UI as of Prompt 4 Sub-phase 4 — layout.tsx does the role
+                                 # check (notFound()), proxy.ts's middleware is the real 404
+                                 # guarantee (see "Staff routes" below); dashboard, new/, contributors/,
+                                 # [id]/edit/, import-actions.ts
+  (moderation)/moderation/route.ts  # still a Route Handler stub — see "Staff routes" below
+  (admin)/admin/route.ts            # still a Route Handler stub
 lib/
   env.server.ts               # server-only, Zod-validated Supabase env vars
   supabase/
@@ -59,12 +68,22 @@ lib/
     contributor-queries.ts     # caller-derived (session, never a userId param) owner-facing reads
     mutations.ts                # thin wrappers over every author/submit/consent/media RPC
     moderation.ts               # staff-facing reads + moderate/report RPC wrappers
+    image-validation.ts, image-pipeline.ts  # magic-byte sniffing + the sharp-based pipeline (Sub-phase 2)
+    active-lookups.ts           # active-only regions/destinations/work_types/tags (Sub-phase 3)
+    rich-text-serialize.ts      # pure Tiptap JSON <-> canonical block/run/mark schema converters
+    mutation-queue.ts           # client-side serialized, per-slot-coalescing async mutation queue
 components/
   site-header.tsx, site-footer.tsx, mobile-nav-toggle.tsx, contributor-nav.tsx,
   placeholder-page.tsx
+  story/
+    rich-text-editor.tsx        # Tiptap, constrained to exactly the canonical schema's node/mark set
+    content-block-renderer.tsx  # renders the canonical schema as JSX, never dangerouslySetInnerHTML
+    image-upload-manager.tsx    # client-side pre-checks + reorder/cover/detach/caption UI
+    preview-gallery.tsx         # signed-URL image gallery for the preview page
+    story-edit-form.tsx         # the authoring form, owns the shared MutationQueue + version ref
 proxy.ts                       # session-cookie refresh AND the redirect-to-sign-in-with-next
-                                # decision for signed-out requests, matcher scoped to /my-stories,
-                                # /stories/new, /account only
+                                # decision for signed-out requests; matcher covers /my-stories,
+                                # /stories/new, /account, and /stories/:id/(edit|preview)
 supabase/
   config.toml, migrations/ (profiles/user_roles/contributors/contributor_links from Prompt 2; the
   full story domain — stories, story_revisions, relations, media, consent, moderation, all
@@ -86,12 +105,12 @@ e2e/
 ```
 
 Target/deferred pieces not yet built: `stories/[slug]`, `contributors/[slug]`, `sitemap.ts`/
-`robots.ts`, storage buckets and the real image-processing pipeline (`promote_story_media()` exists
-but is deliberately ungranted until then), `lib/supabase/admin.ts` (no privileged operation exists
-yet to justify a service-role client — see "Authentication boundaries" below), real
-authoring/editorial/moderation UI (the schema and RPCs exist; `/stories/new`, `/my-stories`, and the
-three staff routes are still placeholders/role-gated API stubs — see "Roadmap" below for exactly
-which prompt builds each UI).
+`robots.ts` (Prompt 5), and any moderation/admin UI at all (Prompt 4 builds the publication
+_backend_ only for those roles — see "Media processing and publication pipeline (Prompt 4)" below —
+Prompt 6 owns the moderation workspace that will call it). Self-service authoring (`/stories/new`,
+`/my-stories`, `/stories/:id/edit`, `/stories/:id/preview`) and editorial import/consent-approval
+(`/editorial/*`) are real UI as of Prompt 4 Sub-phases 3–4 respectively — see "Self-service
+authoring UI" and "Editorial import + consent/approval UI" below.
 
 ## Authentication boundaries
 
@@ -130,20 +149,44 @@ which prompt builds each UI).
 
 ## Staff routes (Editorial / Moderation / Admin) — role-gated, still fail closed
 
-`/editorial`, `/moderation`, and `/admin` are still **Route Handlers** (`route.ts`), not pages, now
-performing a real role check (`getCurrentUserRole()` + `resolveStaffAccess()`) instead of an
-unconditional 404. The reason they stay Route Handlers is unchanged from Prompt 1: a page component
-calling `next/navigation`'s `notFound()` gets streamed, and if the route is prerendered (or even
-forced dynamic) the initial shell can flush as HTTP 200 before the 404 is attached deeper in the
-render tree — verified directly during Prompt 1's build (`curl` showed `200 OK` for a page-based
+`/moderation` and `/admin` are still **Route Handlers** (`route.ts`), not pages, performing a real
+role check (`getCurrentUserRole()` + `resolveStaffAccess()`) instead of an unconditional 404. The
+reason they stay Route Handlers is unchanged from Prompt 1: a page component calling
+`next/navigation`'s `notFound()` gets streamed, and if the route is prerendered (or even forced
+dynamic) the initial shell can flush as HTTP 200 before the 404 is attached deeper in the render
+tree — verified directly during Prompt 1's build (`curl` showed `200 OK` for a page-based
 `notFound()` even under `export const dynamic = "force-dynamic"`). A Route Handler sets the status
-directly, with no rendering pipeline in between, so it reliably returns 404.
+directly, with no rendering pipeline in between, so it reliably returns 404. Their real UI is
+Prompt 6+ (moderation) — no navigation anywhere links to `/moderation`/`/admin` yet.
+
+`/editorial` gained its real UI in Prompt 4 Sub-phase 4 — the JSON-stub Route Handler was removed
+and replaced with real pages under `app/(editor)/editorial/`. This reintroduced exactly the failure
+mode above, confirmed live: `app/(editor)/editorial/layout.tsx`'s role check (a plain,
+non-streaming Server Component with no `loading.tsx`/Suspense anywhere under it, `notFound()`
+called synchronously at the top) still returned **HTTP 200** for a signed-out `curl -i` request,
+with the real 404 only appearing deep in the streamed RSC payload
+(`NEXT_HTTP_ERROR_FALLBACK;404`) — a non-streaming layout alone was not sufficient to avoid the
+Prompt 1 failure mode, contrary to what might be assumed from the code alone. **Fixed by moving the
+authorization gate into `proxy.ts` (middleware)**, which runs before any RSC streaming and can set
+a real response status directly: `/editorial` and every sub-path (`/editorial/new`,
+`/editorial/contributors`, `/editorial/:id/edit`, ...) now query the caller's own role
+(`user_roles`, via the same RLS-scoped "read own role" policy every other role check uses) inside
+the middleware itself and return the identical flat `{ error: "Not Found" }` / 404 JSON body the
+`/moderation`/`/admin` Route Handlers already use, for both signed-out and
+signed-in-with-the-wrong-role requests — verified via `curl -i` after the fix, and covered by
+`e2e/home.spec.ts`'s pre-existing `"staff routes fail closed with a not-found response"` test
+(which already asserted `/editorial` specifically, now genuinely exercising the real HTTP status).
+The `layout.tsx` role check is kept as a defense-in-depth backstop, but the middleware check is
+what actually provides the guarantee — the general lesson (a page-based `notFound()`, even
+non-streaming, is not reliably a true HTTP 404 in this framework version; middleware is, since it
+runs before any rendering) should be assumed for any future staff page-based route, not just this
+one.
 
 Anyone without the required role — including a perfectly valid session with the wrong role — gets
 the identical flat 404 as a signed-out visitor; `resolveStaffAccess()`'s `{ ok: false }` case
-deliberately carries no reason, so there is no behavioral difference to probe. Authorized staff
-currently get a minimal JSON stub (`{ ok: true, role, message: "... not built yet" }`) — the real
-editorial/moderation/admin UI is Prompt 7+. No navigation anywhere links to these routes yet.
+deliberately carries no reason, so there is no behavioral difference to probe. `/editorial`'s real
+UI is documented in "Editorial import + consent/approval UI (Prompt 4 Sub-phase 4)" below;
+`/moderation`/`/admin`'s real UI remains Prompt 6+.
 
 ## Data-access conventions
 
@@ -548,10 +591,385 @@ Rules, enforced by convention (no script does these automatically):
   redirect allow-list hasn't been confirmed configured — see implementation-status.md "Manual Supabase
   settings required").
 
+## Media processing and publication pipeline (Prompt 4 Sub-phase 2)
+
+Built after seven rounds of plan review (see the approved plan for the full decision history).
+Backend and migrations only — no moderation UI ships in this sub-phase; Prompt 6 owns that UI and
+will call `begin_story_publication_attempt()`/`finalize_story_publication()` directly. All 9
+migrations are pushed and live-verified against the linked hosted project — see
+[docs/implementation-status.md](implementation-status.md) "Prompt 4 detail" for the full account,
+including the real bug the RLS integration suite's live run surfaced in
+`scripts/rls-test-cleanup.sql` (the new attempt/copy-attempt tables' `on delete restrict` foreign
+keys needed a cleanup-order fix). Not yet live-verified: a full round trip through actual Storage
+bytes (upload → `sharp` processing → public copy), which needs the project's service-role key —
+deferred to Sub-phase 5 per direction; everything at the DB/RPC layer is live-verified.
+
+### Storage buckets
+
+Two buckets, created in `20260804090700_story_media_storage_buckets.sql`:
+
+- `story-images-private` — never public. Holds original uploads
+  (`{story_id}/{media_id}/original.<ext>`) and processed-derivative staging
+  (`{story_id}/{media_id}/processed-{sha256}.<ext>`, content-addressed). Writes are gated by
+  `_can_write_reserved_media_path()`, a Storage RLS helper that parses the object path strictly
+  (exactly three components, the first two valid UUIDs, no traversal/backslashes/percent-encoding)
+  and requires an exact match against a real, still-`pending_upload`, still-editable reservation,
+  authorized via the same relationship set `_authorize_revision_edit()` uses — a direct Storage API
+  write to an arbitrary or another user's path fails at this policy, not merely because the app
+  chooses not to attempt it. Reads are gated by `_can_access_story_media()`.
+- `story-images-public` — world-readable by design. Every write (INSERT/UPDATE/DELETE) is
+  restricted to `service_role` — no client, including an authorized owner or moderator, ever
+  writes to this bucket directly. The only code path that ever does is
+  `copyStoryMediaToPublic()` in `lib/story/image-pipeline.ts`, and only as part of an active
+  publication attempt.
+
+### The media processing-state machine
+
+`story_media.processing_state`: `pending_upload → uploaded → processing → processed | failed →
+promotion_pending → promoted`. Enforced at two independent DB levels — a `BEFORE UPDATE` trigger
+(`story_media_validate_processing_state_transition()`) allow-listing exactly the valid `(old, new)`
+pairs, and state-dependent `CHECK` constraints ensuring a state can't exist without its required
+fields (e.g. `approved_public_storage_path is not null` if and only if `processing_state =
+'promoted'`) — regardless of which function attempts a change. `promoted` is immutable: a
+same-state `promoted → promoted` update is only a no-op if every recorded value is unchanged;
+changing any of them is rejected by the trigger.
+
+Column semantics, made unambiguous (a real ambiguity in the original Prompt 3 `width`/`height`
+columns, which always described the _processed_ derivative despite the generic name): renamed to
+`processed_width`/`processed_height`, with new `source_width`/`source_height` columns for the
+original upload. Both pairs are **server-detected via a real `sharp` decode during processing**,
+never client-supplied — `finalize_story_media_upload()` only records the raw observed byte size
+(read directly from `storage.objects`, not trusted from the client) at upload time; true MIME type
+and dimensions aren't known until `record_processed_story_media()` runs. `source_mime_type` is the
+one exception forced by an inherited Prompt 3 `NOT NULL` constraint: `begin_story_media_upload()`
+must insert _some_ value at reservation time, so it stores the client-declared MIME as a
+non-authoritative placeholder (used only to pick the reserved path's extension) — this value is
+never trusted for any validation or safety decision, and is overwritten with the server-detected
+true value the moment processing succeeds.
+
+### Upload reservation flow
+
+`begin_story_media_upload()` / `finalize_story_media_upload()` / `cancel_pending_story_media_upload()`
+supersede Prompt 3's single-step `attach_story_media()` (dropped). The DB row is created _before_
+the storage write, but as an explicit reservation (`pending_upload`), never a claim that bytes
+exist — `finalize_` is the step that runs after the storage write succeeds. Authorization for both
+is exactly `_authorize_revision_edit()`, reused verbatim (not a separately maintained relationship
+list). The 12-image-per-revision limit is enforced transactionally, under a lock on the revision
+row, counting already-joined `story_revision_media` rows plus not-yet-finalized `pending_upload`
+reservations together. `finalize_story_media_upload()` is safely retryable after a stale-version
+error without re-uploading bytes: object-existence/size and re-derived authorization are checked
+first (version-independent), and only the final join-creation step is version-gated — a repeat
+call after the row has already moved past `pending_upload` is a no-op. No automatic reaper runs
+inside these functions; an abandoned reservation is cleaned up only by explicit cancellation or the
+maintenance script (below).
+
+Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` (Sub-phase 3,
+built), `export const runtime = "nodejs"`, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler
+authenticates, rejects an oversized `Content-Length` header early, buffers the multipart body via
+`request.formData()`, sniffs real magic bytes from the buffered bytes (never trusts the client's
+reported `File.type`), calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
+server client — never the admin client — to the reserved path, calls
+`finalize_story_media_upload()`, and then calls `processStoryMedia()` **synchronously, in the same
+request** — there is no background worker/queue in this phase, so the upload response doesn't
+return until processing has actually finished (or recorded a specific failure). Any failure after
+the reservation step (storage upload fails, `finalize_` rejects a stale version) cancels the
+reservation (`cancelPendingStoryMediaUpload`) and best-effort removes any already-uploaded bytes,
+so a failed request never leaves an orphaned `pending_upload` row for longer than the request
+itself — the maintenance script below is a backstop for the cases that still slip through (e.g. the
+client's connection dropping mid-request), not the primary cleanup path.
+
+### Processing (`lib/story/image-pipeline.ts` — the one module allowed to import `lib/supabase/admin.ts`)
+
+Enforced by two independent layers: `import "server-only"` (build-time — webpack errors if a
+client bundle transitively imports it) and an ESLint `no-restricted-imports` rule
+(`eslint.config.mjs`) banning `@/lib/supabase/admin` everywhere except this one file.
+
+`processStoryMedia(mediaId)`: downloads the original, sniffs magic bytes (JPEG/PNG/WebP only, no
+extra dependency — three fixed signatures), decodes with `sharp({ limitInputPixels: 50_000_000 })`
+(decompression-bomb guard), rejects animated sources (checked via `metadata.pages` — **requires
+decoding with `{ pages: -1 }`**, otherwise `pages` is always `undefined` even for a genuinely
+animated source; found via a unit test that tried to build an animated fixture), auto-orients via
+`.rotate()` then re-encodes (sharp strips all metadata by default unless `withMetadata()` is
+called, which it never is — verified directly in `lib/story/image-pipeline.test.ts` against a
+source with real embedded EXIF), resizes to a 2000px long-edge cap, computes the sha256 of the
+_processed_ bytes, and stages the result at a content-addressed private path. Verifies the actually
+stored object's bytes/hash before treating the operation as complete — an upload call returning
+success is never trusted blindly. Records the result via `record_processed_story_media()`
+(`service_role`-only), or a specific failure via `record_story_media_processing_failed()`.
+
+`copyStoryMediaToPublic(mediaId, approvalAttemptId)`: called only as part of an active publication
+attempt. Calls `begin_story_media_copy_attempt()` (flips `processed → promotion_pending` and
+records a durable, retained-forever `story_media_public_copy_attempts` row _before_ any public
+write is attempted), copies the already-processed bytes to the public bucket's content-addressed
+path, verifies the copy, and records `verified` or `failed`. Idempotent: a content-addressed path
+can never have two different byte sequences recorded as "correct" under it, so a retry either finds
+the existing object already correct or overwrites it with a freshly-verified copy.
+
+`mintMediaPreviewSignedUrl(mediaId)`: looks up the private staging path via
+`get_media_private_path_for_preview()` (`service_role`-only, no caller-identity check of its own —
+safe only because the calling Server Action already ran `authorize_story_media_preview()` on its
+own regular client first) and mints a 120-second signed URL. **A signed URL does contain the object
+path as part of its structure** — that's normal; the actual guarantee is that no raw path is ever
+returned as an independent, client-inspectable value, and the browser only ever receives the final
+bearer URL, minted only after server-side authorization. Once minted, the URL works for anyone
+holding it until expiry — the security boundary is entirely who is allowed to _mint_ one, not who
+uses it afterward.
+
+### Publication attempts
+
+`story_publication_attempts`: a trusted parent, `id` minted server-side by
+`begin_story_publication_attempt(revision_id)` (moderator/admin only) — no function anywhere
+accepts a client-generated attempt id as the _origin_ of a new attempt, though the minted id is
+legitimately passed back and used as a reference by every later call, each of which independently
+re-verifies it (exists, `active`, matches revision/media, caller is `initiated_by` or an admin).
+Only one attempt may be `active` per revision at a time, enforced by a partial unique index, not
+merely an application check. `story_media_public_copy_attempts` is append-and-update,
+**never-delete** — a row is retained and marked `resolved_at`/`resolution` (`promoted` / `abandoned`
+/ `superseded`), giving a permanent, queryable audit trail of every publication attempt.
+
+`finalize_story_publication(revision_id, approval_attempt_id, ...)` is the single atomic
+publication transaction, called through the moderator's own regular client (the copy work above
+already ran via the admin client separately). **No `expectedVersion` parameter** — submitted
+revisions are already immutable (`story_revisions_protect_immutable_content()`), so the attempt's
+own active/finalized/abandoned state plus row locks are the concurrency boundary, not the authoring
+version. For every attached media item, it accepts either already-`promoted` (reused unchanged from
+a prior publication — `create_next_draft_revision()` can clone media that's already public; never
+recopied, never re-transitioned) or `promotion_pending` with a `verified` copy for _this exact_
+attempt (only this category transitions to `promoted`, with `approved_public_storage_path` taken
+from the copy-attempt record, never a fresh parameter). Idempotent: retrying an already-`finalized`
+attempt is a safe no-op. `moderate_revision()` is narrowed to `reject`/`changes_requested` only —
+`'approve'` now raises, directing callers to the attempt-based flow, which is what makes it the only
+path to approval rather than an optional one. Both `finalize_story_publication()` and
+`moderate_revision()`'s reject/changes-requested path lock the attempt row and re-check `active`
+status, so a race between "finalize this attempt" and "reject this revision instead" resolves to
+exactly one winner (the loser gets a clear "already resolved" error); a reject after a partial
+approval attempt reverses `promotion_pending` media back to `processed` and marks the copy-attempt
+rows `resolved`/`abandoned` — never touching an already-`promoted` (fully terminal) row.
+
+### Submission requires processed media, not merely uploaded
+
+`submit_revision_with_consent()` (migration `20260804090500`) now raises unless every attached
+`story_revision_media` row's underlying `story_media.processing_state` is `processed` or later —
+object existence alone (`uploaded`) is not enough. This closes the gap where a contributor or
+reviewing contributor could submit/approve content whose images hadn't actually finished
+processing. A zero-image revision is unaffected (the check is vacuously satisfied).
+
+### Private preview — a dedicated RPC, never a reused staff function
+
+`get_story_preview(story_id)` authorizes owner, linked contributor, assigned editor, or admin, and
+**returns no storage path of any kind** — only `media_id` and presentation fields — since anything
+a regular-client-reachable `SECURITY DEFINER` function returns is visible to the browser over
+PostgREST. It structurally excludes `story_revision_editor_notes`/`moderation_action_notes` (no
+column, no join to either exists in the function body) rather than relying on a UI component to
+simply not render fields it was handed. `authorize_story_media_preview(media_id)` is a separate,
+path-free "yes/no" check backing the signed-URL mint flow above.
+
+`_can_access_story_media()` (used by both the above and the private bucket's read policy) scopes a
+moderator's access to media attached to a revision that is either currently `submitted` or one
+they've already acted on via `moderation_actions` — never a blanket grant merely from holding the
+role, which would otherwise leak an unrelated draft's images to a moderator reviewing a different
+revision of the same story.
+
+### Maintenance — fail-closed, dry-run by default
+
+`scripts/cleanup-abandoned-media-uploads.mjs` (`npm run media:cleanup:pending`), mirroring
+`scripts/run-rls-cleanup.mjs`'s isolation pattern: dedicated `SUPABASE_MAINTENANCE_*` env vars
+loaded only via `--env-file=.env.maintenance.local` (never falls back to `.env.local`), a
+project-ref-bound confirm string, dry-run by default (`--execute` required for anything
+destructive), a hard-coded 100-row batch bound. SQL only ever `SELECT`s candidates
+(`pending_upload` reservations older than 24h; unresolved copy-attempts older than 1h) — actual
+Storage object deletion always goes through the Storage API, and every database mutation goes
+through one of two new, narrow, `service_role`-only RPCs
+(`maintenance_cancel_abandoned_reservation()` / `maintenance_resolve_orphaned_copy_attempt()`)
+rather than raw SQL, so maintenance mutations respect the same transition trigger/state constraints
+as every other path.
+
+### A known pre-existing `npm audit` advisory, reconfirmed unaffected
+
+Adding `sharp` as a direct dependency surfaces `GHSA-f88m-g3jw-g9cj` (libvips CVEs, `<0.35.0`) in
+`npm audit` — but the flagged node is `next/node_modules/sharp` (the old copy Next.js bundles
+internally), not this project's own directly-installed `sharp@^0.35.3`, which is already the fixed
+version. Same pre-existing, already-documented `next`-transitive risk as the `postcss` advisory,
+not a new one introduced here.
+
+## Self-service authoring UI (Prompt 4 Sub-phase 3)
+
+Built entirely on top of the Sub-phase 2 backend above — no new migrations were needed for the
+authoring form/upload/preview flow itself (one narrow exception, noted below).
+
+- **Rich text**: `lib/story/rich-text-serialize.ts` (pure) converts Tiptap/ProseMirror JSON to and
+  from the canonical block/run/mark schema. `components/story/rich-text-editor.tsx` wraps
+  `@tiptap/react` + `@tiptap/starter-kit` (added as dependencies — React 19 support confirmed via
+  `npm view @tiptap/react peerDependencies` before installing), configured to disable every
+  node/mark the schema doesn't support (underline, strike, code, code block, horizontal rule, hard
+  break), cap headings to H2/H3, and validate link hrefs through `isSafeHref()` at the editor
+  level, not only at the Zod boundary. Its closed-loop test drives a real headless `Editor`
+  instance through every allowed command and proves the disallowed ones don't exist on the
+  configuration at all.
+- **Rendering**: `components/story/content-block-renderer.tsx` renders the same schema as real
+  JSX — no `dangerouslySetInnerHTML` anywhere in this stack (Rule 7) — used today by the preview
+  page, reusable unchanged by the future public story page.
+- **Mutation queue**: `lib/story/mutation-queue.ts` is the client-side answer to "many small
+  autosave-style mutations, each carrying an `expectedVersion`, must never race each other in
+  flight." Per-slot coalescing collapses rapid edits (e.g. every keystroke) into one call; strict
+  global serial execution means a later mutation always observes the version the previous one
+  produced; a stale-version conflict is reported via callback and never silently discards
+  in-memory form state.
+- **Edit page**: `app/(contributor)/stories/[id]/edit/page.tsx` + `actions.ts` — nine Server
+  Actions (fields/locations/work types/tags/media caption/reorder/cover/detach/cancel-pending-
+  upload), each Zod-validating input and returning `{ok:true} | {ok:false, error}` instead of
+  throwing (so the mutation queue's conflict detection, which pattern-matches the RPCs' own
+  `"Stale version for ..."` error text, works uniformly). `components/story/story-edit-form.tsx`
+  (client) owns one `MutationQueue` and one shared `version` ref for the whole form, including the
+  image manager.
+- **Images**: `components/story/image-upload-manager.tsx` does fast client-side pre-checks
+  (type/size — UX feedback only) before POSTing to the upload Route Handler (see "Upload
+  reservation flow" above), then reorder/cover-select/detach (detach-and-retain only, never
+  delete) and alt-text-required-unless-decorative, enforced both client- and server-side.
+- **Preview**: `app/(contributor)/stories/[id]/preview/page.tsx` calls `get_story_preview()`
+  exclusively, `export const dynamic = "force-dynamic"` plus `robots: {index:false,follow:false}`;
+  `proxy.ts` sets `Cache-Control: no-store` for this path specifically, since a Server Component
+  page can influence caching but can't append an arbitrary response header itself.
+  `components/story/preview-gallery.tsx` and the image manager's thumbnails both go through the
+  shared `app/(contributor)/stories/[id]/media-actions.ts#mintPreviewUrlAction` — authorize via
+  `authorize_story_media_preview()` on the caller's own regular client first, then mint via
+  `mintMediaPreviewSignedUrl()`; the raw storage path is never sent to the browser. Signed URLs
+  expire after 120 seconds; a thumbnail minted early in a long editing session can go stale before
+  the page is closed — accepted as a known limitation for this sub-phase rather than building
+  proactive refresh logic.
+- **Routing**: `proxy.ts`'s protected-path matcher gained a regex
+  (`/^\/stories\/[^/]+\/(edit|preview)(\/.*)?$/`) alongside the pre-existing static-string list,
+  since a dynamic `:id` segment can't be expressed as a literal path.
+- **The one narrow migration this sub-phase actually needed**:
+  `story_revision_locations`/`story_revision_work_types`/`story_revision_tags` (Prompt 3) have RLS
+  enabled with no policies — every access is a `SECURITY DEFINER` function — but only the writer
+  RPCs existed; there was no reader for the edit form to load a draft's prior selections on page
+  load. `supabase/migrations/20260804091000_get_revision_selections.sql` adds
+  `get_revision_selections()`, symmetric with the writers, same edit-rights authorization.
+  **Applied** to the linked hosted project (with explicit go-ahead) and confirmed in sync — see
+  [docs/implementation-status.md](implementation-status.md) for why this migration was needed (a
+  gap found during this sub-phase, not anticipated when it was scoped).
+
+## Editorial import + consent/approval UI (Prompt 4 Sub-phase 4)
+
+Complete — all 8 migrations (the 5 originally planned, plus 3 corrective migrations written after a
+live `test:rls` run against the newly-pushed schema found two real bugs) are pushed and
+live-verified against the hosted project (`test:rls` 33/33, both new Playwright specs passing). See
+[docs/implementation-status.md](implementation-status.md) "Prompt 4 Sub-phase 4 detail" for the full
+account, including every bug found (both before and after the push) and the corrective migrations
+that fixed them.
+
+- **Source-kind-partitioned authorization, made explicit and structural.** A story's real owner for
+  access-control purposes was, before this sub-phase, resolved by `_is_story_owner()`/several other
+  functions checking `stories.owner_user_id OR the story's contributor's linked_user_id` together —
+  correct-looking, but wrong once contributors can be relinked (this sub-phase's own new RPCs, below,
+  make that a normal operation): `owner_user_id` is only ever meaningful for
+  `source_kind = 'self_submitted'` (fixed at creation, never re-derived from contributor linkage);
+  the contributor's _live_ `linked_user_id` is only ever meaningful for `source_kind =
+'editorial_import'` (where `owner_user_id` is a stale creation-time snapshot, frequently null).
+  Every place that resolves "is this caller allowed to act as the story's owner" now branches on
+  `source_kind` first and checks only the ONE relevant field — never an OR across both regardless of
+  source kind. Fixed in `_is_story_owner()`, `list_my_stories()`, `get_story_preview()`,
+  `_can_write_reserved_media_path()` (migration `20260804092200`), and
+  `submit_revision_with_consent()`'s own inlined `confirmation_method = 'account'` check (migration
+  `20260804092100`, found independently during this sub-phase, not named in the approved plan's own
+  list of 4). `assigned_editor_id`/admin checks are a different, always-valid relationship in both
+  source kinds and are unaffected by this partition.
+- **Restricted, audited contributor linking.** `contributors.linked_user_id` could previously be
+  changed by any staff caller via a bare `UPDATE` (the existing
+  `contributors_protect_privileged_fields()` trigger only ever blocked _non-staff_ assignment,
+  never staff, and never audited the change at all outside `link_contributor_to_user()`'s own
+  narrow path). `20260804092400_restrict_contributor_linking_to_named_rpcs.sql` closes this: a new
+  private `_set_contributor_linked_user()` helper sets a transaction-local GUC
+  (`app.contributor_link_operation`, `is_local = true` — scoped to exactly the one `UPDATE`
+  statement's transaction, never manually cleared) that the trigger now requires to match the
+  transition direction for _every_ caller including staff, with the single narrow exemption for the
+  literal `ON DELETE SET NULL` FK cascade (detected precisely: `new.linked_user_id is null AND
+auth.uid() is null` together — the only trigger-firing context in this schema with no active
+  session at all). New `unlink_contributor_from_user()` (editor/admin only) is the audited
+  counterpart to the existing `link_contributor_to_user()`; `contributor_links` gains an
+  `event_type` column (`'linked'`/`'unlinked'`) so its history reads as a coherent timeline.
+  Unlinking concerns the contributor _identity_ only — it never touches any story, and the
+  source-kind partitioning above already guarantees a self-service story's access can never be
+  affected by relinking the contributor record it happens to reference.
+- **Consent/terms-version hardening.** `submit_revision_with_consent()` gained a required (not
+  defaulted) `p_expected_terms_version` parameter — a mismatch against `current_terms_version()`
+  raises with a stable `WHV01` SQLSTATE (`lib/story/rpc-errors.ts#isTermsChangedError()`), the same
+  structured-error pattern this codebase already used for `23505`. New
+  `get_consent_terms_version(revision_id)` reader is revision-scoped (consent is bound to one
+  immutable revision, never a story-wide "latest"). Both function signature changes
+  (`submit_revision_with_consent`, `save_revision_draft` — the latter now returns the new
+  `story.version` instead of `void`) required a genuine `DROP FUNCTION` + `CREATE FUNCTION` (return
+  type and required-parameter changes are not expressible via `CREATE OR REPLACE`), verified safe
+  beforehand via `pg_depend` (zero dependents on the old signatures) against the live project.
+- **The awaiting-approval submission dead-end**, closed with a narrow carve-out inside
+  `submit_revision_with_consent()` itself (not by widening `_revision_is_editable()`, which must
+  keep rejecting every other field-editing RPC while a draft awaits contributor review — see
+  implementation-status.md for the full reasoning): a linked contributor can now actually submit
+  (i.e. "approve") the exact current draft revision of a story that is
+  `awaiting_contributor_approval`.
+- **Editorial staff UI** (`app/(editor)/editorial/`) — dashboard, new-import form, a contributors
+  list deriving `is_linked` at the TypeScript boundary (`lib/story/editorial-queries.ts`, selecting
+  `linked_user_id` server-side but never including it in anything returned to a Client Component —
+  the application-code equivalent of the story domain's curated-return-shape convention, applied to
+  a table that, unlike the story domain, does have ordinary RLS grants), and the editorial edit page
+  — reusing `components/story/story-edit-form.tsx`/`rich-text-editor.tsx`/`image-upload-manager.tsx`
+  and the existing upload Route Handler **completely unchanged** for the underlying authoring
+  mechanics (all three already worked for an assigned editor via `_authorize_revision_edit()`).
+  `story-edit-form.tsx` gained one new optional prop (`showContentImport`) purely additive — every
+  self-service call site that omits it is unaffected.
+- **Content import** (`lib/story/content-import.ts`, new `node-html-parser` dependency) —
+  `plainTextToBlocks()`/`sanitizeHtmlToBlocks()` convert arbitrary pasted text/HTML into the
+  canonical block schema with full rejection (never truncation) on byte-length/node-count/nesting-depth
+  ceilings, dangerous-subtree removal, safe-container unwrapping, nested list/blockquote flattening,
+  table/pre/code-to-plain-text conversion, deterministic `<br>` handling, and the existing
+  `isSafeHref()` reused for the link-safety matrix. "Use this content" integrates with the mutation
+  queue as a destructive replace on the same `"fields"` slot, gated by a synchronous ref
+  (`applyingImportRef`) that excludes autosave races, only updating visible state after a
+  successful save. A real gap found while wiring this up: `rich-text-editor.tsx` is deliberately
+  _uncontrolled_ (see its own code comment), so a successful import additionally needs an
+  imperative `RichTextEditorHandle.replaceContent()` (new, additive, `forwardRef` +
+  `useImperativeHandle`) to resync the visible ProseMirror document — without it, the next
+  keystroke's `onChange` would have derived its snapshot from the stale pre-import document and
+  silently reverted the import.
+- **Contributor-side review/consent UI** — `app/(contributor)/stories/[id]/preview/page.tsx` gained
+  `components/story/submit-consent-panel.tsx` (consent-at-submission, shown whenever the current
+  revision is genuinely submittable) and `components/story/contributor-review-panel.tsx`
+  (approve/request-changes/decline, shown only while `awaiting_contributor_approval` and the viewer
+  is the linked contributor). `app/(contributor)/my-stories/page.tsx` now shows a "Review" CTA
+  instead of a dead "Edit" link in that state (`current_draft_revision_id` stays set while awaiting
+  approval, but the revision itself is frozen).
+- **Server Action body-size margin** — `next.config.ts`'s
+  `experimental.serverActions.bodySizeLimit` is `"2.5mb"`, a deliberate +25% margin over
+  `lib/story/content-import.ts`'s `MAX_IMPORT_INPUT_BYTES` (2,000,000 bytes, the authoritative
+  product-level limit enforced inside the action itself) — confirmed against the installed Next
+  16.2.12's own shipped type declarations that this config key is still nested under `experimental`
+  in this version, not promoted to top-level.
+- **Testing** — `tests/integration/fixtures/tiny.png` (new, committed — a genuinely tiny valid PNG
+  generated once via `sharp`) backs a new `e2e/editorial-upload.spec.ts` exercising the real
+  multipart upload Route Handler as a signed-in editor, and `e2e/content-import-body-size.spec.ts`
+  proves the three-tier body-size behavior above. Both skip themselves (not a hard failure) when
+  `.env.test.local`'s editor credentials aren't present; both depend on
+  `get_my_story_with_draft()` authorizing the assigned editor
+  (`20260804092000`/`20260804092500` — see implementation-status.md), now pushed, and both **pass
+  for real (4/4)** against the live project. `content-import-body-size.spec.ts`'s
+  `BELOW_PRODUCT_LIMIT` fixture needed a fix while running these for real: its original text
+  produced 1000 blocks, over `storyContentSchema`'s separate 200-block cap (a real, correctly-firing
+  limit, not a bug) — reduced to stay under that cap so the test reaches the success path it's
+  actually named for. New `scripts/cleanup-editorial-e2e-fixtures.mjs` mirrors
+  `cleanup-abandoned-media-uploads.mjs`'s fail-closed pattern, deletes Storage objects through the
+  real Storage API and verifies each is actually gone via a follow-up `list()` before deleting any
+  database row — written, and (per a separate explicit go-ahead requirement) not yet executed, so
+  the fixture data these Playwright runs created is still on the hosted project.
+
 ## Roadmap (corrected)
 
 - **Prompt 4** — editor/self-service authoring UI, image upload, storage buckets, contributor
-  approval flow (the schema, RLS, and RPCs this UI needs are done as of Prompt 3).
+  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend),
+  Sub-phase 3 (self-service authoring/drafting/preview UI), and Sub-phase 4 (editorial import,
+  consent/approval UI — all migrations pushed and live-verified) are complete — see
+  "Media processing and publication pipeline", "Self-service authoring UI", and "Editorial import +
+  consent/approval UI" above. Sub-phase 5 (broader integration tests/final docs) remains.
 - **Prompt 5** — public discovery: browse/filter/detail pages, SEO, sitemap, cost-band UI (the exact
   cost-band thresholds are a Prompt 5 design decision — deliberately not invented in Prompt 3).
 - **Prompt 6** — editorial and moderation workspace (queue UI, reports triage).

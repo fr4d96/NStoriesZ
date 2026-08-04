@@ -32,6 +32,24 @@ function revisionArgs(input: RevisionInput) {
   };
 }
 
+/**
+ * Creates a bare, still-empty draft shell (title only) so a contributor can
+ * land straight in the editor from "New Story" — the full revisionInputSchema
+ * (used by saveRevisionDraft) requires at least one content block, which is
+ * a save-time friendliness rule, not something a brand-new draft should be
+ * blocked on. create_self_service_draft() itself defaults content_json to
+ * '[]'::jsonb server-side.
+ */
+export async function createSelfServiceDraftShell(title: string) {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("create_self_service_draft", {
+    p_title: title,
+  });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
 export async function createSelfServiceDraft(input: RevisionInput) {
   await requireUser();
   const supabase = await createClient();
@@ -59,6 +77,29 @@ export async function createEditorialImportDraft(
   return data?.[0] ?? null;
 }
 
+/**
+ * Title-only shell, mirroring createSelfServiceDraftShell() -- lets an
+ * editor land straight in the editorial edit page (where the real content-
+ * import panel lives) instead of requiring a full RevisionInput up front.
+ * create_editorial_import_draft() itself defaults p_content_json to
+ * '[]'::jsonb server-side.
+ */
+export async function createEditorialImportDraftShell(
+  contributorId: string,
+  title: string,
+  assignedEditorId?: string,
+) {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("create_editorial_import_draft", {
+    p_contributor_id: contributorId,
+    p_title: title,
+    p_assigned_editor_id: assignedEditorId,
+  });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
 export async function markEditorialDraftAwaitingApproval(storyId: string) {
   await requireUser();
   const supabase = await createClient();
@@ -71,19 +112,26 @@ export async function markEditorialDraftAwaitingApproval(storyId: string) {
   if (error) throw error;
 }
 
+/**
+ * Returns the authoritative new story.version (the RPC's own return value,
+ * as of Prompt 4 Sub-phase 4's save_revision_draft() signature change --
+ * previously void). Callers should use this instead of assuming the server
+ * incremented by exactly 1.
+ */
 export async function saveRevisionDraft(
   revisionId: string,
   expectedVersion: number,
   input: RevisionInput,
-) {
+): Promise<number> {
   await requireUser();
   const supabase = await createClient();
-  const { error } = await supabase.rpc("save_revision_draft", {
+  const { data, error } = await supabase.rpc("save_revision_draft", {
     p_revision_id: revisionId,
     p_expected_version: expectedVersion,
     ...revisionArgs(input),
   });
   if (error) throw error;
+  return data;
 }
 
 export async function submitRevisionWithConsent(input: SubmitRevisionInput) {
@@ -94,11 +142,26 @@ export async function submitRevisionWithConsent(input: SubmitRevisionInput) {
     p_expected_version: input.expectedVersion,
     p_confirmation_method: input.confirmationMethod,
     p_publication_confirmed: input.publicationConfirmed,
+    p_expected_terms_version: input.expectedTermsVersion,
     p_image_rights_confirmed: input.imageRightsConfirmed,
     p_identifiable_people_state: input.identifiablePeopleState,
     p_editorial_assistance_confirmed: input.editorialAssistanceConfirmed,
   });
   if (error) throw error;
+}
+
+/**
+ * The current terms-of-service version string
+ * (supabase/migrations/20260804092100_submit_consent_requires_terms_version.sql#current_terms_version()).
+ * Callers fetch this immediately before calling submitRevisionWithConsent()
+ * and pass it as expectedTermsVersion, minimizing the staleness window
+ * before the RPC's own WHV01 mismatch check.
+ */
+export async function getCurrentTermsVersion(): Promise<string> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("current_terms_version");
+  if (error) throw error;
+  return data;
 }
 
 export async function createNextDraftRevision(storyId: string) {
@@ -209,34 +272,56 @@ export async function setRevisionTags(
   if (error) throw error;
 }
 
-export async function attachStoryMedia(params: {
-  revisionId: string;
-  expectedVersion: number;
-  privateStoragePath: string;
-  sourceMimeType: string;
-  width?: number;
-  height?: number;
-  sourceFileSizeBytes?: number;
-  altText?: string;
-  caption?: string;
-  decorative?: boolean;
-}) {
+/**
+ * Reserves a media slot and a private storage path for an upload. Does not
+ * touch the authoring version — a reservation is not yet attached content.
+ * The caller (a Route Handler, see app/(contributor)/stories/[id]/edit/upload/route.ts)
+ * uploads the actual bytes to `reservedPath` itself, then calls
+ * finalizeStoryMediaUpload().
+ */
+export async function beginStoryMediaUpload(
+  revisionId: string,
+  sourceMimeType: string,
+) {
   await requireUser();
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("attach_story_media", {
-    p_revision_id: params.revisionId,
-    p_expected_version: params.expectedVersion,
-    p_private_storage_path: params.privateStoragePath,
-    p_source_mime_type: params.sourceMimeType,
-    p_width: params.width,
-    p_height: params.height,
-    p_source_file_size_bytes: params.sourceFileSizeBytes,
-    p_alt_text: params.altText,
-    p_caption: params.caption,
-    p_decorative: params.decorative ?? false,
+  const { data, error } = await supabase.rpc("begin_story_media_upload", {
+    p_revision_id: revisionId,
+    p_source_mime_type: sourceMimeType,
   });
   if (error) throw error;
-  return data;
+  return data[0];
+}
+
+/**
+ * Verifies the reserved object actually exists in storage and creates the
+ * revision-media join, bumping the authoring version exactly once. Safely
+ * retryable after a stale-version error without re-uploading bytes.
+ */
+export async function finalizeStoryMediaUpload(
+  mediaId: string,
+  expectedVersion: number,
+) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("finalize_story_media_upload", {
+    p_media_id: mediaId,
+    p_expected_version: expectedVersion,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Deletes a still-pending, never-attached upload reservation (e.g. after a
+ * failed upload). Never touches the authoring version.
+ */
+export async function cancelPendingStoryMediaUpload(mediaId: string) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("cancel_pending_story_media_upload", {
+    p_media_id: mediaId,
+  });
+  if (error) throw error;
 }
 
 export async function updateStoryMediaCaption(params: {

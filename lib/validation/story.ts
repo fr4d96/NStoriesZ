@@ -1,29 +1,146 @@
 import { z } from "zod";
 
-// Controlled story content — text blocks only (Engineering Rule 6/7). No
+// --- Safe-link validation -------------------------------------------------
+//
+// Parser-based, not regex-based: `new URL()` is the single source of truth
+// for "what scheme is this," since ad hoc scheme-sniffing regexes are the
+// classic way this class of check gets bypassed (mixed-case tricks, encoded
+// separators, etc.). Accepts only http(s) absolute URLs or single-slash
+// root-relative paths; rejects protocol-relative ("//host/...", which
+// browsers treat as absolute), backslashes, control characters, and
+// overlong values.
+const MAX_HREF_LENGTH = 2048;
+const CONTROL_CHAR_REGEX = /[\x00-\x1f\x7f]/;
+
+export function isSafeHref(raw: string): boolean {
+  if (
+    typeof raw !== "string" ||
+    raw.length === 0 ||
+    raw.length > MAX_HREF_LENGTH
+  ) {
+    return false;
+  }
+  if (CONTROL_CHAR_REGEX.test(raw) || raw.includes("\\")) {
+    return false;
+  }
+  if (raw.startsWith("/")) {
+    // Root-relative is safe; "//host/..." is protocol-relative (effectively
+    // absolute) and must go through the URL-parsing branch below instead.
+    return !raw.startsWith("//");
+  }
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// --- Controlled story content — block/run/mark schema ---------------------
+//
+// Engineering Rule 6/7: structured JSON only, never raw/arbitrary HTML. No
 // inline image blocks: images render as an ordered gallery from
-// story_revision_media, kept deliberately separate to avoid duplicate state
-// between content_json and the media table (see docs/architecture.md).
+// story_revision_media, kept deliberately separate from content_json (see
+// docs/architecture.md). Each block's text is an array of "runs" rather than
+// a bare string so inline marks (bold/italic/link) can apply to part of a
+// block's text — this is a deliberate extension beyond Prompt 3's original
+// plain-string shape; the `content_json` column itself is a loosely-typed
+// `jsonb` array (only `jsonb_typeof(content_json) = 'array'` is checked at
+// the DB layer, confirmed by reading
+// supabase/migrations/20260803090200_story_revisions.sql), so no migration
+// is needed for this change — only this schema and everything that
+// builds/reads content_json.
+
+const MAX_MARKS_PER_RUN = 3; // bold + italic + link, each at most once
+const MAX_RUNS_PER_BLOCK = 100;
+const MAX_DOCUMENT_CHARACTERS = 50_000;
+
+const linkMarkSchema = z.object({
+  type: z.literal("link"),
+  href: z.string().refine(isSafeHref, {
+    message: "Links must be http(s) or a root-relative path.",
+  }),
+});
+
+const markSchema = z.union([
+  z.literal("bold"),
+  z.literal("italic"),
+  linkMarkSchema,
+]);
+
+export type StoryMark = z.infer<typeof markSchema>;
+
+function markKind(mark: StoryMark): "bold" | "italic" | "link" {
+  return typeof mark === "string" ? mark : mark.type;
+}
+
+function noDuplicateMarkKinds(marks: StoryMark[] | undefined): boolean {
+  if (!marks || marks.length === 0) return true;
+  const kinds = marks.map(markKind);
+  return new Set(kinds).size === kinds.length;
+}
+
+function textRunSchema(maxTextLength: number) {
+  return z
+    .object({
+      // Deliberately NOT `.trim()`ed: a run is often one interior slice of
+      // continuous text split at a mark boundary (e.g. "picking " / "apples"
+      // (bold) / " in Hawke's Bay..."), so its own leading/trailing
+      // whitespace is real inter-word spacing that belongs to the
+      // surrounding text, not padding to strip. Trimming here previously
+      // deleted that spacing (a real bug, found by actually bolding a
+      // mid-sentence word and seeing "picking**apples**in" render with no
+      // spaces at all). Still reject a run that's nothing but whitespace.
+      text: z
+        .string()
+        .max(maxTextLength)
+        .refine((s) => s.trim().length > 0, {
+          message: "Text cannot be empty or only whitespace.",
+        }),
+      marks: z.array(markSchema).max(MAX_MARKS_PER_RUN).optional(),
+    })
+    .refine((run) => noDuplicateMarkKinds(run.marks), {
+      message: "A run cannot repeat the same mark twice.",
+      path: ["marks"],
+    });
+}
+
+export type StoryTextRun = z.infer<ReturnType<typeof textRunSchema>>;
+
+function runsLength(runs: StoryTextRun[]): number {
+  return runs.reduce((sum, run) => sum + run.text.length, 0);
+}
+
+function runsSchema(maxTotalLength: number, minRuns = 1) {
+  return z
+    .array(textRunSchema(maxTotalLength))
+    .min(minRuns)
+    .max(MAX_RUNS_PER_BLOCK)
+    .refine((runs) => runsLength(runs) <= maxTotalLength, {
+      message: `Text is too long (max ${maxTotalLength} characters).`,
+    });
+}
+
 const paragraphBlockSchema = z.object({
   type: z.literal("paragraph"),
-  text: z.string().trim().min(1).max(5000),
+  text: runsSchema(5000),
 });
 
 const headingBlockSchema = z.object({
   type: z.literal("heading"),
   level: z.union([z.literal(2), z.literal(3)]),
-  text: z.string().trim().min(1).max(200),
+  text: runsSchema(200),
 });
 
 const quoteBlockSchema = z.object({
   type: z.literal("quote"),
-  text: z.string().trim().min(1).max(2000),
+  text: runsSchema(2000),
 });
 
 const listBlockSchema = z.object({
   type: z.literal("list"),
   style: z.enum(["ordered", "unordered"]),
-  items: z.array(z.string().trim().min(1).max(1000)).min(1).max(50),
+  items: z.array(runsSchema(1000)).min(1).max(50),
 });
 
 export const storyContentBlockSchema = z.discriminatedUnion("type", [
@@ -35,7 +152,25 @@ export const storyContentBlockSchema = z.discriminatedUnion("type", [
 
 export type StoryContentBlock = z.infer<typeof storyContentBlockSchema>;
 
-export const storyContentSchema = z.array(storyContentBlockSchema).max(200);
+function blockCharacterCount(block: StoryContentBlock): number {
+  if (block.type === "list") {
+    return block.items.reduce((sum, item) => sum + runsLength(item), 0);
+  }
+  return runsLength(block.text);
+}
+
+export const storyContentSchema = z
+  .array(storyContentBlockSchema)
+  .min(1, "Your story needs at least some content.")
+  .max(200)
+  .refine(
+    (blocks) =>
+      blocks.reduce((sum, block) => sum + blockCharacterCount(block), 0) <=
+      MAX_DOCUMENT_CHARACTERS,
+    {
+      message: `Story content is too long (max ${MAX_DOCUMENT_CHARACTERS} characters).`,
+    },
+  );
 
 // Mirrors supabase/migrations/20260803090200_story_revisions.sql's CHECK
 // constraints — duplicated deliberately for fast/friendly form errors; the
@@ -68,6 +203,29 @@ export const revisionInputSchema = z
 
 export type RevisionInput = z.infer<typeof revisionInputSchema>;
 
+// A deliberately looser schema for "start a new draft" — the full
+// revisionInputSchema's "at least some content" rule is a save-time /
+// submit-time friendliness rule, not something a brand-new, still-empty
+// shell revision should be blocked on creating. create_self_service_draft
+// itself defaults content_json to '[]'::jsonb server-side.
+export const createDraftSchema = z.object({
+  title: z.string().trim().min(1, "Title is required.").max(200),
+});
+
+export type CreateDraftInput = z.infer<typeof createDraftSchema>;
+
+// Locations/work types/tags — same identifiers set_revision_locations /
+// set_revision_work_types / set_revision_tags expect, validated client-side
+// before every call (Rule: validate at every trust boundary).
+export const revisionLocationSchema = z.object({
+  regionId: z.uuid(),
+  destinationId: z.uuid().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+export const revisionLocationsSchema = z.array(revisionLocationSchema).max(20);
+export const revisionIdsSchema = z.array(z.uuid()).max(20);
+
 export const confirmationMethods = [
   "account",
   "email",
@@ -90,6 +248,12 @@ export const submitRevisionSchema = z.object({
   publicationConfirmed: z.literal(true, {
     error: "You must confirm you have permission to publish this story.",
   }),
+  // Required (non-defaulted) as of Prompt 4 Sub-phase 4: the caller fetches
+  // current_terms_version() immediately before submitting and passes it
+  // here, so submit_revision_with_consent() can detect (and reject, via a
+  // stable WHV01 error code) a terms-of-service change that happened
+  // between the caller loading the form and actually submitting.
+  expectedTermsVersion: z.string().trim().min(1, "Missing terms version."),
   imageRightsConfirmed: z.boolean().default(false),
   identifiablePeopleState: z.enum(identifiablePeopleStates).default("pending"),
   editorialAssistanceConfirmed: z.boolean().default(false),

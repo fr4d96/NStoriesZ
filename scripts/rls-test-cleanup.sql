@@ -92,6 +92,26 @@ with target_stories as (
 )
 delete from public.story_revision_editor_notes where revision_id in (select id from target_revisions);
 
+-- Prompt 4: story_media_public_copy_attempts references both
+-- story_publication_attempts and story_revisions/story_media with
+-- on delete restrict — must go first. story_publication_attempts itself
+-- references story_revisions the same way.
+with target_stories as (
+  select id from public.stories where slug like 'rls-test-%'
+), target_revisions as (
+  select id from public.story_revisions where story_id in (select id from target_stories)
+)
+delete from public.story_media_public_copy_attempts
+  where revision_id in (select id from target_revisions);
+
+with target_stories as (
+  select id from public.stories where slug like 'rls-test-%'
+), target_revisions as (
+  select id from public.story_revisions where story_id in (select id from target_stories)
+)
+delete from public.story_publication_attempts
+  where revision_id in (select id from target_revisions);
+
 -- Clear the forward pointers before deleting revisions (they reference
 -- story_revisions with on delete restrict too).
 update public.stories
@@ -129,5 +149,7 @@ delete from public.stories where slug like 'rls-test-%';
 --   public.moderation_actions,
 --   public.moderation_action_notes,
 --   public.story_reports,
---   public.editorial_actions
+--   public.editorial_actions,
+--   public.story_publication_attempts,
+--   public.story_media_public_copy_attempts
 --   cascade;
