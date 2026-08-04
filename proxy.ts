@@ -10,6 +10,19 @@ const PROTECTED_DYNAMIC_STORY_PATH =
   /^\/stories\/[^/]+\/(edit|preview)(\/.*)?$/;
 const PREVIEW_PATH = /^\/stories\/[^/]+\/preview(\/.*)?$/;
 
+// Exact-match-only patterns (no trailing (\/.*)? subpath) for the three
+// PAGE routes Prompt 4 Sub-phase 5 found leaking a per-row-unauthorized
+// visitor through as a live HTTP 200 — see canReadStoryDraft/
+// canPreviewStory and their call sites below for the fix. Deliberately narrower than
+// PROTECTED_DYNAMIC_STORY_PATH above: /stories/:id/edit/upload (the nested
+// Route Handler) must NOT match here, since a Route Handler already sets
+// its own real status codes correctly (confirmed live: it already returns
+// a genuine 400 for an unauthorized caller) and matching it here would mean
+// consuming/racing its request body for no reason.
+const STORY_EDIT_PAGE_PATH = /^\/stories\/([^/]+)\/edit$/;
+const STORY_PREVIEW_PAGE_PATH = /^\/stories\/([^/]+)\/preview$/;
+const EDITORIAL_EDIT_PAGE_PATH = /^\/editorial\/([^/]+)\/edit$/;
+
 // /editorial/* (Prompt 4 Sub-phase 4). Real pages now, not a Route Handler
 // stub — but a page-based notFound() (app/(editor)/editorial/layout.tsx)
 // was confirmed live, via a real `curl -i`, to still return HTTP 200 for a
@@ -37,6 +50,48 @@ function flatNotFound() {
   // response as a signed-out visitor, no matter which staff area they hit
   // or how the check happens to be implemented underneath.
   return NextResponse.json({ error: "Not Found" }, { status: 404 });
+}
+
+// Prompt 4 Sub-phase 5 finding: get_my_story_with_draft() and
+// get_story_preview() (supabase/migrations/20260804092500_..., 20260804092200_...)
+// both RAISE a Postgres exception -- they never just return zero rows --
+// for a per-row-unauthorized caller. app/(contributor)/stories/[id]/edit/page.tsx
+// and app/(editor)/editorial/[id]/edit/page.tsx don't even catch that
+// exception (it reaches Next's generic error boundary); app/(contributor)/stories/[id]/preview/page.tsx
+// DOES catch it and calls notFound() -- but live-verified via real
+// Playwright navigations in e2e/cross-contributor-access.spec.ts, ALL
+// THREE still returned a live HTTP 200 (either the generic error page or
+// the not-found UI, but never a real 404 status). This is the exact same
+// failure mode already documented above for /editorial's role check: a
+// deep, no-earlier-Suspense-boundary Server Component tree's notFound()/
+// thrown error doesn't set the response's real status in this app's
+// current Next.js/Turbopack setup. The fix is identical in shape: decide
+// authorization here, before any RSC render can commit a 200, and return a
+// real 404 directly. This necessarily means an extra DB round trip
+// middleware couldn't avoid taking (see PROTECTED_DYNAMIC_STORY_PATH's
+// comment above) -- correctness over the redundant-query cost, and the
+// page component itself is left as-is (it re-derives the same
+// authorization on its own request for defense-in-depth, per Engineering
+// Rules 2/3; RLS/the RPC itself remains the authoritative check, this is
+// just the layer that can actually surface a true HTTP status for it).
+async function canReadStoryDraft(
+  supabase: ReturnType<typeof createServerClient>,
+  storyId: string,
+) {
+  const { data, error } = await supabase.rpc("get_my_story_with_draft", {
+    p_story_id: storyId,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+async function canPreviewStory(
+  supabase: ReturnType<typeof createServerClient>,
+  storyId: string,
+) {
+  const { data, error } = await supabase.rpc("get_story_preview", {
+    p_story_id: storyId,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
 }
 
 /**
@@ -98,6 +153,49 @@ export async function proxy(request: NextRequest) {
       .single();
     if (roleRow?.role !== "editor" && roleRow?.role !== "admin") {
       return flatNotFound();
+    }
+
+    // Role-level check above only proves this user is SOME editor/admin --
+    // it says nothing about whether they're the assigned editor for THIS
+    // particular story. Prompt 4 Sub-phase 5 live-verified that an editor
+    // with no relation to a given story still got a live 200 (a generic
+    // error page, from get_my_story_with_draft()'s raised exception) when
+    // hitting /editorial/:id/edit directly. See canReadStoryDraft's comment
+    // above for the full explanation.
+    const editorialEditMatch = request.nextUrl.pathname.match(
+      EDITORIAL_EDIT_PAGE_PATH,
+    );
+    if (editorialEditMatch) {
+      const allowed = await canReadStoryDraft(supabase, editorialEditMatch[1]);
+      if (!allowed) {
+        return flatNotFound();
+      }
+    }
+  }
+
+  // Prompt 4 Sub-phase 5: per-row authorization for the self-service
+  // authoring pages, for the same reason as the editorial per-row check
+  // just above. Only runs once we know the visitor is signed in (the
+  // sign-in-redirect branch above already returned early otherwise, since
+  // both patterns are also covered by PROTECTED_DYNAMIC_STORY_PATH/
+  // isProtectedPath).
+  if (data?.claims?.sub) {
+    const editMatch = request.nextUrl.pathname.match(STORY_EDIT_PAGE_PATH);
+    if (editMatch) {
+      const allowed = await canReadStoryDraft(supabase, editMatch[1]);
+      if (!allowed) {
+        return flatNotFound();
+      }
+    }
+
+    const previewMatch = request.nextUrl.pathname.match(
+      STORY_PREVIEW_PAGE_PATH,
+    );
+    if (previewMatch) {
+      const allowed = await canPreviewStory(supabase, previewMatch[1]);
+      if (!allowed) {
+        return flatNotFound();
+      }
     }
   }
 

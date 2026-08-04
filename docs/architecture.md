@@ -575,7 +575,25 @@ Rules, enforced by convention (no script does these automatically):
   Playwright spec to actually exercise `proxy.ts`'s Supabase call. `.env.local` now points at a real
   linked Supabase project (see below), so this call is a genuine round trip, not a DNS failure — it
   was originally confirmed fast/non-flaky against placeholder values too, before the project was
-  linked.
+  linked. `e2e/editorial-upload.spec.ts` and `e2e/content-import-body-size.spec.ts` (Prompt 4
+  Sub-phase 4) sign in as the real fixed `editor` test account and exercise the real multipart
+  upload Route Handler and Server Action body-size margin end-to-end, against the linked hosted
+  project. `e2e/cross-contributor-access.spec.ts` (Prompt 4 Sub-phase 5) signs in as two
+  independent, fixed test accounts (`owner`/`other`, plus a spot-check using `editor`) in two fully
+  separate browser contexts and proves one contributor's session cannot read, preview, or upload to
+  another contributor's story through the real pages — this is the UI-level counterpart to
+  `tests/integration/story-rls.integration.test.ts`'s API-level cross-account denial tests, and it
+  found a real, live-reproducing bug: `app/(contributor)/stories/[id]/edit/page.tsx`,
+  `app/(contributor)/stories/[id]/preview/page.tsx`, and `app/(editor)/editorial/[id]/edit/page.tsx`
+  all leaked a live HTTP 200 to a per-row-unauthorized visitor (`get_my_story_with_draft()`/
+  `get_story_preview()` raise a Postgres exception rather than returning zero rows for an
+  unauthorized caller, and neither an uncaught exception nor an explicit `notFound()` call deep in
+  these particular Server Component trees set a real HTTP status in this app's current
+  Next.js/Turbopack setup — the same failure mode already documented below for `/editorial`'s
+  role-level check). Fixed the same way: `proxy.ts` now runs the same authorization RPC itself,
+  before any RSC render can commit a 200, and returns a real 404 directly if it's denied — see
+  `proxy.ts`'s `canReadStoryDraft`/`canPreviewStory` and their call sites for the current
+  implementation.
 - `npm run verify` = format:check + lint + typecheck + test + build (non-destructive, no server).
   `npm run verify:full` adds the Playwright run, reusing the build `verify` already produced
   (Playwright's `webServer` is `npm run start` only — never rebuilds) so nothing builds twice.
@@ -600,9 +618,10 @@ migrations are pushed and live-verified against the linked hosted project — se
 [docs/implementation-status.md](implementation-status.md) "Prompt 4 detail" for the full account,
 including the real bug the RLS integration suite's live run surfaced in
 `scripts/rls-test-cleanup.sql` (the new attempt/copy-attempt tables' `on delete restrict` foreign
-keys needed a cleanup-order fix). Not yet live-verified: a full round trip through actual Storage
-bytes (upload → `sharp` processing → public copy), which needs the project's service-role key —
-deferred to Sub-phase 5 per direction; everything at the DB/RPC layer is live-verified.
+keys needed a cleanup-order fix). **Live-verified as of Sub-phase 4:** a full round trip through
+actual Storage bytes (upload → `sharp` processing → public-bucket copy) is now exercised for real,
+end-to-end, by `e2e/editorial-upload.spec.ts` — the gap this section previously deferred to
+Sub-phase 5 is closed.
 
 ### Storage buckets
 
@@ -964,12 +983,14 @@ auth.uid() is null` together — the only trigger-firing context in this schema 
 
 ## Roadmap (corrected)
 
-- **Prompt 4** — editor/self-service authoring UI, image upload, storage buckets, contributor
-  approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication backend),
-  Sub-phase 3 (self-service authoring/drafting/preview UI), and Sub-phase 4 (editorial import,
-  consent/approval UI — all migrations pushed and live-verified) are complete — see
-  "Media processing and publication pipeline", "Self-service authoring UI", and "Editorial import +
-  consent/approval UI" above. Sub-phase 5 (broader integration tests/final docs) remains.
+- **Prompt 4 — complete.** Editor/self-service authoring UI, image upload, storage buckets,
+  contributor approval flow. Sub-phase 2 (storage, admin client, media pipeline, publication
+  backend), Sub-phase 3 (self-service authoring/drafting/preview UI), Sub-phase 4 (editorial
+  import, consent/approval UI — all migrations pushed and live-verified), and Sub-phase 5 (the
+  cross-contributor UI-level access test, the per-row `notFound()`-as-200 fix it found, and this
+  final docs pass) are all done — see "Media processing and publication pipeline", "Self-service
+  authoring UI", "Editorial import + consent/approval UI", and the Playwright bullet in "Testing
+  strategy" above.
 - **Prompt 5** — public discovery: browse/filter/detail pages, SEO, sitemap, cost-band UI (the exact
   cost-band thresholds are a Prompt 5 design decision — deliberately not invented in Prompt 3).
 - **Prompt 6** — editorial and moderation workspace (queue UI, reports triage).

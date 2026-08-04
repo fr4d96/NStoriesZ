@@ -5,7 +5,7 @@ which is the detailed, technical version. This file is updated after each prompt
 finishes, so you can see what's been done without reading migration names and function
 signatures.
 
-Last updated: after Prompt 4, Sub-phase 4 (now complete).
+Last updated: after Prompt 4, Sub-phase 5 (Prompt 4 now fully complete).
 
 ---
 
@@ -37,7 +37,7 @@ to go through a guarded function that re-checks who's allowed to do what. Live-t
 (23/23 tests) against your real project, including catching and fixing 3 real security bugs (one
 of which would have let any signed-in stranger overwrite someone else's private draft).
 
-## Prompt 4 — Actual authoring (in progress, 4 of 5 stages done, stage 4 now fully switched on)
+## Prompt 4 — Actual authoring (complete, all 5 stages done)
 
 This is the current work: letting contributors and editors actually write and publish stories
 with images.
@@ -130,26 +130,50 @@ with images.
        else, which made the whole function break with an error the moment it was actually called for
        real (something that can't be caught just by reading the code — it only shows up when you
        actually run it). Fixed in the same follow-up.
-    A third, related weak spot (not something that had actually gone wrong, just the same kind of
-    fragile pattern as bug 1 above, found by double-checking every similar spot in the code after
-    finding it once) was tightened up at the same time, as a precaution.
-    After these three fixes, the full automated safety-test suite was run again and now **passes
-    completely (33 out of 33 checks)**, including the specific "can a stranger hijack this draft"
-    check that had actually failed before the fix.
+       A third, related weak spot (not something that had actually gone wrong, just the same kind of
+       fragile pattern as bug 1 above, found by double-checking every similar spot in the code after
+       finding it once) was tightened up at the same time, as a precaution.
+       After these three fixes, the full automated safety-test suite was run again and now **passes
+       completely (33 out of 33 checks)**, including the specific "can a stranger hijack this draft"
+       check that had actually failed before the fix.
   - The two new automated browser tests (a real photo upload through the real screens, and a "what
     if someone pastes way too much text" check) were then run for real against the live database and
     **all pass**. One of the test's own setup values was wrong in a harmless way (it pasted more
     paragraphs than the story format allows in one document, which is a real limit working as
     intended, not a bug) — fixed by adjusting the test to paste a normal amount of text instead.
-- **Not yet built:** the final round of end-to-end tests and documentation polish. That's stage 5. A
-  handful of test-only story/contributor records created by this session's browser tests are still
-  sitting in the real database and haven't been cleaned up yet — cleaning them up is a real deletion
-  action, so it's being left for an explicit go-ahead rather than done automatically.
+- **Stage 5 (done):** The final round of end-to-end tests and documentation polish.
+  - Built a new automated browser test that signs in as one real test account, starts a story, then
+    signs in as a **second, completely separate** real test account and tries to open the first
+    account's story through the actual screens — the edit page, the private preview page, and (as a
+    spot-check) the equivalent editorial screen. This is the missing piece Stage 3 flagged: the
+    database-level tests already proved a stranger can't read someone else's data, but nothing had
+    proved the actual web pages behave the same way when a real signed-in stranger clicks through to
+    them.
+  - **This test found a real problem, live, on the first try.** Visiting someone else's story-edit
+    or preview page as an unrelated signed-in account came back with a normal-looking "200 OK"
+    response — the exact same shape of issue Stage 4 found and fixed for the editorial area's
+    signed-out case, just for a different, more specific situation (a signed-in stranger with no
+    connection to _this particular_ story, rather than someone with no staff role at all). No
+    private content was ever actually shown — the page just returned the wrong status code and a
+    generic error/not-found-looking screen instead of a proper "not found." Fixed the exact same way
+    as before: moved the "are you actually allowed to see this specific story" check earlier, into
+    the traffic-cop layer that runs before any page content is prepared, for all three affected
+    screens. Confirmed fixed by literally requesting the pages again and checking the real response
+    code, both for the stranger (now a real 404, as it should be) and for the legitimate
+    owner/editor (still works normally, unaffected).
+  - Fixed a formatting-only issue that was blocking a fully clean test run (some documentation files
+    had drifted out of the project's auto-formatting style over past sessions) — no content changed,
+    just whitespace/table layout.
+  - Updated this document, the detailed technical version, the content-governance policy doc, and
+    the architecture doc to reflect everything Prompt 4 actually shipped, replacing several
+    now-outdated notes that still described earlier, since-superseded plans.
+  - The handful of test-only story/contributor records created by this and earlier sessions'
+    browser tests are still sitting in the real database — cleaning them up is a real deletion
+    action against the live project, so it's being left for an explicit go-ahead rather than done
+    automatically.
 
 ### What's next
 
-Stage 5: a second real account interacting with someone else's story through the actual screens (as
-opposed to the automated tests, which already prove this is blocked at the database level), cleaning
-up the test data mentioned above (with your go-ahead), and any documentation polish still needed.
-After Prompt 4 wraps up, Prompt 5 is public browsing/search, and Prompt 6 is the moderator's review
-dashboard.
+**Prompt 4 is now fully done.** Next up: Prompt 5 (public browsing/search — browse and filter
+stories, story detail pages, search-engine visibility) and Prompt 6 (the moderator's review
+dashboard).
