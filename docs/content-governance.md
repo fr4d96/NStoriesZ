@@ -29,6 +29,14 @@ before any linked account (`linked_user_id IS NULL`) for the founding-catalogue 
 linking it to a real account afterward is a trusted, staff-only, audited operation
 (`public.link_contributor_to_user()`), never a self-service claim of an existing record.
 
+**Implemented as of Prompt 5: the public contributor directory (`/contributors`).** Listing is
+narrower than `public_status = 'public'` alone — a contributor also needs a usable `public_slug`,
+`attribution_type` other than `anonymous` (choosing to be anonymous and also getting a named public
+profile page are in tension), and at least one published story (an empty public profile page isn't
+useful, and avoids a public directory of accounts with nothing to show). See
+`list_public_contributors()`/`get_public_contributor()` in
+[docs/architecture.md](architecture.md#public-discovery-and-seo-prompt-5).
+
 ## Publication consent
 
 - No story is submitted for moderation without an explicit, recorded publication-permission
@@ -201,6 +209,20 @@ session (never client-supplied) — a signed-in reader is required for MVP, per 
 `list_my_reports()` lets a reporter see only their own; `resolve_report()` (moderator/admin) is the
 only path from `open`/`reviewing` to `resolved`/`dismissed`. A partial unique index prevents the same
 reporter opening a second report on the same story while one is still open.
+
+**Implemented as of Prompt 5: the actual reader-facing UI.** The Prompt 3 backend above had no
+caller until now — `components/story/report-story-form.tsx` (on the public story detail page) +
+`app/(public)/stories/[id]/actions.ts#reportStoryAction` are the first. Category selection is the
+same 6-value set the `story_reports_category_check` constraint already enforced (misinformation,
+unsafe employment advice, harassment, copyright/privacy, spam/commercial, other); details are
+optional and length-capped to match. A signed-out visitor sees a sign-in prompt instead of a broken
+form — the report widget itself carries no auth check of its own (the story detail page stays a
+plain Server Component that never inspects the session), so a signed-out submission is only
+discovered when `createStoryReport()` raises, translated into that prompt. A duplicate open report
+(the partial unique index above, surfaced as Postgres `23505`) and a genuine new report resolve to
+the exact same neutral confirmation text — the UI never reveals whether the caller already has an
+open report on a given story, keeping reporter identity/state private per this document's own
+requirement, not just at the RLS layer.
 
 ## Corrections, withdrawal, and deletion
 

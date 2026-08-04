@@ -1,0 +1,24 @@
+-- Prompt 5 audit finding: public.contributors uses ordinary RLS (not the
+-- story domain's zero-grant model), and Supabase's default per-table grants
+-- gave `anon` full-column SELECT/INSERT/UPDATE/REFERENCES on every column —
+-- including linked_user_id and created_by, which must never be public
+-- (Engineering Rule 16). RLS was still filtering *rows* correctly
+-- (public_status = 'public' only), but a direct anon `select('*')` on a
+-- public row would have leaked both columns' UUIDs to any anonymous caller.
+-- This is the same class of gap Prompt 3 found and fixed for the story
+-- domain in 20260803090900_lock_down_story_domain_grants.sql: RLS alone
+-- does not deny the query, only the rows.
+--
+-- Fix: revoke every direct table grant from `anon` outright. No current or
+-- planned public read of contributors goes through direct table access —
+-- Prompt 5's public contributor directory/detail pages go through new
+-- curated SECURITY DEFINER functions (list_public_contributors,
+-- get_public_contributor) instead, matching the story domain's own pattern.
+-- `authenticated` grants are untouched: the self-service contributor
+-- identity flow (app/(contributor)/actions.ts, account/page.tsx) and the
+-- editorial contributor list (lib/story/editorial-queries.ts) both rely on
+-- authenticated + RLS today and are out of scope for this change — grepped
+-- and confirmed every existing `.from("contributors")` call site in the
+-- app runs as an authenticated caller, never anon.
+
+revoke all on public.contributors from anon;

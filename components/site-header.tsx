@@ -15,7 +15,7 @@ const primaryNav = [
  */
 export function SiteHeader() {
   return (
-    <header className="relative border-b border-black/10 dark:border-white/10">
+    <header className="relative border-b border-border-subtle bg-surface">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           WHV Compass NZ
@@ -35,7 +35,7 @@ export function SiteHeader() {
           </Link>
           <Link
             href="/sign-up"
-            className="rounded-md bg-black px-3 py-1.5 text-white hover:bg-black/80 dark:bg-white dark:text-black dark:hover:bg-white/80"
+            className="rounded-full bg-accent px-3 py-1.5 text-accent-foreground hover:opacity-90"
           >
             Sign up
           </Link>

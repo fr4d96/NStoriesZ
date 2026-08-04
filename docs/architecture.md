@@ -104,13 +104,14 @@ e2e/
                                 # with safe next param; invalid callback link handling
 ```
 
-Target/deferred pieces not yet built: `stories/[slug]`, `contributors/[slug]`, `sitemap.ts`/
-`robots.ts` (Prompt 5), and any moderation/admin UI at all (Prompt 4 builds the publication
-_backend_ only for those roles — see "Media processing and publication pipeline (Prompt 4)" below —
-Prompt 6 owns the moderation workspace that will call it). Self-service authoring (`/stories/new`,
-`/my-stories`, `/stories/:id/edit`, `/stories/:id/preview`) and editorial import/consent-approval
-(`/editorial/*`) are real UI as of Prompt 4 Sub-phases 3–4 respectively — see "Self-service
-authoring UI" and "Editorial import + consent/approval UI" below.
+`stories/[id]` (public detail — folder named `[id]` to match the sibling `(contributor)/stories/[id]/`
+route group), `contributors`/`contributors/[slug]`, `sitemap.ts`/`robots.ts` are real, live as of
+Prompt 5 — see "Public discovery and SEO (Prompt 5)" below. Still deferred: any moderation/admin UI
+at all (Prompt 4 builds the publication _backend_ only for those roles — see "Media processing and
+publication pipeline (Prompt 4)" below — Prompt 6 owns the moderation workspace that will call it).
+Self-service authoring (`/stories/new`, `/my-stories`, `/stories/:id/edit`, `/stories/:id/preview`)
+and editorial import/consent-approval (`/editorial/*`) are real UI as of Prompt 4 Sub-phases 3–4
+respectively — see "Self-service authoring UI" and "Editorial import + consent/approval UI" below.
 
 ## Authentication boundaries
 
@@ -981,6 +982,162 @@ auth.uid() is null` together — the only trigger-firing context in this schema 
   database row — written, and (per a separate explicit go-ahead requirement) not yet executed, so
   the fixture data these Playwright runs created is still on the hosted project.
 
+## Public discovery and SEO (Prompt 5)
+
+Public reading/browsing (`/`, `/stories`, `/stories/[id]` — the folder is named `[id]` to match
+`(contributor)/stories/[id]/`, a Next.js requirement that every route sharing a URL position across
+route groups use the same dynamic-segment name; the value is still a slug, not a UUID —
+`/contributors`, `/contributors/[slug]`), search/filter/sort, SEO metadata/sitemap/robots, and
+reader reporting. Builds only on top of the story domain's existing public-read model
+(`get_published_story`/`list_published_stories`/`get_published_story_media`, the only three
+functions ever granted to `anon`) — no new table gains a direct grant.
+
+### Public RPCs — extended, not replaced
+
+`list_published_stories()` (migration `20260805100100`, corrected by `20260805100400`, see "A real
+bug class" below) now returns everything a story card needs in one call — `cover_image_path`
+(lateral join to `story_revision_media`/`story_media`, preferring the explicit cover, falling back
+to the first image by `sort_order`), `regions`/`work_types`/`tags` (same curated JSON shape
+`get_published_story` already used), and gained `p_cost_band`, `p_has_reported_expense`,
+`p_exclude_story_id` (related-stories module), and `p_search` filters — never a per-card follow-up
+query. Cost bands (`under_5k` / `5k_15k` / `15k_30k` / `30k_plus`, boundaries at exactly
+`500000`/`1500000`/`3000000` cents) were a deliberate Prompt 5 product decision, not invented while
+writing Prompt 3's migrations (see "Cost-band bucket thresholds" in implementation-status.md's
+former Risks list — now resolved).
+
+Three new anon-granted functions, same template as every existing public-read function (`set
+search_path = ''`, explicit `returns table`, re-verify every invariant inside the body, `revoke`
+then `grant execute ... to anon, authenticated`):
+
+- `list_distinct_public_travel_styles()` — `travel_style` has no lookup table (free text), so
+  filter options must come from what's actually in use among public stories, never a hardcoded list.
+  Scans the same public+approved+consent-valid invariant `list_published_stories` checks; dedupes
+  case-insensitively/trimmed via `distinct on (lower(trim(...)))`.
+- `list_public_contributors(cursor, limit)` / `get_public_contributor(slug)` — the contributor
+  directory/detail. Deliberately narrower than "`public_status = 'public'`" alone: requires a usable
+  `public_slug`, excludes `attribution_type = 'anonymous'` (a contributor who chose to be anonymous
+  shouldn't also get a named public profile page), and excludes contributors with zero published
+  stories (computed via a lateral join against the same public+approved+consent-valid invariant,
+  never a plain count against `stories`, which has no anon grant either way).
+
+### `contributors` table grants — a real gap found and closed
+
+`contributors` uses ordinary RLS (not the story domain's zero-grant model, see the Prompt 2 RLS
+strategy section above) — Supabase's default per-table grants meant `anon` had direct
+SELECT/INSERT/UPDATE/REFERENCES on every column, including `linked_user_id` and `created_by`, which
+must never be public (Engineering Rule 16). RLS was still filtering _rows_ correctly
+(`public_status = 'public'` only), but a direct anon `select('*')` on a public row would have leaked
+both UUID columns — the exact same class of gap Prompt 3 found and fixed for the story domain in
+`20260803090900_lock_down_story_domain_grants.sql`. Fixed in `20260805100000`: `revoke all on
+public.contributors from anon`. `authenticated` grants are untouched — every existing
+`.from("contributors")` call site in the app (self-service identity, editorial contributor list) is
+authenticated-only, grepped and confirmed before making the change. All public contributor reads now
+go through the two curated functions above instead.
+
+### Cookie-free public client — what actually makes ISR effective
+
+`lib/supabase/server.ts` calls `next/headers`' `cookies()`, which unconditionally opts a route out
+of static rendering/ISR in the App Router regardless of `export const revalidate` — true even for a
+page that never actually uses the session. `lib/supabase/public.ts#createPublicClient()` is a
+plain `@supabase/supabase-js` client (no cookies, `persistSession: false`) used by every function in
+`lib/story/public-queries.ts` (including new cookie-free duplicates of the lookup-table reads,
+`listPublicRegions`/`listPublicDestinations`/`listPublicWorkTypes`/`listPublicTags`, kept separate
+from `lib/story/active-lookups.ts` so the authoring UI's existing cookie-bound queries are
+untouched). This is what lets `/` and `/sitemap.xml` (revalidate 60/3600) actually build as static
+(`○`) routes. `/stories`, `/stories/[id]`, `/contributors`, `/contributors/[slug]` still render
+dynamically (`ƒ`) — `searchParams` usage and un-enumerated dynamic segments (no
+`generateStaticParams`) force per-request rendering in the App Router independent of the Supabase
+client used; `export const revalidate` on those pages has no practical effect without
+`generateStaticParams`, documented here rather than silently overclaimed. `createStoryReport()`
+(the one mutation this prompt's UI performs) still goes through the cookie-bound server client,
+since it genuinely needs the caller's session.
+
+### A public per-row 404 gap — the same failure mode, found again
+
+`app/(public)/stories/[id]/page.tsx` and `app/(public)/contributors/[slug]/page.tsx` each call a
+plain `notFound()` for a non-existent slug — live-verified via Playwright to still return HTTP 200
+(the exact same "a page-based `notFound()` deep in an RSC tree doesn't set a real HTTP status"
+failure mode already documented above for `/editorial` and the Prompt 4 Sub-phase 5 per-row leaks).
+Not a security leak this time (a public row is public either way), but a real correctness bug
+against both the brief's "denial of ... non-existent ... content" requirement and basic SEO hygiene
+(a 200 for a dead link is a soft-404, and this project's own sitemap/robots work would be
+undermined by serving one). Fixed the same proven way: `proxy.ts` gained
+`publishedStoryExists()`/`publicContributorExists()` (calling `get_published_story`/
+`get_public_contributor` — anon-safe, no auth needed) and matches `/stories/:id` /
+`/contributors/:slug` in its matcher, returning a small real-HTML 404 (`publicNotFound()`, status
+404, distinct from the flat JSON `flatNotFound()` staff routes use — a public 404 is not a stealth
+response, so it gets a readable page instead) before any RSC render can commit a 200. `/stories/new`
+is explicitly excluded from the story-slug check (a real static route, not a slug) since the
+existing sign-in-redirect logic already runs first for signed-out visitors but a signed-in visitor
+reaches the new check too. This adds one DB round trip per public detail-page request in
+middleware, on top of the page component's own (unavoidable) fetch of the same row — the same
+"correctness over the redundant-query cost" tradeoff already accepted for the private per-row cases.
+
+### Search
+
+`story_revisions.search_vector` (generated `tsvector`, title weighted `'A'`, excerpt weighted
+`'B'`) with a GIN index, matched via `websearch_to_tsquery`. Uses Postgres's `'simple'` text-search
+configuration, not `'english'` — deliberate: titles/excerpts are full of NZ place names, Māori
+terms, and personal names that English stemming/stopword rules would mangle; `'simple'` still
+tokenizes and case-folds, just skips stemming (documented tradeoff: less recall on English
+word-form variants). One real, live-confirmed quirk this surfaced: a hyphenated query string (e.g.
+a slug fragment) is parsed by `websearch_to_tsquery` as a strict phrase requiring the _entire_
+hyphenated compound to exist as one lexeme in the target document — a partial hyphenated substring
+of a longer hyphenated title therefore never matches, confirmed directly against the live database.
+Space-separated queries (real user search terms) are unaffected — they AND-match regardless of
+word order, verified the same way. Basic Postgres full-text over title+excerpt only, not a
+dedicated search service — appropriate at this scale, a documented scaling note rather than an
+oversight.
+
+### Caching and invalidation — what exists today, and what Prompt 6 must call
+
+`lib/story/public-cache.ts` exports `invalidateStoryPublicCache(slug)` /
+`invalidateContributorPublicCache(slug)` (`revalidatePath` on the detail page, the index, `/`, and
+`/sitemap.xml`). Deliberately **not** called from `lib/story/moderation.ts#archiveStory()` or
+`lib/story/mutations.ts#revokePublicationConsent()` themselves — `revalidatePath`/`revalidateTag`
+belongs at the Server Action/Route Handler orchestration boundary that calls a reusable
+domain/repository function, not inside the function itself. Grepped and confirmed at the time of
+writing: neither function has any real UI caller yet (Prompt 6, not started, is what will add the
+actual publish/archive Server Actions). Until then, the only real mechanism keeping public pages
+eventually consistent is the `export const revalidate = 60` on `/` and `/stories`/`/stories/[id]`/
+`/contributors`/`/contributors/[slug]` (the latter four's practical effect is limited per the
+"cookie-free public client" section above, since they're forced dynamic anyway — meaning they're
+already fresh on every request without needing invalidation) and `revalidate = 3600` on
+`/sitemap.xml`. Every future Server Action that calls `finalize_story_publication()`, `archiveStory()`,
+or `revokePublicationConsent()` successfully must call the matching helper immediately after — see
+the doc comment in `lib/story/public-cache.ts` for the exact call sites.
+
+### Reporting UI
+
+The backend (`create_story_report`, `story_reports_category_check` matching exactly the required 6
+categories, the reporter-story-open partial unique index) was already fully built in Prompt 3 with
+no UI caller — Prompt 5 added only `components/story/report-story-form.tsx` +
+`app/(public)/stories/[id]/actions.ts#reportStoryAction`. Deliberately starts closed with no auth
+check of its own: the story detail page itself never calls `getCurrentUser()` (keeping it as close
+to static as the forced-dynamic constraints above allow), so a visitor's auth state is discovered
+only when they submit — `createStoryReport()`'s existing "You must be signed in" error becomes a
+`needs-sign-in` UI state rather than a page-level redirect. A duplicate open report (Postgres
+`23505` on the partial unique index) and a genuine success resolve to the identical neutral
+confirmation, never revealing report state to the caller (per docs/content-governance.md's private
+reporter identity requirement).
+
+### A real bug class found again: bare-identifier ambiguity in a function with no real caller
+
+`list_published_stories()`'s lateral consent-lookup subquery (`where story_id = s.id`, inside `join
+lateral (select * from story_publication_consents where ...)`) is bare — and
+`list_published_stories()`'s own `returns table (story_id uuid, ...)` makes `story_id` an implicit
+PL/pgSQL variable across the whole function body, the exact bug class already fixed twice before in
+this codebase (`20260803091000`, `20260804092500`). This exact line was already fixed correctly
+once, in `20260803091000` (`spc.story_id = s.id`) — but Prompt 5's `DROP FUNCTION` + `CREATE
+FUNCTION` (needed for the new return columns) was authored from an earlier, pre-fix copy of the
+function body and silently reintroduced the bare form. Never caught by `npm run test:rls` (the
+existing 33 tests never actually called `list_published_stories` — the page it powers was a
+placeholder until this prompt) — found live by `app/sitemap.ts`'s build-time call, `list_published_stories`'s
+first-ever real caller. Fixed in a corrective migration, `20260805100400`, restoring the qualified
+form. Lesson reaffirmed: when reconstructing a function via `DROP`+`CREATE`, diff against the
+_current_ live signature/body (e.g. via `pg_get_functiondef`), never a possibly-stale copy carried
+over from an earlier read.
+
 ## Roadmap (corrected)
 
 - **Prompt 4 — complete.** Editor/self-service authoring UI, image upload, storage buckets,
@@ -991,9 +1148,13 @@ auth.uid() is null` together — the only trigger-firing context in this schema 
   final docs pass) are all done — see "Media processing and publication pipeline", "Self-service
   authoring UI", "Editorial import + consent/approval UI", and the Playwright bullet in "Testing
   strategy" above.
-- **Prompt 5** — public discovery: browse/filter/detail pages, SEO, sitemap, cost-band UI (the exact
-  cost-band thresholds are a Prompt 5 design decision — deliberately not invented in Prompt 3).
-- **Prompt 6** — editorial and moderation workspace (queue UI, reports triage).
+- **Prompt 5 — complete.** Public discovery (browse/filter/search, story/contributor detail pages),
+  SEO (metadata, canonical, JSON-LD, sitemap, robots), and reader reporting UI — see "Public
+  discovery and SEO (Prompt 5)" above for the full account, including the contributor-table grant
+  fix, the public per-row 404 fix, and the bare-identifier bug corrective migration.
+- **Prompt 6** — editorial and moderation workspace (queue UI, reports triage). Also owns the real
+  publish/archive Server Actions that must call `lib/story/public-cache.ts`'s invalidation helpers
+  (see "Caching and invalidation" above).
 
 ## Deployment assumptions
 
