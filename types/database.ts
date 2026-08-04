@@ -978,6 +978,7 @@ export type Database = {
           id: string;
           revision_number: number;
           revision_status: Database["public"]["Enums"]["story_revision_status"];
+          search_vector: unknown;
           story_id: string;
           title: string;
           total_expense_nzd_cents: number | null;
@@ -999,6 +1000,7 @@ export type Database = {
           id?: string;
           revision_number: number;
           revision_status?: Database["public"]["Enums"]["story_revision_status"];
+          search_vector?: unknown;
           story_id: string;
           title: string;
           total_expense_nzd_cents?: number | null;
@@ -1020,6 +1022,7 @@ export type Database = {
           id?: string;
           revision_number?: number;
           revision_status?: Database["public"]["Enums"]["story_revision_status"];
+          search_vector?: unknown;
           story_id?: string;
           title?: string;
           total_expense_nzd_cents?: number | null;
@@ -1340,6 +1343,16 @@ export type Database = {
           visibility: Database["public"]["Enums"]["story_visibility"];
         }[];
       };
+      get_public_contributor: {
+        Args: { p_slug: string };
+        Returns: {
+          bio: string;
+          contributor_id: string;
+          display_name: string;
+          public_slug: string;
+          published_story_count: number;
+        }[];
+      };
       get_published_story: {
         Args: { p_slug: string };
         Returns: {
@@ -1460,6 +1473,12 @@ export type Database = {
           version: number;
         }[];
       };
+      list_distinct_public_travel_styles: {
+        Args: never;
+        Returns: {
+          travel_style: string;
+        }[];
+      };
       list_my_reports: {
         Args: never;
         Returns: {
@@ -1499,14 +1518,32 @@ export type Database = {
           visibility: Database["public"]["Enums"]["story_visibility"];
         }[];
       };
+      list_public_contributors: {
+        Args: {
+          p_cursor_display_name?: string;
+          p_cursor_id?: string;
+          p_limit?: number;
+        };
+        Returns: {
+          bio: string;
+          contributor_id: string;
+          display_name: string;
+          public_slug: string;
+          published_story_count: number;
+        }[];
+      };
       list_published_stories: {
         Args: {
           p_contributor_id?: string;
+          p_cost_band?: string;
           p_cursor_id?: string;
           p_cursor_published_at?: string;
           p_destination_id?: string;
+          p_exclude_story_id?: string;
+          p_has_reported_expense?: boolean;
           p_limit?: number;
           p_region_id?: string;
+          p_search?: string;
           p_tag_id?: string;
           p_travel_style?: string;
           p_trip_year?: number;
@@ -1516,14 +1553,18 @@ export type Database = {
           attribution_type: Database["public"]["Enums"]["attribution_type"];
           attribution_value: string;
           contributor_slug: string;
+          cover_image_path: string;
           excerpt: string;
           published_at: string;
+          regions: Json;
           slug: string;
           story_id: string;
+          tags: Json;
           title: string;
           total_expense_nzd_cents: number;
           travel_style: string;
           trip_year: number;
+          work_types: Json;
         }[];
       };
       list_reports_for_staff: {

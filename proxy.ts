@@ -23,6 +23,30 @@ const STORY_EDIT_PAGE_PATH = /^\/stories\/([^/]+)\/edit$/;
 const STORY_PREVIEW_PAGE_PATH = /^\/stories\/([^/]+)\/preview$/;
 const EDITORIAL_EDIT_PAGE_PATH = /^\/editorial\/([^/]+)\/edit$/;
 
+// Prompt 5: the exact same "a page-based notFound() deep in an RSC tree
+// doesn't set a real HTTP status" failure mode documented above for the
+// staff/per-row cases, live-confirmed again for the PUBLIC story/
+// contributor detail pages: a non-existent slug returned a live HTTP 200
+// (via app/(public)/stories/[id]/page.tsx's plain `notFound()` call) in a
+// real Playwright run. Not a security leak like the private per-row
+// cases -- a public row is public either way -- but a real correctness bug
+// against the brief's own "denial of ... non-existent ... content" test
+// requirement and basic SEO hygiene (a 200 for a dead link is a soft-404).
+// Fixed the same proven way: an existence check here, before any RSC
+// render can commit a 200. "new" is excluded from the story pattern since
+// /stories/new is a real static route (start a draft), not a slug.
+const STORY_DETAIL_PAGE_PATH = /^\/stories\/([^/]+)$/;
+const CONTRIBUTOR_DETAIL_PAGE_PATH = /^\/contributors\/([^/]+)$/;
+
+function publicNotFound() {
+  return new NextResponse(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Not found | WHV Compass NZ</title></head>' +
+      "<body><h1>Page not found</h1><p>This page does not exist or is no longer available.</p>" +
+      '<p><a href="/stories">Browse stories</a></p></body></html>',
+    { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
 // /editorial/* (Prompt 4 Sub-phase 4). Real pages now, not a Route Handler
 // stub — but a page-based notFound() (app/(editor)/editorial/layout.tsx)
 // was confirmed live, via a real `curl -i`, to still return HTTP 200 for a
@@ -90,6 +114,26 @@ async function canPreviewStory(
 ) {
   const { data, error } = await supabase.rpc("get_story_preview", {
     p_story_id: storyId,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+async function publishedStoryExists(
+  supabase: ReturnType<typeof createServerClient>,
+  slug: string,
+) {
+  const { data, error } = await supabase.rpc("get_published_story", {
+    p_slug: slug,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+async function publicContributorExists(
+  supabase: ReturnType<typeof createServerClient>,
+  slug: string,
+) {
+  const { data, error } = await supabase.rpc("get_public_contributor", {
+    p_slug: slug,
   });
   return !error && Array.isArray(data) && data.length > 0;
 }
@@ -206,6 +250,33 @@ export async function proxy(request: NextRequest) {
     response.headers.set("Cache-Control", "no-store");
   }
 
+  // Public detail pages — see the STORY_DETAIL_PAGE_PATH comment above.
+  // "/stories/new" is a real static route, not a slug — excluded
+  // explicitly rather than relying on the regex alone, since a signed-in
+  // visitor reaches this point without having been redirected above.
+  const storyDetailMatch = request.nextUrl.pathname.match(
+    STORY_DETAIL_PAGE_PATH,
+  );
+  if (storyDetailMatch && storyDetailMatch[1] !== "new") {
+    const exists = await publishedStoryExists(supabase, storyDetailMatch[1]);
+    if (!exists) {
+      return publicNotFound();
+    }
+  }
+
+  const contributorDetailMatch = request.nextUrl.pathname.match(
+    CONTRIBUTOR_DETAIL_PAGE_PATH,
+  );
+  if (contributorDetailMatch) {
+    const exists = await publicContributorExists(
+      supabase,
+      contributorDetailMatch[1],
+    );
+    if (!exists) {
+      return publicNotFound();
+    }
+  }
+
   return response;
 }
 
@@ -218,5 +289,7 @@ export const config = {
     "/stories/:id/preview/:path*",
     "/editorial",
     "/editorial/:path*",
+    "/stories/:id",
+    "/contributors/:slug",
   ],
 };

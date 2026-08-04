@@ -3,7 +3,7 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-05.
+Last updated: 2026-08-05 (Prompt 5).
 
 ## Status legend
 
@@ -18,7 +18,7 @@ Last updated: 2026-08-05.
 | 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                                                                             | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                                  |
 | 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.**                                                              | See "Prompt 3 detail" below.                                                                                                                             |
 | 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **complete — all 5 sub-phases done: all 8 migrations pushed and live-verified (`test:rls` 33/33); the cross-contributor UI-level access spec found and fixed a real per-row `notFound()`-as-200 leak.** | Built on `prompt-4-authoring-images`; PR #5 (Sub-phases 1–4) already merged to `main`, Sub-phase 5 lands as a follow-up PR. See "Prompt 4 detail" below. |
-| 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | not started                                                                                                                                                                                             | Roadmap corrected in Prompt 3 (previously numbered 5, content unchanged).                                                                                |
+| 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | **complete — 5 migrations pushed and live-verified (`test:rls` 44/44); 24/24 Playwright specs pass; a real ambiguous-column bug and a real public per-row 404 gap were found and fixed.**               | See "Prompt 5 detail" below.                                                                                                                             |
 | 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | not started                                                                                                                                                                                             | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` get real UI here instead of a role-gated JSON stub.            |
 | 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                                                                             | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                                      |
 
@@ -783,43 +783,148 @@ not re-litigated):
 
 **Prompt 4 is now fully done — all 5 sub-phases complete.** See "Next prompt" below.
 
+## Prompt 5 detail — complete
+
+Public discovery (`/`, `/stories`, `/stories/[id]`, `/contributors`, `/contributors/[slug]`), SEO
+(metadata/canonical/JSON-LD/sitemap/robots), search/filter/pagination, and reader reporting UI. Full
+design account, including every decision and tradeoff, is in
+[docs/architecture.md](architecture.md#public-discovery-and-seo-prompt-5) — not duplicated in full
+here.
+
+- **5 new migrations** (`20260805100000`–`20260805100400`): revoke `anon`'s direct table grants on
+  `contributors` (a real pre-existing gap found via audit, not introduced this prompt);
+  `list_published_stories()` extended with cover image/regions/work_types/tags/cost-band/
+  expense-availability/exclude-story-id/search (plus a new `search_vector` generated column + GIN
+  index on `story_revisions`); `list_distinct_public_travel_styles()`; `list_public_contributors()` +
+  `get_public_contributor()`; a corrective migration fixing a real ambiguous-column bug in
+  `list_published_stories()` (see below). All applied via the Supabase MCP `apply_migration` tool
+  (no Supabase CLI available in this environment — same limitation as every prior prompt, see "Local
+  vs. hosted Supabase development" in architecture.md) and reviewed with `execute_sql` beforehand
+  (grant/`pg_depend` checks) and `get_advisors` afterward (only the expected, already-established
+  "anon can execute SECURITY DEFINER function" warnings, nothing new). `types/database.ts`
+  regenerated for real via the MCP `generate_typescript_types` tool.
+- **User decisions locked in during planning**: cost bands (<$5k / $5k–15k / $15k–30k / $30k+, NZD,
+  exact cent boundaries `500000`/`1500000`/`3000000`); contributor avatars deferred entirely
+  (`contributors.avatar_path` has no upload/processing/moderation pipeline and none was built here —
+  a distinct image-pipeline feature, out of scope; public contributor pages render a text-initial
+  placeholder only).
+- **`proxy.ts`** gained a public per-row 404 check (`publishedStoryExists`/`publicContributorExists`,
+  matching `/stories/:id`/`/contributors/:slug`) — a real gap found live via Playwright: a
+  non-existent slug returned HTTP 200 (the same "deep `notFound()` doesn't set a real status"
+  failure mode already documented for `/editorial` and the Prompt 4 Sub-phase 5 per-row leaks, this
+  time on a public, non-security-sensitive route). Returns a small real-HTML 404, not the flat JSON
+  staff routes use — a public 404 isn't a stealth response.
+- **`lib/supabase/public.ts`** (new, cookie-free client) — `lib/supabase/server.ts` calls
+  `next/headers`' `cookies()`, which unconditionally forces dynamic rendering regardless of `export
+const revalidate`; every function in `lib/story/public-queries.ts` now uses the cookie-free client
+  instead, which is what actually lets `/` and `/sitemap.xml` build as static routes. `/stories`,
+  `/stories/[id]`, `/contributors`, `/contributors/[slug]` still render dynamically regardless
+  (`searchParams` / un-enumerated dynamic segments), documented as such rather than overclaimed.
+- **Route rename**: `app/(public)/stories/[slug]/` was renamed to `app/(public)/stories/[id]/`
+  mid-implementation — Next.js requires every route sharing a URL position across route groups to
+  use the same dynamic-segment name, and `(contributor)/stories/[id]/edit`/`preview` already existed
+  with `[id]`. Caught immediately by `npm run build` (`"You cannot use different slug names for the
+same dynamic path"`); the value itself is still a slug, not a UUID.
+- **A real, previously-undiscovered bug**: `list_published_stories()`'s lateral consent-lookup
+  subquery has always had a bare `story_id` reference, ambiguous against the function's own `returns
+table (story_id uuid, ...)` — the exact bug class already fixed twice before in this codebase
+  (`20260803091000`, `20260804092500`). This specific line was in fact already fixed correctly once
+  (`20260803091000`), but this prompt's `DROP FUNCTION`/`CREATE FUNCTION` (needed for the new return
+  columns) was authored from a stale, pre-fix copy of the function body and silently reintroduced
+  it. Never caught by the pre-existing 33 `test:rls` cases (`list_published_stories` had no real
+  caller before this prompt — the page it powers was a placeholder) — found live by
+  `app/sitemap.ts`'s build-time call, its first-ever real invocation, and `npm run build` failing
+  outright with `42702`. Fixed in a corrective migration (`20260805100400`).
+- **`scripts/rls-test-cleanup.sql`** gained `set session_replication_role = replica` around its
+  deletes — a real gap found live: the new "no duplicate story rows" test case attached work
+  types/tags to a revision and then approved it, and the cleanup script's later `delete from
+story_revision_work_types`/`tags` was rejected by `_protect_revision_child_immutability()` (a
+  protection meant for ordinary application mutation, not this already-guarded, dev-only teardown
+  script). Reset to `default` at the end of the script.
+- **44/44 `npm run test:rls`** (up from 33), including new coverage for: exact cost-band cent
+  boundaries; `p_has_reported_expense` true/false/omitted; `p_search`/`p_exclude_story_id`; no
+  duplicate story rows when multiple work types/tags are attached; `list_distinct_public_travel_styles()`
+  case-insensitive/whitespace dedup and public-only scope; `list_public_contributors()`/
+  `get_public_contributor()` excluding private/anonymous-attribution/zero-story contributors; direct
+  `anon` table access to `contributors` now rejected (`42501`). One real test-methodology finding
+  along the way: `websearch_to_tsquery('simple', ...)` on a hyphenated query string matches as a
+  strict phrase against the document's whole hyphenated compound token, so a partial hyphenated
+  substring search never matches — confirmed directly against the live database
+  (`to_tsvector`/`websearch_to_tsquery` inspection) before adjusting the test fixtures to
+  space-separated words, which is also what a real user's search query looks like.
+- **24/24 `npx playwright test e2e/`** (up from 19), including the new `e2e/public-discovery.spec.ts`
+  (mobile-viewport-first browse/filter/search, desktop filter visibility, story detail rendering +
+  canonical link, real 404s for non-existent story/contributor slugs, signed-out vs. signed-in report
+  flow, sitemap/robots content). One real UI bug found and fixed along the way: the filter bar's
+  mobile disclosure was originally a native `<details>` element with a CSS override intended to force
+  it open at the `sm:` breakpoint — live-verified (Playwright, real Chromium) that a closed
+  `<details>`'s children stay hidden from both the accessibility tree and visual layout even under a
+  `display: block !important` override; replaced with the same explicit-`useState` disclosure pattern
+  `components/mobile-nav-toggle.tsx` already used. A second, narrower finding: Playwright's
+  `getByLabel()` with an anchored regex (`/^region$/i`) unreliably reported zero matches against a
+  correctly-implicitly-labelled native `<select>` in this Chromium build, confirmed via direct DOM/
+  computed-style/ARIA-snapshot inspection to be a real element correctly rendered and accessible — a
+  tooling quirk, not an app defect; the spec uses a direct `select[name="region"]` locator instead.
+- **153/153 unit tests** (up from 137), including `lib/validation/discovery.test.ts` (the new
+  search-param parser — every field parses independently, a bad value for one field never fails the
+  whole page) and `components/story/{story-card,filter-bar}.test.tsx`.
+- `npm run verify` passes in full: format/lint/typecheck clean, build succeeds (`/`, `/sitemap.xml`
+  static; `/stories`, `/stories/[id]`, `/contributors`, `/contributors/[slug]` dynamic, as expected
+  given the caching section above).
+- **Left as accepted debris**, matching this codebase's existing precedent for disposable RLS-test
+  lookup rows (regions/destinations): the `contributors` rows created by the new
+  `list_public_contributors`/`get_public_contributor` RLS test case (private/zero-story/
+  anonymous-attribution/real-public fixtures) are not cleaned up —
+  `scripts/rls-test-cleanup.sql` has never touched `contributors` (the fixed test-account pool must
+  survive every cleanup run), and these are genuinely new rows, not pool accounts. Low-cost,
+  disposable, on the same disposable dev project.
+- **Not built, deliberately out of scope**: contributor avatar upload/processing (see "user
+  decisions" above); on-demand cache invalidation for the actual publish/archive path (no real
+  caller exists yet — Prompt 6's job, see architecture.md's "Caching and invalidation"); a dedicated
+  search service (basic Postgres full-text is appropriate at this scale).
+
 ## Migration summary
 
 All in `supabase/migrations/`, applied in filename order:
 
-| File                                                              | Adds                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20260802085013_helpers.sql`                                      | `public.set_updated_at()` — shared `updated_at` maintenance trigger function.                                                                                                                                                                                                                                                                                                                |
-| `20260802085014_user_roles.sql`                                   | `app_role` enum; `user_roles` table + RLS; `public.has_role()` (SECURITY DEFINER, used inside other tables' RLS); `public.admin_set_user_role()` (SECURITY DEFINER, the only post-creation role-change path).                                                                                                                                                                                |
-| `20260802085015_profiles.sql`                                     | `profiles` table + RLS (owner read/write; public read only when opted in with a slug).                                                                                                                                                                                                                                                                                                       |
-| `20260802085016_contributors.sql`                                 | `attribution_type`, `contributor_status` enums; `contributors` table + RLS + `contributors_protect_privileged_fields()` trigger (blocks non-staff changes to `linked_user_id`/`created_by`/archiving).                                                                                                                                                                                       |
-| `20260802085017_contributor_links.sql`                            | `contributor_links` audit table (no direct-write RLS policy at all); `public.link_contributor_to_user()` (SECURITY DEFINER, editor/admin-only, the sole write path).                                                                                                                                                                                                                         |
-| `20260802085018_handle_new_user.sql`                              | `handle_new_user()` trigger on `auth.users` — creates the default `profiles` + `user_roles('user')` row for every new account, idempotently.                                                                                                                                                                                                                                                 |
-| `20260802093000_fix_contributors_unlink_on_delete.sql`            | Fixes a bug found during live verification (see "Prompt 2 detail" above): `contributors_protect_privileged_fields()` now only blocks non-staff _assignment_ of `linked_user_id`, not clearing it to `null` — otherwise the `ON DELETE SET NULL` FK action itself got blocked, breaking user deletion for anyone with a linked contributor record.                                            |
-| `20260803090000_lookup_tables.sql`                                | `regions`, `destinations`, `work_types`, `tags` + plain RLS (active-only public read, admin write).                                                                                                                                                                                                                                                                                          |
-| `20260803090100_stories.sql`                                      | `story_source_kind`/`story_visibility`/`story_lifecycle_status` enums; `stories` table, RLS enabled with zero policies, no direct grants.                                                                                                                                                                                                                                                    |
-| `20260803090200_story_revisions.sql`                              | `story_revision_status` enum; `story_revisions` table + content-immutability trigger; `story_revision_editor_notes` (staff-only); `stories_validate_revision_pointers()` trigger.                                                                                                                                                                                                            |
-| `20260803090250_story_internal_helpers.sql`                       | `_is_story_owner()`, `_revision_is_editable()` — no API grants.                                                                                                                                                                                                                                                                                                                              |
-| `20260803090300_story_revision_relations.sql`                     | `story_revision_locations` (+ region/destination integrity trigger), `story_revision_work_types`, `story_revision_tags`; shared `_protect_revision_child_immutability()` trigger.                                                                                                                                                                                                            |
-| `20260803090400_story_media.sql`                                  | `story_media`, `story_revision_media` (+ one-cover/alt-text/sort-order/processed-derivative constraints, cross-story-attachment trigger); `_require_processed_media()`.                                                                                                                                                                                                                      |
-| `20260803090500_story_publication_consents.sql`                   | `identifiable_people_state` enum; append-only `story_publication_consents` (+ `unique(revision_id)`, `unique(story_id, event_number)`); `story_publication_consent_notes`; `_latest_valid_consent_for_revision()`.                                                                                                                                                                           |
-| `20260803090600_moderation.sql`                                   | `moderation_actions` + `moderation_action_notes`, `story_reports`, `editorial_actions` — all append-only / no direct grants.                                                                                                                                                                                                                                                                 |
-| `20260803090700_story_lifecycle_functions.sql`                    | The full authoring/submission/moderation/consent/media/report RPC surface (~35 functions) — see docs/architecture.md "Story domain" for the complete list.                                                                                                                                                                                                                                   |
-| `20260803090800_story_public_reads.sql`                           | `get_published_story`, `list_published_stories`, `get_published_story_media` — the only three functions granted to `anon`.                                                                                                                                                                                                                                                                   |
-| `20260803090900_lock_down_story_domain_grants.sql`                | Bug fix: explicit `revoke all ... from public, anon, authenticated` on every story-domain table — Supabase grants broad table privileges by default independent of RLS, so "RLS enabled, no policies" alone denied rows but not the query itself.                                                                                                                                            |
-| `20260803091000_fix_returns_table_column_ambiguity.sql`           | Bug fix: qualifies bare column references in `get_published_story`/`list_published_stories`/`get_story_for_moderator` that collided with their own `RETURNS TABLE` output-column names.                                                                                                                                                                                                      |
-| `20260803091100_fix_nullable_actor_boolean_logic.sql`             | Bug fix: wraps every `nullable_column = auth.uid()` ownership/role comparison in `coalesce(..., false)` across 9 functions — see "Prompt 3 detail" above.                                                                                                                                                                                                                                    |
-| `20260803091200_fix_publish_sets_visibility.sql`                  | Bug fix: `moderate_revision()`'s approve path now also sets `stories.visibility = 'public'`, not just `lifecycle_status`.                                                                                                                                                                                                                                                                    |
-| `20260804090000` – `20260804090800` (9 files)                     | Prompt 4 Sub-phase 2 — storage buckets, media processing-state machine, upload reservation, publication-attempt system. See "Prompt 4 detail" above and `docs/architecture.md`. **Applied and live-verified.**                                                                                                                                                                               |
-| `20260804091000_get_revision_selections.sql`                      | Prompt 4 Sub-phase 3 — `get_revision_selections()`, the missing reader for `story_revision_locations`/`story_revision_work_types`/`story_revision_tags`, symmetric with the existing writer RPCs. Applied via `supabase db push` with explicit go-ahead; confirmed in sync via `supabase migration list`.                                                                                    |
-| `20260804092000_assigned_editor_can_read_draft.sql`               | Prompt 4 Sub-phase 4 — bug fix: `get_my_story_with_draft()` now also authorizes the story's assigned editor, not just `_is_story_owner()`. **Applied.** (Introduced an ambiguous-column bug, fixed by `20260804092500` below.)                                                                                                                                                               |
-| `20260804092100_submit_consent_requires_terms_version.sql`        | Prompt 4 Sub-phase 4 — `DROP`+`CREATE` of `submit_revision_with_consent()`: new required `p_expected_terms_version` (raises `WHV01` on mismatch); new `current_terms_version()`/`get_consent_terms_version()` readers; source-kind-partitions the `confirmation_method = 'account'` check; fixes the awaiting-approval submission dead-end. **Applied.**                                     |
-| `20260804092200_source_kind_partitioned_authorization.sql`        | Prompt 4 Sub-phase 4 — bug fix: `_is_story_owner()`, `list_my_stories()`, `get_story_preview()`, `_can_write_reserved_media_path()` all source-kind-partitioned (self_submitted checks `owner_user_id` only; editorial_import checks the live `linked_user_id` only — never an OR across both). **Applied.**                                                                                 |
-| `20260804092300_save_revision_draft_returns_version.sql`          | Prompt 4 Sub-phase 4 — `DROP`+`CREATE` of `save_revision_draft()`: now returns the authoritative new `story.version` instead of `void`. **Applied.** (The `DROP`+`CREATE` accidentally dropped a `coalesce(...,false)` ownership-check wrapper — a real, live-confirmed security regression, fixed by `20260804092600` below.)                                                               |
-| `20260804092400_restrict_contributor_linking_to_named_rpcs.sql`   | Prompt 4 Sub-phase 4 — `contributor_links` gains `event_type`; new private `_set_contributor_linked_user()` helper + a transaction-local GUC the `contributors_protect_privileged_fields()` trigger now requires for every `linked_user_id` transition (except the literal `ON DELETE SET NULL` cascade); new `unlink_contributor_from_user()` RPC, editor/admin-only, audited. **Applied.** |
-| `20260804092500_fix_get_my_story_with_draft_ambiguous_column.sql` | Prompt 4 Sub-phase 4 corrective — bug fix, found via live `test:rls` after the initial push: qualifies the bare `assigned_editor_id` reference `20260804092000` added, ambiguous against `get_my_story_with_draft()`'s own `RETURNS TABLE` output column of the same name (Postgres `42702`, live-confirmed). Same fix pattern as `20260803091000`. **Applied.**                             |
-| `20260804092600_fix_save_revision_draft_nullable_actor_bug.sql`   | Prompt 4 Sub-phase 4 corrective — **security bug fix**, found via live `test:rls` after the initial push: restores the `coalesce(...,false)` wrapper around `save_revision_draft()`'s ownership check that `20260804092300`'s `DROP`+`CREATE` had silently dropped, closing a live-confirmed hole that let any authenticated user overwrite any self-service story's draft. **Applied.**     |
-| `20260804092700_fix_submit_consent_offline_actor_bug.sql`         | Prompt 4 Sub-phase 4 corrective — hardening (not live-exploited): wraps `submit_revision_with_consent()`'s offline-confirmation `assigned_editor_id = auth.uid()` check in the same `coalesce(...,false)` pattern, found via proactive re-audit after the two bugs above. **Applied.**                                                                                                       |
+| File                                                               | Adds                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `20260802085013_helpers.sql`                                       | `public.set_updated_at()` — shared `updated_at` maintenance trigger function.                                                                                                                                                                                                                                                                                                                    |
+| `20260802085014_user_roles.sql`                                    | `app_role` enum; `user_roles` table + RLS; `public.has_role()` (SECURITY DEFINER, used inside other tables' RLS); `public.admin_set_user_role()` (SECURITY DEFINER, the only post-creation role-change path).                                                                                                                                                                                    |
+| `20260802085015_profiles.sql`                                      | `profiles` table + RLS (owner read/write; public read only when opted in with a slug).                                                                                                                                                                                                                                                                                                           |
+| `20260802085016_contributors.sql`                                  | `attribution_type`, `contributor_status` enums; `contributors` table + RLS + `contributors_protect_privileged_fields()` trigger (blocks non-staff changes to `linked_user_id`/`created_by`/archiving).                                                                                                                                                                                           |
+| `20260802085017_contributor_links.sql`                             | `contributor_links` audit table (no direct-write RLS policy at all); `public.link_contributor_to_user()` (SECURITY DEFINER, editor/admin-only, the sole write path).                                                                                                                                                                                                                             |
+| `20260802085018_handle_new_user.sql`                               | `handle_new_user()` trigger on `auth.users` — creates the default `profiles` + `user_roles('user')` row for every new account, idempotently.                                                                                                                                                                                                                                                     |
+| `20260802093000_fix_contributors_unlink_on_delete.sql`             | Fixes a bug found during live verification (see "Prompt 2 detail" above): `contributors_protect_privileged_fields()` now only blocks non-staff _assignment_ of `linked_user_id`, not clearing it to `null` — otherwise the `ON DELETE SET NULL` FK action itself got blocked, breaking user deletion for anyone with a linked contributor record.                                                |
+| `20260803090000_lookup_tables.sql`                                 | `regions`, `destinations`, `work_types`, `tags` + plain RLS (active-only public read, admin write).                                                                                                                                                                                                                                                                                              |
+| `20260803090100_stories.sql`                                       | `story_source_kind`/`story_visibility`/`story_lifecycle_status` enums; `stories` table, RLS enabled with zero policies, no direct grants.                                                                                                                                                                                                                                                        |
+| `20260803090200_story_revisions.sql`                               | `story_revision_status` enum; `story_revisions` table + content-immutability trigger; `story_revision_editor_notes` (staff-only); `stories_validate_revision_pointers()` trigger.                                                                                                                                                                                                                |
+| `20260803090250_story_internal_helpers.sql`                        | `_is_story_owner()`, `_revision_is_editable()` — no API grants.                                                                                                                                                                                                                                                                                                                                  |
+| `20260803090300_story_revision_relations.sql`                      | `story_revision_locations` (+ region/destination integrity trigger), `story_revision_work_types`, `story_revision_tags`; shared `_protect_revision_child_immutability()` trigger.                                                                                                                                                                                                                |
+| `20260803090400_story_media.sql`                                   | `story_media`, `story_revision_media` (+ one-cover/alt-text/sort-order/processed-derivative constraints, cross-story-attachment trigger); `_require_processed_media()`.                                                                                                                                                                                                                          |
+| `20260803090500_story_publication_consents.sql`                    | `identifiable_people_state` enum; append-only `story_publication_consents` (+ `unique(revision_id)`, `unique(story_id, event_number)`); `story_publication_consent_notes`; `_latest_valid_consent_for_revision()`.                                                                                                                                                                               |
+| `20260803090600_moderation.sql`                                    | `moderation_actions` + `moderation_action_notes`, `story_reports`, `editorial_actions` — all append-only / no direct grants.                                                                                                                                                                                                                                                                     |
+| `20260803090700_story_lifecycle_functions.sql`                     | The full authoring/submission/moderation/consent/media/report RPC surface (~35 functions) — see docs/architecture.md "Story domain" for the complete list.                                                                                                                                                                                                                                       |
+| `20260803090800_story_public_reads.sql`                            | `get_published_story`, `list_published_stories`, `get_published_story_media` — the only three functions granted to `anon`.                                                                                                                                                                                                                                                                       |
+| `20260803090900_lock_down_story_domain_grants.sql`                 | Bug fix: explicit `revoke all ... from public, anon, authenticated` on every story-domain table — Supabase grants broad table privileges by default independent of RLS, so "RLS enabled, no policies" alone denied rows but not the query itself.                                                                                                                                                |
+| `20260803091000_fix_returns_table_column_ambiguity.sql`            | Bug fix: qualifies bare column references in `get_published_story`/`list_published_stories`/`get_story_for_moderator` that collided with their own `RETURNS TABLE` output-column names.                                                                                                                                                                                                          |
+| `20260803091100_fix_nullable_actor_boolean_logic.sql`              | Bug fix: wraps every `nullable_column = auth.uid()` ownership/role comparison in `coalesce(..., false)` across 9 functions — see "Prompt 3 detail" above.                                                                                                                                                                                                                                        |
+| `20260803091200_fix_publish_sets_visibility.sql`                   | Bug fix: `moderate_revision()`'s approve path now also sets `stories.visibility = 'public'`, not just `lifecycle_status`.                                                                                                                                                                                                                                                                        |
+| `20260804090000` – `20260804090800` (9 files)                      | Prompt 4 Sub-phase 2 — storage buckets, media processing-state machine, upload reservation, publication-attempt system. See "Prompt 4 detail" above and `docs/architecture.md`. **Applied and live-verified.**                                                                                                                                                                                   |
+| `20260804091000_get_revision_selections.sql`                       | Prompt 4 Sub-phase 3 — `get_revision_selections()`, the missing reader for `story_revision_locations`/`story_revision_work_types`/`story_revision_tags`, symmetric with the existing writer RPCs. Applied via `supabase db push` with explicit go-ahead; confirmed in sync via `supabase migration list`.                                                                                        |
+| `20260804092000_assigned_editor_can_read_draft.sql`                | Prompt 4 Sub-phase 4 — bug fix: `get_my_story_with_draft()` now also authorizes the story's assigned editor, not just `_is_story_owner()`. **Applied.** (Introduced an ambiguous-column bug, fixed by `20260804092500` below.)                                                                                                                                                                   |
+| `20260804092100_submit_consent_requires_terms_version.sql`         | Prompt 4 Sub-phase 4 — `DROP`+`CREATE` of `submit_revision_with_consent()`: new required `p_expected_terms_version` (raises `WHV01` on mismatch); new `current_terms_version()`/`get_consent_terms_version()` readers; source-kind-partitions the `confirmation_method = 'account'` check; fixes the awaiting-approval submission dead-end. **Applied.**                                         |
+| `20260804092200_source_kind_partitioned_authorization.sql`         | Prompt 4 Sub-phase 4 — bug fix: `_is_story_owner()`, `list_my_stories()`, `get_story_preview()`, `_can_write_reserved_media_path()` all source-kind-partitioned (self_submitted checks `owner_user_id` only; editorial_import checks the live `linked_user_id` only — never an OR across both). **Applied.**                                                                                     |
+| `20260804092300_save_revision_draft_returns_version.sql`           | Prompt 4 Sub-phase 4 — `DROP`+`CREATE` of `save_revision_draft()`: now returns the authoritative new `story.version` instead of `void`. **Applied.** (The `DROP`+`CREATE` accidentally dropped a `coalesce(...,false)` ownership-check wrapper — a real, live-confirmed security regression, fixed by `20260804092600` below.)                                                                   |
+| `20260804092400_restrict_contributor_linking_to_named_rpcs.sql`    | Prompt 4 Sub-phase 4 — `contributor_links` gains `event_type`; new private `_set_contributor_linked_user()` helper + a transaction-local GUC the `contributors_protect_privileged_fields()` trigger now requires for every `linked_user_id` transition (except the literal `ON DELETE SET NULL` cascade); new `unlink_contributor_from_user()` RPC, editor/admin-only, audited. **Applied.**     |
+| `20260804092500_fix_get_my_story_with_draft_ambiguous_column.sql`  | Prompt 4 Sub-phase 4 corrective — bug fix, found via live `test:rls` after the initial push: qualifies the bare `assigned_editor_id` reference `20260804092000` added, ambiguous against `get_my_story_with_draft()`'s own `RETURNS TABLE` output column of the same name (Postgres `42702`, live-confirmed). Same fix pattern as `20260803091000`. **Applied.**                                 |
+| `20260804092600_fix_save_revision_draft_nullable_actor_bug.sql`    | Prompt 4 Sub-phase 4 corrective — **security bug fix**, found via live `test:rls` after the initial push: restores the `coalesce(...,false)` wrapper around `save_revision_draft()`'s ownership check that `20260804092300`'s `DROP`+`CREATE` had silently dropped, closing a live-confirmed hole that let any authenticated user overwrite any self-service story's draft. **Applied.**         |
+| `20260804092700_fix_submit_consent_offline_actor_bug.sql`          | Prompt 4 Sub-phase 4 corrective — hardening (not live-exploited): wraps `submit_revision_with_consent()`'s offline-confirmation `assigned_editor_id = auth.uid()` check in the same `coalesce(...,false)` pattern, found via proactive re-audit after the two bugs above. **Applied.**                                                                                                           |
+| `20260805100000_revoke_anon_contributors_table_grants.sql`         | Prompt 5 — bug fix (audit finding, not newly introduced): revokes `anon`'s default direct table grants on `contributors` (Supabase grants these independent of RLS); public reads now go through curated functions only. **Applied.**                                                                                                                                                            |
+| `20260805100100_extend_list_published_stories.sql`                 | Prompt 5 — `DROP`+`CREATE` of `list_published_stories()`: cover image/regions/work_types/tags in the same query, `p_cost_band`/`p_has_reported_expense`/`p_exclude_story_id`/`p_search` filters; adds `story_revisions.search_vector` (generated `tsvector`, `'simple'` config) + GIN index. **Applied**, superseded immediately by the corrective migration below.                              |
+| `20260805100200_list_distinct_public_travel_styles.sql`            | Prompt 5 — new anon-granted function backing the travel-style filter's options, scoped to public+approved+consent-valid stories only. **Applied.**                                                                                                                                                                                                                                               |
+| `20260805100300_public_contributor_functions.sql`                  | Prompt 5 — new anon-granted `list_public_contributors()`/`get_public_contributor()`, the public contributor directory/detail backend. **Applied.**                                                                                                                                                                                                                                               |
+| `20260805100400_fix_list_published_stories_ambiguous_story_id.sql` | Prompt 5 corrective — bug fix, found live via `npm run build` (`app/sitemap.ts`'s first-ever real call to `list_published_stories()`): qualifies the bare `story_id` reference in the lateral consent-lookup subquery `20260805100100` reintroduced from a stale pre-fix copy of the function body (this exact line was already fixed once, in `20260803091000`). Same fix pattern. **Applied.** |
 
 ## Role and RLS matrix
 
@@ -992,13 +1097,28 @@ validation/auth.ts`'s `passwordSchema` mirrors this by hand (documented in a cod
 - **`promote_story_media()` exists but is deliberately ungranted** — Prompt 4 must explicitly decide
   and grant the trusted image-processing pipeline's access (not assumed to be automatic via
   `service_role`, which does not bypass function `EXECUTE` privilege). Flag when scoping Prompt 4.
-- **Cost-band bucket thresholds are not decided.** `total_expense_nzd_cents` is stored and returned
-  exactly as reported; `list_published_stories()` has no `p_cost_band` filter parameter in this
-  phase — deliberately deferred to Prompt 5 rather than inventing thresholds while writing migrations.
+- ~~Cost-band bucket thresholds are not decided~~ — resolved in Prompt 5: <$5k / $5k–15k / $15k–30k /
+  $30k+ NZD, exact cent boundaries `500000`/`1500000`/`3000000`, implemented in
+  `list_published_stories()`'s `p_cost_band` parameter.
 - **A handful of disposable `regions`/`destinations` rows accumulate** in the linked dev project from
   the RLS suite's destination-integrity test (`rls-test-` prefixed) — not covered by
   `scripts/rls-test-cleanup.sql`, which only scopes to story-domain tables. Trivial, accepted cost;
-  revisit if it ever becomes noisy enough to matter (unlikely at test-suite run frequency).
+  revisit if it ever becomes noisy enough to matter (unlikely at test-suite run frequency). Prompt 5
+  adds a second, analogous small accumulation: disposable `contributors` rows from the new
+  `list_public_contributors`/`get_public_contributor` RLS test case (private/zero-story/
+  anonymous-attribution/real-public fixtures) — `contributors` has never been in scope for the
+  cleanup script (the fixed test-account pool must survive every run).
+- **Contributor avatars are entirely unbuilt.** `contributors.avatar_path` exists in the schema but
+  has no upload/processing/moderation pipeline and none was built in Prompt 5 (a deliberate scope
+  decision — see "Prompt 5 detail"). Public contributor pages show a text-initial placeholder only.
+  A future prompt needs: a new storage bucket (mirroring `story-images-public`'s public/private
+  split), reuse of `lib/story/image-pipeline.ts`'s processing, and a decision on whether avatars need
+  moderation approval before going public (Rules 13–14 suggest yes, matching story images).
+- **No real caller exists yet for the actual publish/archive path**, so Prompt 5's cache-invalidation
+  helpers (`lib/story/public-cache.ts`) are unwired — public pages rely on short-TTL ISR where it
+  actually applies (`/`, `/sitemap.xml`) and on being forced-dynamic everywhere else (see
+  architecture.md's "Caching and invalidation"). Prompt 6 must call the invalidation helpers from its
+  new publish/archive/withdraw Server Actions the moment each mutation succeeds.
 
 ## Open assumptions
 
@@ -1043,10 +1163,28 @@ shaped work):
   low-cost/disposable test fixture data for now — revisit whenever maintenance credentials are
   actually set up; this is a one-time credential-provisioning step only the user can perform, not
   an engineering task.
-- `docs/design-brief.md` (untracked, Prompt 5 UI-planning material, unrelated to authoring/images)
-  remains in the working tree, content untouched — only its Prettier formatting was fixed so it
-  stops blocking a clean `npm run verify` for whoever picks up Prompt 5.
+- `docs/design-brief.md` (untracked, Prompt 5 UI-planning material) informed Prompt 5's palette/
+  component styling — see "Prompt 5 detail" above.
 
-**Next up: Prompt 5 (public discovery — browse/filter/detail pages, SEO, sitemap, cost-band UI) and
-Prompt 6 (editorial/moderation workspace — queue UI, reports triage).** Both are unblocked now that
-Prompt 4 is fully done.
+**Prompt 5 is complete.** 5 migrations pushed and live-verified (`npm run test:rls` 44/44, up from
+33), 24/24 Playwright specs (up from 19, including the new `e2e/public-discovery.spec.ts`), 153/153
+unit tests (up from 137), clean `npm run verify`. See "Prompt 5 detail" above for the full account,
+including the contributor-table grant fix, the public per-row 404 fix, and the
+ambiguous-`story_id` corrective migration.
+
+Remaining, explicitly-accepted, non-blocking items:
+
+- `npm run e2e:cleanup:editorial-fixtures -- --execute` remains blocked on a missing
+  `.env.maintenance.local` (no service-role key available in this environment) — unchanged from
+  Prompt 4, re-affirmed rather than re-attempted.
+- Disposable `contributors` fixture rows from Prompt 5's RLS test additions are not cleaned up (see
+  "Risks" above) — same low-cost/accepted category as the existing disposable regions/destinations.
+- Contributor avatars remain entirely unbuilt (see "Risks" above) — a real, scoped follow-up feature,
+  not a Prompt 5 gap.
+- Prompt 5's cache-invalidation helpers (`lib/story/public-cache.ts`) have no real caller yet —
+  Prompt 6 must wire them into its new publish/archive/withdraw Server Actions.
+
+**Next up: Prompt 6 (editorial and moderation workspace — queue UI, reports triage; real `/moderation`
+and `/admin` UI, replacing the still-role-gated-404 Route Handler stubs; the actual
+`finalize_story_publication()`/`archiveStory()` callers Prompt 5's cache invalidation is waiting
+for) and Prompt 7 (operational launch tooling).**

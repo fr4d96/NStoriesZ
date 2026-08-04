@@ -18,6 +18,17 @@
 -- `on delete restrict` (see docs/architecture.md "Deletion policy" —
 -- no ordinary hard deletion is supported by design), so a plain
 -- `delete from stories` alone would fail with a foreign-key violation.
+--
+-- Prompt 5 addition: `_protect_revision_child_immutability()` (and
+-- story_revisions_protect_immutable_content()) block writes to a
+-- non-draft revision's children/content for every ordinary caller,
+-- including this script -- a real gap found live the first time a test
+-- fixture attached work_types/tags to a revision and then approved it
+-- before cleanup ran. That protection exists for ordinary application
+-- mutation, not for this already-guarded, already-manual, dev-only
+-- teardown script, so triggers are disabled for the session around the
+-- deletes below and restored immediately after.
+set session_replication_role = replica;
 
 with target_stories as (
   select id from public.stories where slug like 'rls-test-%'
@@ -127,6 +138,8 @@ delete from public.story_media where story_id in (
 );
 
 delete from public.stories where slug like 'rls-test-%';
+
+set session_replication_role = default;
 
 -- ---------------------------------------------------------------------
 -- Full-truncate fallback — DISABLED BY DEFAULT. Uncomment only if scoped

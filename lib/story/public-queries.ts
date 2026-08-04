@@ -1,5 +1,16 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { cache } from "react";
+import { createPublicClient } from "@/lib/supabase/public";
+import type { CostBand } from "@/lib/validation/discovery";
+
+// Every function here is deliberately cookie-free (lib/supabase/public.ts)
+// rather than the session-bound lib/supabase/server.ts client -- reading
+// next/headers' cookies() unconditionally opts a route out of static
+// rendering/ISR in the App Router, and every RPC this module calls is one
+// of the handful actually granted to `anon` (get_published_story,
+// list_published_stories, get_published_story_media,
+// list_distinct_public_travel_styles, list_public_contributors,
+// get_public_contributor), so no session was ever needed to answer them.
 
 export type PublishedStoriesFilter = {
   cursorPublishedAt?: string;
@@ -12,11 +23,15 @@ export type PublishedStoriesFilter = {
   tripYear?: number;
   travelStyle?: string;
   contributorId?: string;
+  costBand?: CostBand;
+  hasReportedExpense?: boolean;
+  excludeStoryId?: string;
+  search?: string;
 };
 
 /** Anonymous-safe: get_published_story() re-verifies every invariant itself. */
 export async function getPublishedStoryBySlug(slug: string) {
-  const supabase = await createClient();
+  const supabase = createPublicClient();
   const { data, error } = await supabase.rpc("get_published_story", {
     p_slug: slug,
   });
@@ -24,8 +39,15 @@ export async function getPublishedStoryBySlug(slug: string) {
   return data?.[0] ?? null;
 }
 
+/**
+ * React-cache-wrapped: generateMetadata() and the page component both need
+ * the same story, and this dedupes the RPC call to one per request instead
+ * of two.
+ */
+export const getPublishedStoryBySlugCached = cache(getPublishedStoryBySlug);
+
 export async function getPublishedStoryMedia(storyId: string) {
-  const supabase = await createClient();
+  const supabase = createPublicClient();
   const { data, error } = await supabase.rpc("get_published_story_media", {
     p_story_id: storyId,
   });
@@ -33,11 +55,15 @@ export async function getPublishedStoryMedia(storyId: string) {
   return data ?? [];
 }
 
-/** Keyset-paginated. p_limit is clamped server-side regardless of what's passed. */
+/**
+ * Keyset-paginated. p_limit is clamped server-side regardless of what's
+ * passed. Card-shaped rows include cover image path, regions, work types,
+ * and tags in the same query (Prompt 5) -- no per-card follow-up query.
+ */
 export async function listPublishedStories(
   filter: PublishedStoriesFilter = {},
 ) {
-  const supabase = await createClient();
+  const supabase = createPublicClient();
   const { data, error } = await supabase.rpc("list_published_stories", {
     p_cursor_published_at: filter.cursorPublishedAt,
     p_cursor_id: filter.cursorId,
@@ -49,6 +75,10 @@ export async function listPublishedStories(
     p_trip_year: filter.tripYear,
     p_travel_style: filter.travelStyle,
     p_contributor_id: filter.contributorId,
+    p_cost_band: filter.costBand,
+    p_has_reported_expense: filter.hasReportedExpense,
+    p_exclude_story_id: filter.excludeStoryId,
+    p_search: filter.search,
   });
   if (error) throw error;
   return data ?? [];
@@ -60,4 +90,103 @@ export async function listContributorPublishedStories(
   filter: Omit<PublishedStoriesFilter, "contributorId"> = {},
 ) {
   return listPublishedStories({ ...filter, contributorId });
+}
+
+/** Travel-style filter options, drawn only from currently-public stories. */
+export async function listDistinctPublicTravelStyles() {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase.rpc(
+    "list_distinct_public_travel_styles",
+  );
+  if (error) throw error;
+  return (data ?? []).map((row) => row.travel_style);
+}
+
+export type PublicContributorsFilter = {
+  cursorDisplayName?: string;
+  cursorId?: string;
+  limit?: number;
+};
+
+/** Public contributor directory: public, named, at-least-one-published-story only. */
+export async function listPublicContributors(
+  filter: PublicContributorsFilter = {},
+) {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase.rpc("list_public_contributors", {
+    p_cursor_display_name: filter.cursorDisplayName,
+    p_cursor_id: filter.cursorId,
+    p_limit: filter.limit,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getPublicContributor(slug: string) {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase.rpc("get_public_contributor", {
+    p_slug: slug,
+  });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+// --- Lookup tables, cookie-free variant ------------------------------------
+//
+// Same tables/rows lib/story/active-lookups.ts already reads (anon-readable
+// where active = true) -- duplicated here rather than reused so the
+// authoring UI's existing cookie-bound queries are untouched, and these
+// public-page reads stay on the cookie-free client above.
+
+export type PublicRegion = { id: string; name: string };
+export type PublicDestination = { id: string; name: string; regionId: string };
+export type PublicWorkType = { id: string; name: string };
+export type PublicTag = { id: string; name: string };
+
+export async function listPublicRegions(): Promise<PublicRegion[]> {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase
+    .from("regions")
+    .select("id, name")
+    .eq("active", true)
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listPublicDestinations(): Promise<PublicDestination[]> {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase
+    .from("destinations")
+    .select("id, name, region_id")
+    .eq("active", true)
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    regionId: d.region_id,
+  }));
+}
+
+export async function listPublicWorkTypes(): Promise<PublicWorkType[]> {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase
+    .from("work_types")
+    .select("id, name")
+    .eq("active", true)
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listPublicTags(): Promise<PublicTag[]> {
+  const supabase = createPublicClient();
+  const { data, error } = await supabase
+    .from("tags")
+    .select("id, name")
+    .eq("active", true)
+    .order("name");
+  if (error) throw error;
+  return data ?? [];
 }

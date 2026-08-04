@@ -23,7 +23,7 @@ export function MobileNavToggle({ navItems }: { navItems: NavItem[] }) {
         onKeyDown={(event) => {
           if (event.key === "Escape") setOpen(false);
         }}
-        className="rounded-md border border-black/20 px-3 py-1.5 text-sm dark:border-white/20"
+        className="rounded-md border border-border-subtle px-3 py-1.5 text-sm"
       >
         {open ? "Close" : "Menu"}
       </button>
@@ -32,7 +32,7 @@ export function MobileNavToggle({ navItems }: { navItems: NavItem[] }) {
         <nav
           id={menuId}
           aria-label="Primary"
-          className="absolute inset-x-0 top-full z-40 border-b border-black/10 bg-white px-4 py-4 dark:border-white/10 dark:bg-black"
+          className="absolute inset-x-0 top-full z-40 border-b border-border-subtle bg-surface px-4 py-4"
         >
           <ul className="flex flex-col gap-3 text-sm">
             {navItems.map((item) => (

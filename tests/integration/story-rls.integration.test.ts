@@ -1022,3 +1022,471 @@ describe("GUC-bypass unreachability and direct-UPDATE rejection (R6-2)", () => {
     expect(clearError).not.toBeNull();
   });
 });
+
+// --- Prompt 5: public discovery ---------------------------------------
+//
+// list_published_stories/list_distinct_public_travel_styles/
+// list_public_contributors/get_public_contributor are new anon-granted
+// functions (or, for list_published_stories, an extended existing one).
+// Helper: publishes a self-service story with the given fields via the
+// same create -> submit -> approve flow every other describe block above
+// already uses, and returns the identifiers needed to query it back.
+async function publishOwnerStory(fields: {
+  title: string;
+  totalExpenseNzdCents?: number;
+  travelStyle?: string;
+}) {
+  const { data: created, error: createError } = await owner.client.rpc(
+    "create_self_service_draft",
+    {
+      p_title: fields.title,
+      p_content_json: [
+        { type: "paragraph", text: [{ text: "Prompt 5 fixture." }] },
+      ],
+      p_total_expense_nzd_cents: fields.totalExpenseNzdCents,
+      p_travel_style: fields.travelStyle,
+    },
+  );
+  if (createError || !created) {
+    throw new Error(`Could not create draft: ${createError?.message}`);
+  }
+  const storyId = created[0].story_id;
+  const revisionId = created[0].revision_id;
+
+  const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+    p_story_id: storyId,
+  });
+  const version = draft![0].version;
+  const storedSlug = draft![0].slug;
+
+  const { error: submitError } = await owner.client.rpc(
+    "submit_revision_with_consent",
+    {
+      p_revision_id: revisionId,
+      p_expected_version: version,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    },
+  );
+  if (submitError) throw new Error(`Could not submit: ${submitError.message}`);
+
+  const { error: approveError } = await approveRevision(
+    moderator.client,
+    revisionId,
+  );
+  if (approveError) {
+    throw new Error(`Could not approve: ${approveError.message}`);
+  }
+
+  return { storyId, revisionId, slug: storedSlug };
+}
+
+describe("Prompt 5: list_published_stories cost-band, expense-availability, search, and exclude filters", () => {
+  let under5k: Awaited<ReturnType<typeof publishOwnerStory>>;
+  let at5kBoundary: Awaited<ReturnType<typeof publishOwnerStory>>;
+  let noExpense: Awaited<ReturnType<typeof publishOwnerStory>>;
+  // Space-separated, not slug()'s hyphenated form: websearch_to_tsquery
+  // treats a hyphen-joined query string as a strict phrase (FOLLOWED BY
+  // chain) against the *entire* compound lexeme Postgres's 'simple' parser
+  // indexes for a hyphenated title -- a partial hyphenated substring of a
+  // longer hyphenated title therefore never matches, confirmed directly
+  // against the live database before writing these titles this way. Real
+  // search queries are space-separated words, which AND-match regardless
+  // of order -- this is what the marker below exercises.
+  const marker = runId;
+  const under5kTitle = `Prompt5 CostBand ${marker} Searchable Under5k`;
+  const at5kTitle = `Prompt5 CostBand ${marker} Searchable At5k`;
+  const noExpenseTitle = `Prompt5 CostBand ${marker} Searchable NoExpense`;
+
+  beforeAll(async () => {
+    under5k = await publishOwnerStory({
+      title: under5kTitle,
+      totalExpenseNzdCents: 499999,
+    });
+    at5kBoundary = await publishOwnerStory({
+      title: at5kTitle,
+      totalExpenseNzdCents: 500000,
+    });
+    noExpense = await publishOwnerStory({
+      title: noExpenseTitle,
+    });
+  }, 60000);
+
+  it("under_5k includes the 499999-cent story and excludes the 500000-cent one", async () => {
+    const { data, error } = await anon.rpc("list_published_stories", {
+      p_search: `CostBand ${marker} Searchable`,
+      p_cost_band: "under_5k",
+      p_limit: 10,
+    });
+    expect(error).toBeNull();
+    const ids = data!.map((r) => r.story_id);
+    expect(ids).toContain(under5k.storyId);
+    expect(ids).not.toContain(at5kBoundary.storyId);
+    expect(ids).not.toContain(noExpense.storyId);
+  });
+
+  it("5k_15k includes the exact 500000-cent boundary story", async () => {
+    const { data, error } = await anon.rpc("list_published_stories", {
+      p_search: `CostBand ${marker} Searchable`,
+      p_cost_band: "5k_15k",
+      p_limit: 10,
+    });
+    expect(error).toBeNull();
+    const ids = data!.map((r) => r.story_id);
+    expect(ids).toContain(at5kBoundary.storyId);
+    expect(ids).not.toContain(under5k.storyId);
+  });
+
+  it("an invalid cost band is rejected, not silently ignored", async () => {
+    const { error } = await anon.rpc("list_published_stories", {
+      p_cost_band: "sky-high",
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("p_has_reported_expense filters null vs. non-null expenses", async () => {
+    const { data: withExpense, error: withError } = await anon.rpc(
+      "list_published_stories",
+      {
+        p_search: `CostBand ${marker} Searchable`,
+        p_has_reported_expense: true,
+        p_limit: 10,
+      },
+    );
+    expect(withError).toBeNull();
+    const withIds = withExpense!.map((r) => r.story_id);
+    expect(withIds).toContain(under5k.storyId);
+    expect(withIds).toContain(at5kBoundary.storyId);
+    expect(withIds).not.toContain(noExpense.storyId);
+
+    const { data: withoutExpense, error: withoutError } = await anon.rpc(
+      "list_published_stories",
+      {
+        p_search: `CostBand ${marker} Searchable`,
+        p_has_reported_expense: false,
+        p_limit: 10,
+      },
+    );
+    expect(withoutError).toBeNull();
+    const withoutIds = withoutExpense!.map((r) => r.story_id);
+    expect(withoutIds).toEqual([noExpense.storyId]);
+  });
+
+  it("p_search matches title keywords and p_exclude_story_id removes a specific story", async () => {
+    const { data: matched, error } = await anon.rpc("list_published_stories", {
+      p_search: `${marker} Searchable Under5k`,
+      p_limit: 10,
+    });
+    expect(error).toBeNull();
+    expect(matched!.map((r) => r.story_id)).toEqual([under5k.storyId]);
+
+    const { data: excluded, error: excludeError } = await anon.rpc(
+      "list_published_stories",
+      {
+        p_search: `${marker} Searchable Under5k`,
+        p_exclude_story_id: under5k.storyId,
+        p_limit: 10,
+      },
+    );
+    expect(excludeError).toBeNull();
+    expect(excluded).toEqual([]);
+  });
+
+  it("an unmatched search returns no rows, never an error", async () => {
+    const { data, error } = await anon.rpc("list_published_stories", {
+      p_search: "no such story exists anywhere at all",
+    });
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
+  });
+
+  it("a card row includes a null cover_image_path and empty relation arrays when none are attached", async () => {
+    const { data, error } = await anon.rpc("list_published_stories", {
+      p_search: `${marker} Searchable Under5k`,
+      p_limit: 1,
+    });
+    expect(error).toBeNull();
+    expect(data![0].cover_image_path).toBeNull();
+    expect(data![0].regions).toEqual([]);
+    expect(data![0].work_types).toEqual([]);
+    expect(data![0].tags).toEqual([]);
+  });
+});
+
+describe("Prompt 5: list_published_stories never duplicates a story row across multiple attached work types/tags", () => {
+  it("returns exactly one row for a story with two work types and two tags", async () => {
+    const { data: workTypeA, error: wtAError } = await admin.client
+      .from("work_types")
+      .insert({ slug: slug("wt-a"), name: "RLS Test Work Type A" })
+      .select("id")
+      .single();
+    expect(wtAError).toBeNull();
+    const { data: workTypeB, error: wtBError } = await admin.client
+      .from("work_types")
+      .insert({ slug: slug("wt-b"), name: "RLS Test Work Type B" })
+      .select("id")
+      .single();
+    expect(wtBError).toBeNull();
+    const { data: tagA, error: tagAError } = await admin.client
+      .from("tags")
+      .insert({ slug: slug("tag-a"), name: "RLS Test Tag A" })
+      .select("id")
+      .single();
+    expect(tagAError).toBeNull();
+    const { data: tagB, error: tagBError } = await admin.client
+      .from("tags")
+      .insert({ slug: slug("tag-b"), name: "RLS Test Tag B" })
+      .select("id")
+      .single();
+    expect(tagBError).toBeNull();
+
+    const title = slug("multi-relation-story");
+    const { data: created, error: createError } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: title,
+        p_content_json: [
+          { type: "paragraph", text: [{ text: "Multi-relation fixture." }] },
+        ],
+      },
+    );
+    expect(createError).toBeNull();
+    const storyId = created![0].story_id;
+    const revisionId = created![0].revision_id;
+
+    const { error: wtSetError } = await owner.client.rpc(
+      "set_revision_work_types",
+      {
+        p_revision_id: revisionId,
+        p_expected_version: 1,
+        p_work_type_ids: [workTypeA!.id, workTypeB!.id],
+      },
+    );
+    expect(wtSetError).toBeNull();
+
+    // Each mutation bumps the story's optimistic-concurrency version by
+    // exactly 1 (docs/architecture.md) -- re-fetch before the next one
+    // rather than assuming p_expected_version: 1 still applies.
+    const { data: afterWorkTypes } = await owner.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: storyId },
+    );
+    const { error: tagSetError } = await owner.client.rpc("set_revision_tags", {
+      p_revision_id: revisionId,
+      p_expected_version: afterWorkTypes![0].version,
+      p_tag_ids: [tagA!.id, tagB!.id],
+    });
+    expect(tagSetError).toBeNull();
+
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    const version = draft![0].version;
+
+    const { error: submitError } = await owner.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: revisionId,
+        p_expected_version: version,
+        p_confirmation_method: "account",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+      },
+    );
+    expect(submitError).toBeNull();
+    const { error: approveError } = await approveRevision(
+      moderator.client,
+      revisionId,
+    );
+    expect(approveError).toBeNull();
+
+    const { data, error } = await anon.rpc("list_published_stories", {
+      p_search: title,
+      p_limit: 10,
+    });
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+    expect(data![0].story_id).toBe(storyId);
+    expect(data![0].work_types).toHaveLength(2);
+    expect(data![0].tags).toHaveLength(2);
+  }, 30000);
+});
+
+describe("Prompt 5: list_distinct_public_travel_styles", () => {
+  it("dedupes case-insensitively/whitespace and only reflects public stories", async () => {
+    const styleWord = slug("Backpacker-Style");
+    await publishOwnerStory({
+      title: slug("travel-style-1"),
+      travelStyle: `  ${styleWord}  `,
+    });
+    await publishOwnerStory({
+      title: slug("travel-style-2"),
+      travelStyle: styleWord.toUpperCase(),
+    });
+
+    // A draft (never submitted/approved) with its own unique travel_style
+    // must never leak into a public-only distinct list.
+    const draftOnlyStyle = slug("draft-only-style");
+    await owner.client.rpc("create_self_service_draft", {
+      p_title: slug("travel-style-draft-only"),
+      p_travel_style: draftOnlyStyle,
+    });
+
+    const { data, error } = await anon.rpc(
+      "list_distinct_public_travel_styles",
+    );
+    expect(error).toBeNull();
+    const values = data!.map((r) => r.travel_style);
+    const matches = values.filter(
+      (v) => v?.trim().toLowerCase() === styleWord.toLowerCase(),
+    );
+    expect(matches).toHaveLength(1);
+    expect(values).not.toContain(draftOnlyStyle);
+  }, 30000);
+});
+
+describe("Prompt 5: public contributor directory and detail", () => {
+  it("excludes private, anonymous-attribution, and zero-published-story contributors", async () => {
+    // Private contributor with a published story -- must not appear.
+    const { data: privateContributor } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: slug("private-contributor"),
+        attribution_type: "display_name",
+        public_status: "private",
+      })
+      .select("id")
+      .single();
+    await editor.client.rpc("create_editorial_import_draft", {
+      p_contributor_id: privateContributor!.id,
+      p_title: slug("private-contributor-story"),
+    });
+
+    // Public, zero-story contributor -- must not appear.
+    const zeroStorySlug = slug("zero-story-contributor");
+    const { data: zeroStoryContributor, error: zeroError } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: "RLS Test Zero Story Contributor",
+        attribution_type: "display_name",
+        public_status: "public",
+        public_slug: zeroStorySlug,
+      })
+      .select("id")
+      .single();
+    expect(zeroError).toBeNull();
+    expect(zeroStoryContributor).not.toBeNull();
+
+    // Public, anonymous-attribution contributor with a published story --
+    // must not appear (anonymous attribution and a named public profile
+    // page are in tension; see the migration's own doc comment).
+    const anonContributorSlug = slug("anon-attribution-slug");
+    const { data: anonContributor } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: slug("anon-attribution-contributor"),
+        attribution_type: "anonymous",
+        public_status: "public",
+        public_slug: anonContributorSlug,
+      })
+      .select("id")
+      .single();
+    const { data: anonImport } = await editor.client.rpc(
+      "create_editorial_import_draft",
+      {
+        p_contributor_id: anonContributor!.id,
+        p_title: slug("anon-attribution-story"),
+      },
+    );
+    const { error: anonSubmitError } = await editor.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: anonImport![0].revision_id,
+        p_expected_version: 1,
+        p_confirmation_method: "email",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+        p_editorial_assistance_confirmed: true,
+      },
+    );
+    expect(anonSubmitError).toBeNull();
+    const { error: anonApproveError } = await approveRevision(
+      moderator.client,
+      anonImport![0].revision_id,
+    );
+    expect(anonApproveError).toBeNull();
+
+    // The real positive case: public, named, with a published story.
+    const realSlug = slug("real-public-contributor");
+    const { data: realContributor, error: realError } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: "RLS Test Real Public Contributor",
+        attribution_type: "display_name",
+        public_status: "public",
+        public_slug: realSlug,
+        bio: "A real bio for a real public contributor fixture.",
+      })
+      .select("id")
+      .single();
+    expect(realError).toBeNull();
+    const { data: realImport } = await editor.client.rpc(
+      "create_editorial_import_draft",
+      {
+        p_contributor_id: realContributor!.id,
+        p_title: slug("real-contributor-story"),
+      },
+    );
+    const { error: realSubmitError } = await editor.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: realImport![0].revision_id,
+        p_expected_version: 1,
+        p_confirmation_method: "email",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+        p_editorial_assistance_confirmed: true,
+      },
+    );
+    expect(realSubmitError).toBeNull();
+    const { error: realApproveError } = await approveRevision(
+      moderator.client,
+      realImport![0].revision_id,
+    );
+    expect(realApproveError).toBeNull();
+
+    const { data: detail, error: detailError } = await anon.rpc(
+      "get_public_contributor",
+      { p_slug: realSlug },
+    );
+    expect(detailError).toBeNull();
+    expect(detail?.[0]?.display_name).toBe("RLS Test Real Public Contributor");
+    expect(detail?.[0]?.published_story_count).toBe(1);
+
+    expect(
+      (await anon.rpc("get_public_contributor", { p_slug: zeroStorySlug }))
+        .data,
+    ).toEqual([]);
+
+    const { data: directory, error: directoryError } = await anon.rpc(
+      "list_public_contributors",
+      { p_limit: 50 },
+    );
+    expect(directoryError).toBeNull();
+    const slugs = directory!.map((c) => c.public_slug);
+    expect(slugs).toContain(realSlug);
+    expect(slugs).not.toContain(zeroStorySlug);
+    expect(slugs).not.toContain(anonContributorSlug);
+  }, 60000);
+
+  it("anon cannot select any contributor column directly (table grants revoked, Prompt 5)", async () => {
+    const { error } = await anon.from("contributors").select("id").limit(1);
+    expect(error).not.toBeNull();
+    expect(error?.code).toBe("42501");
+  });
+});
