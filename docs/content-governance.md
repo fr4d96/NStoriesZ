@@ -173,6 +173,13 @@ principle's first real implementation:**
   keeping "preparation" (editor) and the contributor's own publication decision structurally
   separate, the same way Engineering Rule 5 keeps editorial prep separate from staff moderation.
 
+**Implemented as of Prompt 6 Stage 1:** `reassign_editorial_story()` lets an editorial-import story's
+preparation be handed off between editors — an admin may reassign any such story to any eligible
+editor; a non-admin editor may only claim a currently-unassigned story for themselves or hand off a
+story already assigned to them, never take over a colleague's assignment directly. Every reassignment
+is recorded in `editorial_actions` (`action_type = 'reassigned'`), the same append-only audit trail as
+every other editorial-preparation action.
+
 ## Moderation boundaries
 
 - A moderator's decision is binary at the revision level: approve or reject with a reason. Moderators
@@ -194,6 +201,31 @@ content, not just by convention. Every decision is recorded, append-only, in `mo
 (`moderation_action_notes`) — never visible to the contributor or to editors (a deliberate
 `get_story_for_editor()`/`get_story_for_moderator()` split, so one role's private material is never
 handed to another by default).
+
+**Implemented as of Prompt 6 Stage 1 (backend) and Stage 2 (the real approve/reject/archive UI) —
+archiving/unpublishing requires a reason, serious reports require a note to close:**
+`archive_story()` requires a non-empty `p_reason` (moderator/admin only) — an optional `p_note` is
+also accepted, and both are recorded in a new append-only `story_publication_state_actions` audit
+row. This applies **only** to a moderator/admin-initiated archive — a contributor's own withdrawal
+(`revoke_publication_consent()`, see "Corrections, withdrawal, and deletion" below) stays
+reason-free, unchanged, and gets its own audit row (`action_type = 'consent_withdrawn'`) with no
+reason required. Separately, `resolve_report()` requires a non-empty internal note (staff-only,
+never shown to the reporter, stored in a `story_report_notes` table) when **closing**
+(`resolved`/`dismissed`, not the `reviewing` transition) a report in one of four serious categories:
+`misinformation`, `unsafe_employment_advice`, `harassment`, `copyright_privacy`. `spam_commercial`/
+`other` remain optional either way — these tend to be lower-stakes, more mechanical closures.
+`app/(moderation)/moderation/stories/[id]/{page,actions}.tsx` (Stage 2) is the real UI for
+approve/reject-or-request-changes/archive, each independently re-checking moderator/admin
+server-side; the real reason/note requirements above are enforced both by Zod at the Server Action
+boundary and, non-bypassably, by the RPCs themselves (Engineering Rule 3). See
+[docs/architecture.md](architecture.md#editorial-and-moderation-workspace-backend-prompt-6-stage-1)
+and
+[docs/architecture.md](architecture.md#moderationeditorial-workspace-ui-and-orchestration-prompt-6-stage-2)
+for the full technical account. **[docs/moderation-guidelines.md](moderation-guidelines.md) (Prompt
+6 Stage 3) is the plain-language companion to this section** — concrete request-changes-vs.-reject
+criteria tied to this app's actual two-decision `moderateRevision()` lifecycle, the four "serious"
+report categories in practice, and an explicit statement that admin escalation is a process/
+communication step today, not an in-app feature.
 
 ## Reporting
 
@@ -223,6 +255,22 @@ discovered when `createStoryReport()` raises, translated into that prompt. A dup
 the exact same neutral confirmation text — the UI never reveals whether the caller already has an
 open report on a given story, keeping reporter identity/state private per this document's own
 requirement, not just at the RLS layer.
+
+**Implemented as of Prompt 6 Stage 3: the staff-facing triage workspace.** Stage 2 only ever
+surfaced a story's own open reports inline on its moderation review page
+(`listReportsForStaff({ storyId })`); `app/(moderation)/moderation/reports/{page,[id]/page}.tsx` is
+the first standalone, cross-story reports queue — filterable by status/category/date range, with a
+per-report detail/resolution page. Each queue row links to the report's snapshotted
+`published_revision_id` (the exact revision that was live and public at report time, per
+`create_story_report()` above — never a re-derived "current" revision, which could be a different,
+unrelated in-flight draft for the same story). The detail page renders the report's own internal
+notes (`getReportNotes()`, moderator/admin only) and the resolution form
+(`resolveReportAction()` → `resolve_report()`); the internal note is never returned to, or rendered
+for, the reporter, the contributor, or any public surface — grepped the repo and confirmed
+`getReportNotes()`'s only call site is this staff-gated page. See
+[docs/architecture.md](architecture.md#reports-triage-and-operational-hardening-prompt-6-stage-3)
+for the full technical account, and [docs/moderation-guidelines.md](moderation-guidelines.md) for
+how a moderator should actually use this workspace.
 
 ## Corrections, withdrawal, and deletion
 

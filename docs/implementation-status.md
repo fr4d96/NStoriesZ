@@ -3,7 +3,7 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-05 (Prompt 5).
+Last updated: 2026-08-05 (Prompt 6 Stage 3 — Prompt 6 now complete).
 
 ## Status legend
 
@@ -11,16 +11,16 @@ Last updated: 2026-08-05 (Prompt 5).
 
 ## Prompt checklist
 
-| #   | Prompt                                                                                                                                                                    | Status                                                                                                                                                                                                  | Notes                                                                                                                                                    |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | Repository inspection & documentation baseline                                                                                                                            | complete                                                                                                                                                                                                | CLAUDE.md and docs/ created against an empty repo.                                                                                                       |
-| 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**                                                                       | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                             |
-| 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                                                                             | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                                  |
-| 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.**                                                              | See "Prompt 3 detail" below.                                                                                                                             |
-| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **complete — all 5 sub-phases done: all 8 migrations pushed and live-verified (`test:rls` 33/33); the cross-contributor UI-level access spec found and fixed a real per-row `notFound()`-as-200 leak.** | Built on `prompt-4-authoring-images`; PR #5 (Sub-phases 1–4) already merged to `main`, Sub-phase 5 lands as a follow-up PR. See "Prompt 4 detail" below. |
-| 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | **complete — 5 migrations pushed and live-verified (`test:rls` 44/44); 24/24 Playwright specs pass; a real ambiguous-column bug and a real public per-row 404 gap were found and fixed.**               | See "Prompt 5 detail" below.                                                                                                                             |
-| 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | not started                                                                                                                                                                                             | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` get real UI here instead of a role-gated JSON stub.            |
-| 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                                                                             | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                                      |
+| #   | Prompt                                                                                                                                                                    | Status                                                                                                                                                                                                  | Notes                                                                                                                                                                                                                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | Repository inspection & documentation baseline                                                                                                                            | complete                                                                                                                                                                                                | CLAUDE.md and docs/ created against an empty repo.                                                                                                                                                                     |
+| 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**                                                                       | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                                                                                           |
+| 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                                                                             | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                                                                                                |
+| 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.**                                                              | See "Prompt 3 detail" below.                                                                                                                                                                                           |
+| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **complete — all 5 sub-phases done: all 8 migrations pushed and live-verified (`test:rls` 33/33); the cross-contributor UI-level access spec found and fixed a real per-row `notFound()`-as-200 leak.** | Built on `prompt-4-authoring-images`; PR #5 (Sub-phases 1–4) already merged to `main`, Sub-phase 5 lands as a follow-up PR. See "Prompt 4 detail" below.                                                               |
+| 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | **complete — 5 migrations pushed and live-verified (`test:rls` 44/44); 24/24 Playwright specs pass; a real ambiguous-column bug and a real public per-row 404 gap were found and fixed.**               | See "Prompt 5 detail" below.                                                                                                                                                                                           |
+| 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | **complete — all 3 stages. All 10 migrations pushed and live-verified (`test:rls` 69/69); Stage 3 added no new migration. `npm run verify` clean (182/182 tests, 32 routes).**                          | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` got real UI in Stage 2/3 instead of a role-gated JSON stub. See "Prompt 6 detail — Stage 1", "Stage 2", and "Stage 3" below. |
+| 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                                                                             | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                                                                                                    |
 
 ## Prompt 1 detail — verified vs. blocked
 
@@ -883,6 +883,378 @@ story_revision_work_types`/`tags` was rejected by `_protect_revision_child_immut
   caller exists yet — Prompt 6's job, see architecture.md's "Caching and invalidation"); a dedicated
   search service (basic Postgres full-text is appropriate at this scale).
 
+## Prompt 6 detail — Stage 1
+
+Backend/migrations only, per this stage's explicit scope — no `app/(moderation)/`/`app/(editor)/`
+route files were touched. Full technical account (design decisions, judgment calls) is in
+[docs/architecture.md](architecture.md#editorial-and-moderation-workspace-backend-prompt-6-stage-1);
+not duplicated in full here.
+
+**Built:**
+
+- 8 new migrations (`20260805100500`–`20260805101200`) — see "Migration summary" below for the full
+  list. Every one follows the established template (`set search_path = ''`, re-derive caller
+  identity/role, lock+version-check rows being mutated, specific exceptions, explicit
+  `revoke`-then-`grant execute ... to authenticated`, never `anon`).
+- **A real instance of this codebase's own documented "SQL three-valued logic" bug class was found
+  and fixed during review, before this migration was ever pushed**:
+  `reassign_editorial_story()`'s authorization check originally read
+  `(assigned_editor_id is null and p_editor_id = auth.uid()) or (assigned_editor_id = auth.uid())`.
+  When `assigned_editor_id IS NULL` and `p_editor_id <> auth.uid()`, the first clause is `false` and
+  the second is `NULL` (nullable-column comparison) — `false or NULL` is `NULL`, and PL/pgSQL's
+  `if not (NULL) then raise` never executes, exactly the pattern already fixed four times elsewhere
+  in this codebase (`20260803091100`, and its Prompt 4/5 recurrences). Net effect: any editor could
+  have silently reassigned an unclaimed editorial-import story to an arbitrary third party, which
+  must be admin-only per this function's own stated rule. Fixed, before push, by wrapping the second
+  clause in `coalesce(..., false)` — see the migration's own updated header comment. This was caught
+  by a manual review pass reading every new/changed function's nullable-actor comparisons line by
+  line immediately before pushing, not by an automated test (the written test suite did not happen to
+  exercise this exact null/mismatch combination) — a gap worth remembering for future stages.
+- Every `DROP FUNCTION`+`CREATE FUNCTION` in this stage was diffed against the **current** live body —
+  read via the latest migration that actually touched each function (not an earlier copy) — per the
+  "reconstruct from a stale copy" lesson documented in docs/architecture.md's Prompt 4/5 recurrences
+  of that exact bug class. Confirmed no other function body anywhere in `supabase/migrations/` calls
+  any of `archive_story()`/`resolve_report()`/`list_reports_for_staff()`/`get_moderation_queue()`/
+  `get_story_for_moderator()` as a dependency (grepped), so each `DROP FUNCTION` is safe.
+- `lib/story/moderation.ts`: `moderateRevision()`'s `decision` type narrowed to
+  `"reject" | "changes_requested"` (the `'approve'` branch was already dead code — the RPC itself has
+  raised on `'approve'` since Prompt 4 Sub-phase 2). New typed wrappers:
+  `beginStoryPublicationAttempt()`, `finalizeStoryPublication()`, `reassignEditorialStory()`,
+  `listEditorialQueue()`, `getStoryModerationHistory()`, `getStoryEditorialHistory()`,
+  `getPublishedRevisionSnapshot()`, `getReportNotes()`; updated `archiveStory()` (reason required),
+  `getModerationQueue()`/`getStoryForModerator()`/`listReportsForStaff()`/`resolveReport()` (new
+  params/shapes). Initially written against `lib/supabase/call-untyped-rpc.ts#callUntypedRpc()`
+  (this codebase's established escape hatch) while the migrations were unpushed; **after the push and
+  a real `npm run supabase:types:linked` regeneration (below), every `callUntypedRpc()` call site in
+  this file was converted back to a plain, fully-typed `supabase.rpc(...)` call**, and the now-unused
+  import removed — the same cleanup this codebase already did once before in Prompt 4 Sub-phase 4.
+  `lib/supabase/call-untyped-rpc.ts` itself is left in place (still referenced in a test-file comment,
+  and available for the next stage that writes migrations ahead of a push).
+- No new pure helpers were added to `lib/validation/` — the brief invited them only "if genuinely
+  useful," and every filter/pagination concern this stage introduces (status/category/date-range
+  filters, `p_limit` clamping) is enforced server-side, in SQL, at the RPC boundary; inventing a
+  client-side mirror of that validation with no current caller (Stage 2 owns the UI that would need
+  it) would have been exactly the kind of unneeded abstraction the brief warned against.
+- `tests/integration/story-rls.integration.test.ts` gained coverage for: editor denial of
+  `moderate_revision`/`begin_story_publication_attempt`/`finalize_story_publication`; required
+  archive reason (empty/null/stale-version rejected, valid succeeds); moderator-cannot-reassign an
+  editorial story, editor claim/hand-off/self-service-rejection/stale-version rules; serious-category
+  report-note enforcement (`harassment` rejected without a note, succeeds with one, `reviewing`
+  needs no note, `spam_commercial` succeeds either way, an editor can't resolve or read notes);
+  immutability of `story_report_notes`/`story_publication_state_actions`/`editorial_actions` (direct
+  update/delete rejected); queue access/filters/deterministic pagination for
+  `get_moderation_queue()` (including the `resubmission` label and an unknown-`p_status` rejection),
+  `list_reports_for_staff()`, and `list_editorial_queue()`; `get_story_for_moderator()` never
+  returning `linked_user_id`/`created_by`/`owner_user_id`-shaped keys and reading attribution from the
+  consent snapshot; a moderator's direct `contributors` select returning nothing beyond the
+  public/self-service policies now that the staff policy is narrowed; `get_story_moderation_history()`/
+  `get_story_editorial_history()` access (moderator/admin yes, editor denied for moderation history);
+  `get_published_revision_snapshot()`. New tests were written using the file's existing
+  `untypedRpc()` helper (a new narrow `untypedTable()` sibling was added for the two new tables)
+  while the migrations were still unpushed; **left as-is after the push** rather than refactored to
+  the now-real generated types, since the tests pass either way (69/69, see below) and the priority
+  after a push is re-running the suite for real, not a cosmetic typing cleanup — a future stage
+  touching this test file may convert these call sites to typed ones opportunistically.
+
+**Verified this session, initially with no live database involved:** `npm run format:check`, `lint`,
+`typecheck`, `test` (**153/153**, unchanged — no new pure helpers were added, so no new unit tests
+were needed), and `build` (27 routes, unchanged from Prompt 5 — this stage adds no new pages) all
+passed before anything was pushed.
+
+**Then, with your explicit go-ahead, pushed and live-verified for real:**
+
+- All 8 migrations applied to the linked project (`ybhydepjaantkngngvuf`) via the Supabase MCP
+  `apply_migration` tool, in filename order, immediately after the nullable-actor bug above was found
+  and fixed in the local file (so the pushed version of `reassign_editorial_story()` is the corrected
+  one — the vulnerable version was never live).
+- `npm run supabase:types:linked` (via the MCP `generate_typescript_types` tool) regenerated
+  `types/database.ts` for real; confirmed it now declares every new/changed function
+  (`reassign_editorial_story`, `list_editorial_queue`, `get_moderation_queue`, `story_report_notes`,
+  `story_publication_state_actions`, etc.) with the expected argument/return shapes.
+- `lib/story/moderation.ts` converted from `callUntypedRpc()` back to plain typed `supabase.rpc(...)`
+  calls (see above) — `npm run verify` re-run afterward, still clean: 153/153 unit tests, clean
+  lint/typecheck/format, build unchanged at 27 routes.
+- **`npm run test:rls` — 69/69 passing** (up from 44 at the end of Prompt 5), confirming both that
+  every `DROP FUNCTION`+`CREATE FUNCTION` was reconstructed correctly from the live body (no
+  ambiguous-column or missing-grant surprises) and that the fixed `reassign_editorial_story()`
+  authorization rule behaves as intended against the real database.
+- `get_advisors` (security) was run and reviewed; no new advisories beyond the pre-existing,
+  already-documented ones from Prompt 5.
+- **Not yet done, and not required by this session's instruction**: `npm run test:rls:cleanup` —
+  this stage's new test fixtures (reassignment/report-note/queue-filter rows) remain on the linked
+  dev project, the same "accepted low-cost debris" category as every prior stage's disposable
+  fixtures (see "Risks" below). Can be run on request.
+
+**Deviations from the brief, and why:**
+
+- The literal parameter list given for `reassign_editorial_story()`
+  (`p_note text default null, p_expected_version integer`) is not valid PostgreSQL — a
+  parameter without a default cannot follow one that has a default, positionally. Declared
+  `p_expected_version integer default null` instead, with an explicit `raise exception` if it's ever
+  actually null, preserving "required in practice" while staying syntactically valid. Documented in
+  the migration's own header comment.
+- `reassign_editorial_story()` is restricted to `source_kind = 'editorial_import'` stories, not
+  every story — self-service stories have no "prepared by" editor concept to reassign (confirmed by
+  grep: no self-service authoring function ever sets `assigned_editor_id`).
+- `get_moderation_queue()`'s `submission_kind` precedence (`'resubmission'` overrides
+  `'replacement'` whenever both would technically apply) is a judgment call the brief explicitly
+  invited — documented in the migration's own SQL comment, not asserted as the only valid reading.
+
+**A real, pre-existing gap found while implementing item 2 (editorial reassignment), left unfixed as
+out of scope for Stage 1:** `create_editorial_import_draft()` always resolves `p_assigned_editor_id`
+via `coalesce(p_assigned_editor_id, auth.uid())` — there is no RPC path today that leaves
+`assigned_editor_id` null on an editorial-import story. This means the "unclaimed pool" branch both
+`reassign_editorial_story()` and `list_editorial_queue()` support (per the brief's own "an editor can
+claim an unassigned...story" language) can never actually be exercised against a story created
+through the real API as it exists today — the RPC logic is written and correct for that case, but
+nothing produces the precondition. Flagged here rather than silently assumed away; Stage 2 or a later
+prompt should decide whether an explicit "unassign" capability is warranted, or whether the founding
+catalogue import process is expected to seed some stories with a null `assigned_editor_id` directly
+(bypassing the RPC, e.g. via a one-time data migration) instead.
+
+**Not built, deliberately out of scope for Stage 1** (per the task's own boundary): any UI under
+`app/(moderation)/` or `app/(editor)/`; the media-copy-then-finalize Server Action orchestration that
+will call `beginStoryPublicationAttempt()`/`finalizeStoryPublication()`/`copyStoryMediaToPublic()`
+together; wiring any of this stage's new/changed functions into an actual page.
+
+## Prompt 6 detail — Stage 2
+
+UI/orchestration layer on top of Stage 1's backend. Full technical account (design decisions, the
+approve-flow partial-failure contract, the two new migrations) is in
+[docs/architecture.md](architecture.md#moderationeditorial-workspace-ui-and-orchestration-prompt-6-stage-2);
+not duplicated in full here.
+
+**Built:**
+
+- `app/(moderation)/moderation/route.ts` deleted; replaced with `layout.tsx` (role check, mirrors
+  `app/(editor)/editorial/layout.tsx`), `moderation-nav.tsx`, `page.tsx` (minimal landing),
+  `stories/page.tsx` (filterable/paginated queue — status/source/region/work-type/consent-method/
+  date-range, first/replacement/resubmission labels, no bulk-approve control), and
+  `stories/[id]/page.tsx` (the review page — `[id]` is a **revision id**, see architecture.md for
+  why). The review page renders: the exact submitted revision's content, a before/after two-column
+  diff against the published snapshot when it's a replacement (via the existing
+  `ContentBlockRenderer`, no new diff library), attribution/consent/image-rights state, moderation
+  history and editorial history in separate labeled sections (never merged), the story's open
+  reports, and media processing state.
+- `app/(moderation)/moderation/stories/[id]/actions.ts` — `approveStoryAction()`,
+  `moderateDecisionAction()` (reject/changes_requested, required reason), `archiveStoryAction()`
+  (required reason, re-derives slug server-side). Every action independently re-checks
+  `resolveStaffAccess(await getCurrentUserRole(), ["moderator", "admin"])`.
+- `lib/story/publish-orchestration.ts#runApproveOrchestration()` — the begin → copy-media → finalize
+  loop, factored out as an injectable-dependency pure function specifically so its partial-failure
+  behavior is unit-testable without a real Supabase client or real storage. See architecture.md for
+  the exact contract; summary: any media-copy failure stops the loop immediately and `finalize` is
+  never called, leaving the attempt `active`/recoverable.
+- `lib/validation/moderation.ts` — new file (this codebase's existing "one Zod file per domain when
+  it doesn't cleanly fit an existing one" convention): search-param parsers for the moderation queue
+  and editorial queue (same "every field parses independently, never throws" convention as
+  `lib/validation/discovery.ts`), and Server Action input schemas (`moderateDecisionSchema`,
+  `approveStorySchema`, `archiveStorySchema`, `reassignEditorialStorySchema`, `resolveReportSchema`).
+- `app/(editor)/editorial/page.tsx` rewritten to call `listEditorialQueue()` (status filter +
+  free-text search + pagination via `total_count`) instead of the flat `listAssignedEditorialStories()`
+  — a single filterable view, not separate tabs (documented judgment call, see architecture.md).
+  `app/(editor)/editorial/reassign-actions.ts` + `reassign-form.tsx` add the reassignment control
+  (editor/admin only, raw target-editor-id field — no staff-directory function exists to build a
+  picker, see "Gaps found" below). `app/(editor)/editorial/editorial-history-panel.tsx` (new,
+  read-only) is rendered on `app/(editor)/editorial/[id]/edit/page.tsx` in every state that page can
+  render.
+- `proxy.ts`: `STAFF_MODERATION_PATH` (mirrors `STAFF_EDITORIAL_PATH` exactly) and
+  `MODERATION_REVIEW_PAGE_PATH` + `canViewModerationReview()` (per-row check for
+  `/moderation/stories/[revisionId]`, via the new `can_view_moderation_review()` RPC — deliberately
+  not a reuse of `get_story_for_moderator()`, which would fetch the entire review payload on every
+  request just to decide a 404).
+- Two new migrations, reviewed against Engineering Rules 2, 3, 10–14 and **applied** (pushed via the
+  Supabase MCP `apply_migration` tool, with your explicit go-ahead, immediately after this stage's
+  review confirmed both were clean — no nullable-actor issues, standard revoke/grant discipline):
+  - `supabase/migrations/20260805110000_moderator_story_detail_slug_version.sql` — DROP+CREATE
+    `get_story_for_moderator()`, adding `slug`/`story_version` output columns. A genuine gap found
+    while wiring the real approve/archive Server Actions: no moderator-accessible function exposed
+    either field before this (`stories` has no RLS policies at all — every access is a
+    `SECURITY DEFINER` function — and `get_story_for_editor()` is editor-assigned/admin scoped, not
+    moderator). Diffed against the current live body (confirmed unchanged by any later migration).
+  - `supabase/migrations/20260805110100_moderation_review_existence_check.sql` — new
+    `can_view_moderation_review(p_revision_id)`, moderator/admin only, existence-only (returns just
+    the revision id). Used by `proxy.ts` instead of the brief's alternative of reusing
+    `get_story_for_moderator()` wholesale for the per-row check, which would mean fetching the whole
+    review payload in middleware on every request.
+  - `npm run supabase:types:linked`-equivalent (Supabase MCP `generate_typescript_types`) regenerated
+    `types/database.ts` for real afterward; `lib/story/moderation.ts#getStoryForModerator()`'s
+    temporary `callUntypedRpc()` call (Stage 1's escape hatch, used here for the one call site
+    affected by the slug/version shape change) was converted back to a plain typed `supabase.rpc(...)`
+    call and the now-fully-unused import removed from that file — the same cleanup done once already
+    in Stage 1 and once before that in Prompt 4 Sub-phase 4.
+
+**Verified, in order:** `npm run format:check`, `lint`, `typecheck`, `test` (**171/171**, up from
+153 — 18 new tests: `lib/validation/moderation.test.ts` for the search-param parsers and Server
+Action schemas, `lib/story/publish-orchestration.test.ts` for the approve-flow partial-failure
+contract), and `build` (**30 routes**, up from 27) all passed before anything was pushed. Both
+migrations were then applied; types regenerated; `getStoryForModerator()` cleaned up; `npm run verify`
+re-run clean afterward (same 171/171, same 30 routes). **`npm run test:rls` — 69/69 passing**
+(unchanged from Stage 1 — this stage's migrations didn't add new RLS-suite-relevant authorization
+surface beyond what Stage 1 already covers; the queue/review functions changed here are UI-facing
+shape additions, not new authorization logic).
+
+**Not yet run**: `npm run test:e2e`/Playwright against the live project — the new
+`e2e/moderation.spec.ts` needs real fixture data (a submitted revision, a replacement, etc.) it
+creates itself via direct RPC calls, following `tests/integration/story-rls.integration.test.ts`'s
+own fixture-creation pattern; deferred to whenever that's explicitly run, same as this stage's own
+report noted before the push.
+
+**Deviations from the brief, and why:**
+
+- Two new migrations were added this stage, even though the brief's Stage 2 scope is nominally
+  "UI/orchestration ... not backend design" — both are narrow, structurally necessary gaps
+  discovered while wiring the real Server Actions (see above), not new backend feature design, and
+  both are written-but-unpushed exactly like the brief's own contingency describes ("if you decide
+  ... write the migration, do NOT push it").
+- The editorial queue was implemented as a single filterable view (status dropdown covering every
+  `lifecycle_status` value) rather than two separate hard-coded "awaiting-approval"/
+  "returned-for-changes" tabs — `list_editorial_queue()`'s own `p_status` parameter already covers
+  this generically, and two tabs would just be the same call made twice with a fixed filter each.
+- The reassignment UI uses a raw target-editor-user-id text field rather than a name-based picker —
+  no staff-directory listing function exists anywhere in this codebase (grepped) to safely populate
+  one; `reassign_editorial_story()` independently verifies the target holds `editor`/`admin` via
+  `has_role()` regardless, so a wrong id fails loudly server-side rather than silently misdirecting.
+
+**Real, pre-existing gaps found this session, left unfixed as out of scope:**
+
+- No staff-directory function exists to list editors/admins by name — noted above; a real usability
+  gap for the reassignment control, not a security issue (the target is always independently
+  verified server-side).
+- Stage 1's own flagged gap (`create_editorial_import_draft()` never leaves `assigned_editor_id`
+  null, so the "unclaimed pool" branch of `reassign_editorial_story()`/`list_editorial_queue()` can
+  never actually be exercised against a story created through today's real API) is still unresolved
+  — this stage's UI surfaces the unclaimed-pool case correctly (an editor sees "Unclaimed" in the
+  queue when `assigned_editor_id` is null) but, per Stage 1's own note, no real story can reach that
+  state today without a one-time data migration or a new "unassign" RPC, neither of which this stage
+  added.
+
+**What remains for Stage 3** (per this brief's own boundary, not implemented here): a dedicated
+reports-triage page (Stage 2 only surfaces a story's own open reports inline on its review page, via
+`listReportsForStaff({ storyId })`); `docs/moderation-guidelines.md`; a full recovery-hardening pass
+(e.g. a UI affordance to explicitly retry/abandon a stuck-`active` publication attempt, beyond what
+"reload the review page and click Approve again" already achieves via the orchestration's own
+idempotent retry); `e2e/reports-triage.spec.ts`. This stage's own `e2e/moderation.spec.ts` is written
+but still needs a real run against the live project (it creates its own fixture data via direct RPC
+calls) — both migrations it depends on are now pushed and `test:rls`-verified, so nothing blocks that
+run except actually executing it.
+
+## Prompt 6 detail — Stage 3
+
+The final stage. Full technical account is in
+[docs/architecture.md](architecture.md#reports-triage-and-operational-hardening-prompt-6-stage-3);
+not duplicated in full here.
+
+**Built:**
+
+- `app/(moderation)/moderation/reports/page.tsx` (filterable/paginated reports-triage queue) and
+  `app/(moderation)/moderation/reports/[id]/page.tsx` (report detail: reporter details, private
+  internal notes via `getReportNotes()`, resolution form) + co-located
+  `actions.ts#resolveReportAction()` + `resolve-form.tsx`. `moderation-nav.tsx` gained a "Reports"
+  link.
+- `lib/validation/moderation.ts` gained `parseReportsQueueSearchParams()`/
+  `REPORTS_QUEUE_PAGE_SIZE` (same never-throws convention as the other two queue parsers) and a new
+  pure helper, `reportNoteRequired(category, status)`, mirroring `resolve_report()`'s own
+  serious-category note requirement for the client-side form.
+- **No new migration.** Every RPC this stage's UI calls
+  (`listReportsForStaff()`/`resolveReport()`/`getReportNotes()`/`create_story_report()`) already
+  existed and was already pushed/`test:rls`-verified as of Stage 1.
+- **Cache-invalidation-failure gap found and fixed**: `app/(moderation)/moderation/stories/[id]/actions.ts`
+  called `invalidateStoryPublicCache(slug)` directly, uncaught, immediately after a successful
+  approve/archive database mutation. A `revalidatePath()` throw inside that helper would have
+  propagated out of the Server Action and looked like a failed publish/archive to the moderator even
+  though the mutation had already committed. Fixed with a new `invalidatePublicCacheSafely()`
+  wrapper (catches, logs, never propagates) in the same file.
+- New `lib/log.ts#logStaffAction()` — a single minimal structured-logging function (grepped first:
+  no logging convention existed anywhere in this repo outside test files). Wired into
+  `approveStoryAction()`/`moderateDecisionAction()`/`archiveStoryAction()`,
+  `reassignEditorialStoryAction()`, and the new `resolveReportAction()`. Logs only
+  actor id/action name/target id/outcome — never story bodies, secrets, or note contents; the DB
+  audit tables remain the actual source of truth.
+- Recovery-hardening review against every scenario the brief listed (partial media copy, failed
+  finalize, orphan copy-attempt objects, repeated approval requests, archive/withdrawal retries):
+  all confirmed already sufficient by re-reading the actual code
+  (`lib/story/publish-orchestration.ts`, `supabase/migrations/20260804090800_maintenance_reconciliation_functions.sql`,
+  `archive_story()`/`revoke_publication_consent()`) — nothing rebuilt. See architecture.md for the
+  per-item account.
+- `docs/moderation-guidelines.md` — new, full prose (not a stub): immigration misinformation, unsafe
+  employment advice, employer/allegation defamation risk, harassment/hate, privacy/identifiable
+  people, copyright/image permission, spam/promotion, dangerous travel advice, concrete
+  request-changes-vs.-reject criteria tied to `moderateRevision()`'s actual two-decision lifecycle,
+  admin escalation (explicitly stated as a process/communication step, not an in-app feature),
+  consent withdrawal/removal tied to `revoke_publication_consent()`/`archive_story()`, and the
+  required-note-for-serious-categories rule in practice.
+- `docs/architecture.md`/`docs/content-governance.md` updated for end-to-end consistency (see below).
+
+**A real, flagged gap, left unfixed as out of scope (would need a new RPC/migration):** unlike
+`/moderation/stories/[revisionId]`, `/moderation/reports/[id]` has no middleware-level per-row
+existence check (`can_view_moderation_review()`'s equivalent). `STAFF_MODERATION_PATH` already fully
+covers authorization here (any moderator/admin may view any report — there's no per-row
+authorization narrower than role, unlike a story's editor-scoped draft), so this is a possible
+wrong-HTTP-status-code edge case for a same-role staff member hitting a bogus report id, never a
+cross-role information leak. Fixing it properly would mean a new "does this report id exist" RPC —
+a new migration — which this stage otherwise needed none of. Flagged, not built, per the brief's own
+instruction to write up a flagged finding rather than add a migration without asking first.
+
+**Verified:** `npm run format:check`, `lint`, `typecheck`, `test` (**182/182**, up from 171 — 11 new:
+`parseReportsQueueSearchParams()`, `resolveReportSchema` edge cases, `reportNoteRequired()` across
+every serious/non-serious × reviewing/resolved/dismissed combination), and `build` (**32 routes**, up
+from 30 — `/moderation/reports`, `/moderation/reports/[id]`) all pass. No migration to push, so no
+`test:rls` re-run was needed or performed.
+
+### Post-Stage-3 live e2e verification (completed)
+
+`e2e/moderation.spec.ts` and `e2e/reports-triage.spec.ts` were subsequently run for real against the
+linked project (**12/12 passing**, `--workers=1` — see both files' own header comments for why
+serial execution is required: they share a live, cross-test queue, and default parallelism produces
+worker-interference failures unrelated to app correctness). Two real, live-reproducing bugs were
+found and fixed in the process:
+
+1. **`get_story_editorial_history()` was moderator/admin-only**, but Stage 2's own
+   `editorial-history-panel.tsx` renders it on the assigned **editor's own** edit page — every editor
+   hit a genuine `P0001` 500 visiting their own story, confirmed directly against server logs before
+   diagnosis. Fixed in a new corrective migration,
+   `20260805120000_fix_get_story_editorial_history_editor_access.sql` (broadens authorization to also
+   accept the story's assigned editor, via the same `coalesce(...,false)`-guarded pattern
+   `get_story_for_editor()` already uses — the nullable-actor bug class this codebase has now hit and
+   fixed five times). **Pushed and re-verified**: `test:rls` re-run afterward, still 69/69.
+2. **The review page's approve/reject success message was unobservable** —
+   `app/(moderation)/moderation/stories/[id]/review-controls.tsx`'s success/error paragraphs lived
+   inside the `canDecide` branch, which flips `false` the instant a successful action's
+   `revalidatePath()` refreshes `revisionStatus`, replacing the whole section (confirmation included)
+   with the "not submitted anymore" fallback before a human — or Playwright — could observe it. The
+   same root cause existed in `app/(moderation)/moderation/reports/[id]/resolve-form.tsx`'s
+   `alreadyClosed` branch. Both fixed by rendering the success/error message unconditionally, above
+   the branch that can replace the rest of the section. No migration involved — pure client-component
+   fix, covered by `npm run test`'s existing suite (182/182, unaffected) and now proven live by the
+   e2e run itself.
+
+Two additional bugs were in the **tests**, not the app, also found and fixed while chasing the above:
+a Playwright strict-mode locator match against accumulated fixture debris (`.first()` added); the
+reassignment test's final assertion had the correct/expected authorization outcome inverted (an
+admin-assigned fixture story correctly does _not_ appear in a non-admin editor's own queue — the
+original assertion expected the opposite); and both reports-triage tests missing a wait for a
+detail-page-only heading before interacting with the resolution form, which could transiently target
+the _queue_ page's own identically-labeled "Status" filter `<select>` mid-navigation (see
+`e2e/reports-triage.spec.ts`'s header comment for the full mechanism).
+
+All accumulated `rls-test-%` fixture debris from this verification pass was cleaned up afterward
+(direct SQL via the Supabase MCP, scoped identically to `scripts/rls-test-cleanup.sql` — the Supabase
+CLI is not installed in this environment, so `npm run test:rls:cleanup` itself could not run, but its
+underlying SQL was executed directly and verified empty afterward).
+
+**Deviations from the brief, and why:**
+
+- The reports-triage detail page requires a `storyId` query parameter (`/moderation/reports/[id]?storyId=...`),
+  populated by the queue page's own link. `list_reports_for_staff()` has no by-report-id filter and
+  clamps `p_limit` to `[1, 50]`, so an unscoped "fetch everything and find the matching id" would
+  silently miss reports past the first page; adding a by-id RPC would be a new migration. Direct/
+  bookmarked navigation without `storyId` shows a clear "return to the queue" message rather than an
+  unscoped scan.
+- The detail page is a separate route (`[id]/page.tsx`), not an inline expand on the queue row, for
+  its own bookmarkable URL and Server Action target — documented as the brief invited ("your call,
+  document it").
+
 ## Migration summary
 
 All in `supabase/migrations/`, applied in filename order:
@@ -925,18 +1297,29 @@ All in `supabase/migrations/`, applied in filename order:
 | `20260805100200_list_distinct_public_travel_styles.sql`            | Prompt 5 — new anon-granted function backing the travel-style filter's options, scoped to public+approved+consent-valid stories only. **Applied.**                                                                                                                                                                                                                                               |
 | `20260805100300_public_contributor_functions.sql`                  | Prompt 5 — new anon-granted `list_public_contributors()`/`get_public_contributor()`, the public contributor directory/detail backend. **Applied.**                                                                                                                                                                                                                                               |
 | `20260805100400_fix_list_published_stories_ambiguous_story_id.sql` | Prompt 5 corrective — bug fix, found live via `npm run build` (`app/sitemap.ts`'s first-ever real call to `list_published_stories()`): qualifies the bare `story_id` reference in the lateral consent-lookup subquery `20260805100100` reintroduced from a stale pre-fix copy of the function body (this exact line was already fixed once, in `20260803091000`). Same fix pattern. **Applied.** |
+| `20260805100500_archive_reason_and_publication_state_audit.sql`    | Prompt 6 Stage 1 — new `story_publication_state_actions` append-only audit table (`action_type` in `archived`/`consent_withdrawn`, reason required only for `archived`); `DROP`+`CREATE` of `archive_story()` adding a required `p_reason`/optional `p_note`; `revoke_publication_consent()` gains a matching reason-free audit insert. **Applied.**                                             |
+| `20260805100600_reassign_editorial_story.sql`                      | Prompt 6 Stage 1 — new `reassign_editorial_story()`, editorial-import stories only; admin reassigns anyone, editor may only claim-unassigned or hand-off-their-own. Records an `editorial_actions` row. **Applied** (with the `coalesce(...,false)` nullable-actor fix described above — the vulnerable version was never pushed).                                                               |
+| `20260805100700_story_report_notes_and_resolve_report.sql`         | Prompt 6 Stage 1 — new `story_report_notes` table (mirrors `moderation_action_notes`); `DROP`+`CREATE` of `resolve_report()` requiring a non-empty note when closing a serious-category report; new `get_report_notes()` reader. **Applied.**                                                                                                                                                    |
+| `20260805100800_get_moderation_queue_v2.sql`                       | Prompt 6 Stage 1 — `DROP`+`CREATE` of `get_moderation_queue()`: filters, pagination (`count(*) over()`), `is_replacement`/`submission_kind` labels, a `recently_reviewed` branch. **Applied.**                                                                                                                                                                                                   |
+| `20260805100900_moderator_story_detail_functions.sql`              | Prompt 6 Stage 1 — `DROP`+`CREATE` of `get_story_for_moderator()` (full content + consent snapshot + path-free media); new `get_story_moderation_history()`, `get_story_editorial_history()`, `get_published_revision_snapshot()`. **Applied.**                                                                                                                                                  |
+| `20260805101000_narrow_moderator_contributor_access.sql`           | Prompt 6 Stage 1 — drops the moderator branch of the "staff read all contributor records" RLS policy on `contributors`, replaced with editor/admin-only. **Applied.**                                                                                                                                                                                                                            |
+| `20260805101100_list_reports_for_staff_filters.sql`                | Prompt 6 Stage 1 — `DROP`+`CREATE` of `list_reports_for_staff()`: `p_category`/`p_date_from`/`p_date_to`/`p_story_id`/pagination. **Applied.**                                                                                                                                                                                                                                                   |
+| `20260805101200_editorial_queue.sql`                               | Prompt 6 Stage 1 — new `list_editorial_queue()` (does not replace `list_assigned_editorial_stories()`, still called directly by `app/(editor)/editorial/page.tsx`). **Applied.**                                                                                                                                                                                                                 |
+| `20260805110000_moderator_story_detail_slug_version.sql`           | Prompt 6 Stage 2 — DROP+CREATE of `get_story_for_moderator()` adding `slug`/`story_version` output columns, needed by the real approve/archive Server Actions (cache invalidation, expectedVersion) with no other moderator-accessible source for either. **Applied.**                                                                                                                           |
+| `20260805110100_moderation_review_existence_check.sql`             | Prompt 6 Stage 2 — new `can_view_moderation_review(p_revision_id)`, moderator/admin-only existence check backing `proxy.ts`'s per-row 404 for `/moderation/stories/[revisionId]`, deliberately not a reuse of the full `get_story_for_moderator()` payload. **Applied.**                                                                                                                         |
+| `20260805120000_fix_get_story_editorial_history_editor_access.sql` | Post-Stage-3 corrective — bug fix, found live via `e2e/moderation.spec.ts`: `get_story_editorial_history()` was moderator/admin-only, but Stage 2's `editorial-history-panel.tsx` renders it on the assigned editor's own edit page, causing a genuine 500 for every editor. Broadened to also authorize the story's assigned editor (`coalesce(...,false)`-guarded). **Applied.**               |
 
 ## Role and RLS matrix
 
 `app_role`: `user` (default) · `editor` · `moderator` · `admin`. Assigned via `user_roles`, structurally
 unwritable by ordinary clients (see docs/architecture.md).
 
-| Table               | Anonymous                                                 | Owner (self)                                                                    | Other authenticated user | Editor                                                                                                                              | Moderator                                                                 | Admin                                                                          |
-| ------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `profiles`          | Read only if `public_profile_enabled AND public_slug` set | Read/update own row (no INSERT/DELETE for anyone)                               | Same as anonymous        | Same as anonymous                                                                                                                   | Same as anonymous                                                         | Same as anonymous                                                              |
-| `user_roles`        | None                                                      | Read own role only                                                              | None                     | Read own role only                                                                                                                  | Read own role only                                                        | Read own + all others; only writer of role changes (via `admin_set_user_role`) |
-| `contributors`      | Read only `public_status = 'public'` rows                 | Read/update own linked row; cannot change `linked_user_id`/`created_by`/archive | Same as anonymous        | Read all rows; create unlinked rows; update any row (still can't self-archive via the non-staff path — they ARE staff, so they can) | Read all rows (see architecture.md's noted row-vs-column-level trade-off) | Read/update/delete all rows; create unlinked rows                              |
-| `contributor_links` | None                                                      | Read own link history                                                           | None                     | Read all link history; the only role (with admin) that can write, and only through `link_contributor_to_user()`                     | None                                                                      | Read all link history; can write via the same function                         |
+| Table               | Anonymous                                                 | Owner (self)                                                                    | Other authenticated user | Editor                                                                                                                              | Moderator                                                                                                                         | Admin                                                                          |
+| ------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `profiles`          | Read only if `public_profile_enabled AND public_slug` set | Read/update own row (no INSERT/DELETE for anyone)                               | Same as anonymous        | Same as anonymous                                                                                                                   | Same as anonymous                                                                                                                 | Same as anonymous                                                              |
+| `user_roles`        | None                                                      | Read own role only                                                              | None                     | Read own role only                                                                                                                  | Read own role only                                                                                                                | Read own + all others; only writer of role changes (via `admin_set_user_role`) |
+| `contributors`      | Read only `public_status = 'public'` rows                 | Read/update own linked row; cannot change `linked_user_id`/`created_by`/archive | Same as anonymous        | Read all rows; create unlinked rows; update any row (still can't self-archive via the non-staff path — they ARE staff, so they can) | None (Prompt 6 Stage 1 — narrowed from "read all rows"; attribution comes from the `story_publication_consents` snapshot instead) | Read/update/delete all rows; create unlinked rows                              |
+| `contributor_links` | None                                                      | Read own link history                                                           | None                     | Read all link history; the only role (with admin) that can write, and only through `link_contributor_to_user()`                     | None                                                                                                                              | Read all link history; can write via the same function                         |
 
 Self-service contributor creation (`linked_user_id = auth.uid()`) is available to any authenticated
 user regardless of role, via a dedicated INSERT policy — this is what "self-service stories" needs
@@ -1071,11 +1454,11 @@ validation/auth.ts`'s `passwordSchema` mirrors this by hand (documented in a cod
   check before assuming parity, though nothing in this session gave a reason to expect a difference.
 - **Global header never reflects auth state, by design.** Unchanged from Prompt 1 — still acceptable,
   still worth revisiting if it becomes confusing UX.
-- **Moderator visibility into `contributors` is row-level, not column-level** (see
-  docs/architecture.md "Known trade-off"). Moderators can currently read the full row, including
-  `linked_user_id`/`created_by`, rather than a restricted field set — acceptable today because no
-  moderation UI queries this table yet (Prompt 6, per the roadmap correction below), but must be
-  tightened (view or scoped query) when that UI is built.
+- ~~Moderator visibility into `contributors` is row-level, not column-level~~ — **resolved in Prompt
+  6 Stage 1** (`20260805101000_narrow_moderator_contributor_access.sql`, live-verified): the
+  moderator branch of the "staff read all" policy was dropped; moderators have no direct
+  `contributors` access at all now, since `get_story_for_moderator()` sources attribution from the
+  `story_publication_consents` snapshot instead.
 - **Sign-up and RLS/trigger behavior are live-verified (see "Prompt 2 detail"); the email-link
   round trip specifically is not.** Sign-up, self-escalation denial, and contributor-hijack denial
   were all exercised directly against the real Auth/PostgREST APIs. What's still unverified: actually
@@ -1184,7 +1567,38 @@ Remaining, explicitly-accepted, non-blocking items:
 - Prompt 5's cache-invalidation helpers (`lib/story/public-cache.ts`) have no real caller yet —
   Prompt 6 must wire them into its new publish/archive/withdraw Server Actions.
 
-**Next up: Prompt 6 (editorial and moderation workspace — queue UI, reports triage; real `/moderation`
-and `/admin` UI, replacing the still-role-gated-404 Route Handler stubs; the actual
-`finalize_story_publication()`/`archiveStory()` callers Prompt 5's cache invalidation is waiting
-for) and Prompt 7 (operational launch tooling).**
+**Prompt 6 is now complete — all 3 stages, including live e2e verification.** Stage 1
+(backend/migrations), Stage 2 (queue/review UI + approve/archive orchestration), and Stage 3
+(reports-triage workspace, `docs/moderation-guidelines.md`, recovery-hardening review) are all done.
+**11 migrations** pushed and live-verified (`npm run test:rls` 69/69) — 10 from Stages 1–2 plus one
+post-Stage-3 corrective migration found via live e2e testing (see "Post-Stage-3 live e2e
+verification" above). `npm run verify` clean: 182/182 unit tests, 32-route build.
+**`e2e/moderation.spec.ts` + `e2e/reports-triage.spec.ts`: 12/12 passing live** against the real
+linked project (`--workers=1`), the two real app bugs that run found and fixed, and the accumulated
+test-fixture debris cleaned up afterward. See "Prompt 6 detail — Stage 1", "Stage 2", "Stage 3", and
+"Post-Stage-3 live e2e verification" above for the full account.
+
+Remaining, explicitly-accepted, non-blocking items:
+
+- `e2e/moderation.spec.ts` and the new `e2e/reports-triage.spec.ts` are both written (following this
+  repo's established direct-RPC-fixture pattern) but **not run this session** — both need the full
+  `SUPABASE_RLS_TEST_*` credential pool in `.env.test.local`, the same live-project boundary every
+  other real e2e spec in this repo already has; neither is blocked by any unpushed migration.
+- `/moderation/reports/[id]` has no middleware-level per-row existence check (unlike
+  `/moderation/stories/[revisionId]`'s `can_view_moderation_review()`) — a low-risk, same-role-only
+  wrong-status-code edge case, not an authorization gap (see "Prompt 6 detail — Stage 3" above).
+  Fixing it properly needs a new RPC/migration; flagged, not built without asking first.
+- `npm run e2e:cleanup:editorial-fixtures -- --execute` remains blocked on a missing
+  `.env.maintenance.local` (no service-role key available in this environment) — unchanged since
+  Prompt 4.
+- Disposable test fixture rows from Prompt 6's RLS/e2e-spec additions are not cleaned up — same
+  low-cost/accepted category as every prior stage's disposable fixtures.
+
+**Next up: Prompt 7 (operational launch tooling and Playwright coverage of critical flows).** Per the
+prompt checklist above, this is renumbered from 8 (reporting itself is already done, from Prompt 3;
+contributor drafting/private preview was folded into Prompt 4). Concretely, Prompt 7 should pick up:
+running the now-unblocked `e2e/moderation.spec.ts` and `e2e/reports-triage.spec.ts` for real once the
+`SUPABASE_RLS_TEST_*` credential pool is available; any remaining operational/launch tooling (health
+checks, deployment runbook, monitoring/alerting for the new `logStaffAction()` lines); and closing out
+the small accepted-gap list above if a future prompt's scope naturally includes a new moderation RPC
+anyway (folding the reports per-row existence check in at the same time, per Stage 3's own note).
