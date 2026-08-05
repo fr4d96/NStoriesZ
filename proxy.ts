@@ -22,6 +22,10 @@ const PREVIEW_PATH = /^\/stories\/[^/]+\/preview(\/.*)?$/;
 const STORY_EDIT_PAGE_PATH = /^\/stories\/([^/]+)\/edit$/;
 const STORY_PREVIEW_PAGE_PATH = /^\/stories\/([^/]+)\/preview$/;
 const EDITORIAL_EDIT_PAGE_PATH = /^\/editorial\/([^/]+)\/edit$/;
+// Prompt 6 Stage 2: exact-match-only, same reasoning as the two patterns
+// above -- /moderation/stories/:id/anything-nested (there is none today,
+// but this stays narrow on purpose) must not be swept in here.
+const MODERATION_REVIEW_PAGE_PATH = /^\/moderation\/stories\/([^/]+)$/;
 
 // Prompt 5: the exact same "a page-based notFound() deep in an RSC tree
 // doesn't set a real HTTP status" failure mode documented above for the
@@ -59,6 +63,14 @@ function publicNotFound() {
 // real response status directly), is the one that actually produces a
 // true 404 — verified the same way, by `curl -i`, after this fix.
 const STAFF_EDITORIAL_PATH = /^\/editorial(\/.*)?$/;
+
+// Prompt 6 Stage 2: /moderation gains real pages (app/(moderation)/moderation/route.ts,
+// the old role-gated JSON stub, is deleted by this change). Mirrors
+// STAFF_EDITORIAL_PATH exactly -- same flat 404 for signed-out and
+// wrong-role, same reasoning about why this check has to live here (not
+// just in app/(moderation)/moderation/layout.tsx) rather than being
+// assumed equivalent.
+const STAFF_MODERATION_PATH = /^\/moderation(\/.*)?$/;
 
 function isProtectedPath(pathname: string) {
   return (
@@ -114,6 +126,27 @@ async function canPreviewStory(
 ) {
   const { data, error } = await supabase.rpc("get_story_preview", {
     p_story_id: storyId,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Prompt 6 Stage 2: cheap, existence-only per-row check for a moderation
+ * review page, via can_view_moderation_review()
+ * (supabase/migrations/20260805110100_moderation_review_existence_check.sql,
+ * NOT yet pushed) -- deliberately NOT get_story_for_moderator() itself,
+ * which builds the entire review payload (content_json, consent snapshot,
+ * a jsonb_agg of every attached media item) on every call; reusing it here
+ * would mean middleware fetches that whole payload on every request just
+ * to decide a 404. Same "error and empty both mean false, no distinction
+ * leaked" shape as canReadStoryDraft/canPreviewStory above.
+ */
+async function canViewModerationReview(
+  supabase: ReturnType<typeof createServerClient>,
+  revisionId: string,
+) {
+  const { data, error } = await supabase.rpc("can_view_moderation_review", {
+    p_revision_id: revisionId,
   });
   return !error && Array.isArray(data) && data.length > 0;
 }
@@ -217,6 +250,37 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  if (STAFF_MODERATION_PATH.test(request.nextUrl.pathname)) {
+    // Signed-out and signed-in-with-the-wrong-role get the IDENTICAL flat
+    // 404, same convention as every other staff route in this app.
+    if (!data?.claims?.sub) {
+      return flatNotFound();
+    }
+    const { data: roleRow } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.claims.sub)
+      .single();
+    if (roleRow?.role !== "moderator" && roleRow?.role !== "admin") {
+      return flatNotFound();
+    }
+
+    // Role-level check above only proves this user is SOME moderator/admin
+    // -- it says nothing about whether the specific revision id in the URL
+    // actually exists. See canViewModerationReview()'s comment above for
+    // why this is a dedicated lightweight RPC rather than
+    // get_story_for_moderator() itself.
+    const reviewMatch = request.nextUrl.pathname.match(
+      MODERATION_REVIEW_PAGE_PATH,
+    );
+    if (reviewMatch) {
+      const allowed = await canViewModerationReview(supabase, reviewMatch[1]);
+      if (!allowed) {
+        return flatNotFound();
+      }
+    }
+  }
+
   // Prompt 4 Sub-phase 5: per-row authorization for the self-service
   // authoring pages, for the same reason as the editorial per-row check
   // just above. Only runs once we know the visitor is signed in (the
@@ -289,6 +353,8 @@ export const config = {
     "/stories/:id/preview/:path*",
     "/editorial",
     "/editorial/:path*",
+    "/moderation",
+    "/moderation/:path*",
     "/stories/:id",
     "/contributors/:slug",
   ],

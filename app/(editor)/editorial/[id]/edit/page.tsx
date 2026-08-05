@@ -13,7 +13,9 @@ import {
 } from "@/lib/story/active-lookups";
 import { StoryEditForm } from "@/components/story/story-edit-form";
 import { storyContentSchema } from "@/lib/validation/story";
+import { getStoryEditorialHistory } from "@/lib/story/moderation";
 import { EditorialControls } from "../editorial-controls";
+import { EditorialHistoryPanel } from "../../editorial-history-panel";
 
 export const metadata: Metadata = {
   title: "Edit Editorial Import",
@@ -34,6 +36,7 @@ export default async function EditorialEditPage({
   if (draft.source_kind !== "editorial_import") notFound();
 
   if (draft.lifecycle_status === "awaiting_contributor_approval") {
+    const editorialHistory = await getStoryEditorialHistory(id);
     return (
       <div className="mx-auto max-w-xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -50,11 +53,15 @@ export default async function EditorialEditPage({
           lifecycleStatus={draft.lifecycle_status}
           showMarkReady={false}
         />
+        <div className="mt-8">
+          <EditorialHistoryPanel history={editorialHistory} />
+        </div>
       </div>
     );
   }
 
   if (draft.revision_status !== "draft") {
+    const editorialHistory = await getStoryEditorialHistory(id);
     return (
       <div className="mx-auto max-w-xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -65,19 +72,30 @@ export default async function EditorialEditPage({
           {draft.revision_status.replace(/_/g, " ")} and can&apos;t be edited
           from this page.
         </p>
+        <div className="mt-8">
+          <EditorialHistoryPanel history={editorialHistory} />
+        </div>
       </div>
     );
   }
 
-  const [selections, preview, regions, destinations, workTypes, tags] =
-    await Promise.all([
-      getRevisionSelections(draft.revision_id),
-      getStoryPreview(id),
-      listActiveRegions(),
-      listActiveDestinations(),
-      listActiveWorkTypes(),
-      listActiveTags(),
-    ]);
+  const [
+    selections,
+    preview,
+    regions,
+    destinations,
+    workTypes,
+    tags,
+    editorialHistory,
+  ] = await Promise.all([
+    getRevisionSelections(draft.revision_id),
+    getStoryPreview(id),
+    listActiveRegions(),
+    listActiveDestinations(),
+    listActiveWorkTypes(),
+    listActiveTags(),
+    getStoryEditorialHistory(id),
+  ]);
 
   const parsedContent = storyContentSchema.safeParse(draft.content_json);
 
@@ -113,6 +131,9 @@ export default async function EditorialEditPage({
         tags={tags}
         showContentImport
       />
+      <div className="mx-auto max-w-3xl px-4 pb-12 sm:px-6">
+        <EditorialHistoryPanel history={editorialHistory} />
+      </div>
     </div>
   );
 }

@@ -30,6 +30,15 @@
 -- deletes below and restored immediately after.
 set session_replication_role = replica;
 
+-- Prompt 6 Stage 1: story_report_notes references story_reports with
+-- on delete restrict -- must go first.
+with target_stories as (
+  select id from public.stories where slug like 'rls-test-%'
+), target_reports as (
+  select id from public.story_reports where story_id in (select id from target_stories)
+)
+delete from public.story_report_notes where report_id in (select id from target_reports);
+
 with target_stories as (
   select id from public.stories where slug like 'rls-test-%'
 ), target_revisions as (
@@ -134,6 +143,12 @@ delete from public.story_revisions where story_id in (
 );
 
 delete from public.story_media where story_id in (
+  select id from public.stories where slug like 'rls-test-%'
+);
+
+-- Prompt 6 Stage 1: story_publication_state_actions references stories
+-- with on delete restrict -- must go before the stories delete.
+delete from public.story_publication_state_actions where story_id in (
   select id from public.stories where slug like 'rls-test-%'
 );
 

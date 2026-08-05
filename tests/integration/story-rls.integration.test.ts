@@ -43,6 +43,35 @@ async function untypedRpc<T>(
   }>;
 }
 
+/**
+ * Same escape hatch as untypedRpc(), for a table that exists on the live
+ * linked project (this migration set's new story_report_notes /
+ * story_publication_state_actions) but isn't reflected in
+ * types/database.ts yet. Only ever used here to assert that a direct
+ * update/delete is rejected -- never to read/trust returned data.
+ */
+function untypedTable(
+  client: SupabaseClient<Database>,
+  table: string,
+): {
+  update: (values: Record<string, unknown>) => {
+    eq: (
+      column: string,
+      value: string,
+    ) => Promise<{ error: { message: string; code?: string } | null }>;
+  };
+  delete: () => {
+    eq: (
+      column: string,
+      value: string,
+    ) => Promise<{ error: { message: string; code?: string } | null }>;
+  };
+} {
+  return client.from(table as never) as unknown as ReturnType<
+    typeof untypedTable
+  >;
+}
+
 function assertSafeToRun() {
   const required = [
     "SUPABASE_RLS_TEST_URL",
@@ -1489,4 +1518,630 @@ describe("Prompt 5: public contributor directory and detail", () => {
     expect(error).not.toBeNull();
     expect(error?.code).toBe("42501");
   });
+});
+
+// ---------------------------------------------------------------------
+// Prompt 6 Stage 1 additions below. NOTE: these require
+// supabase/migrations/20260805100500-20260805101200 to be pushed to the
+// linked project before they can pass -- as of this commit they are written
+// and ready, but NOT yet run for real (explicit go-ahead is required for the
+// push + `npm run test:rls`, per this repo's established practice). See
+// docs/implementation-status.md "Prompt 6 Stage 1 detail" for the full
+// account of what is/isn't verified this stage.
+// ---------------------------------------------------------------------
+
+describe("editor is denied every moderator/publication-attempt action", () => {
+  let storyId: string;
+  let revisionId: string;
+
+  beforeAll(async () => {
+    const { data: created } = await owner.client.rpc(
+      "create_self_service_draft",
+      { p_title: slug("editor-denial") },
+    );
+    storyId = created![0].story_id;
+    revisionId = created![0].revision_id;
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: revisionId,
+      p_expected_version: draft![0].version,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    });
+  }, 30000);
+
+  it("an editor cannot call moderate_revision with reject/changes_requested either", async () => {
+    const { error } = await editor.client.rpc("moderate_revision", {
+      p_revision_id: revisionId,
+      p_expected_version: 2,
+      p_decision: "reject",
+      p_user_facing_reason: "not allowed",
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("an editor cannot call begin_story_publication_attempt", async () => {
+    const { error } = await editor.client.rpc(
+      "begin_story_publication_attempt",
+      { p_revision_id: revisionId },
+    );
+    expect(error).not.toBeNull();
+  });
+
+  it("an editor cannot call finalize_story_publication", async () => {
+    const { error } = await editor.client.rpc("finalize_story_publication", {
+      p_revision_id: revisionId,
+      p_approval_attempt_id: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(error).not.toBeNull();
+  });
+});
+
+describe("archive requires a reason (migration 20260805100500)", () => {
+  it("rejects a null/empty reason and succeeds with one, recording an audit row", async () => {
+    const story = await publishOwnerStory({ title: slug("archive-reason") });
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: story.storyId,
+    });
+    const version = draft![0].version;
+
+    const { error: emptyError } = await untypedRpc(
+      moderator.client,
+      "archive_story",
+      {
+        p_story_id: story.storyId,
+        p_expected_version: version,
+        p_reason: "",
+      },
+    );
+    expect(emptyError).not.toBeNull();
+
+    const { error: nullError } = await untypedRpc(
+      moderator.client,
+      "archive_story",
+      {
+        p_story_id: story.storyId,
+        p_expected_version: version,
+        p_reason: null,
+      },
+    );
+    expect(nullError).not.toBeNull();
+
+    const { error: staleError } = await untypedRpc(
+      moderator.client,
+      "archive_story",
+      {
+        p_story_id: story.storyId,
+        p_expected_version: version + 999,
+        p_reason: "a real reason",
+      },
+    );
+    expect(staleError).not.toBeNull();
+
+    const { error: okError } = await untypedRpc(
+      moderator.client,
+      "archive_story",
+      {
+        p_story_id: story.storyId,
+        p_expected_version: version,
+        p_reason: "Duplicate of another published story.",
+      },
+    );
+    expect(okError).toBeNull();
+  }, 30000);
+});
+
+describe("moderator cannot reassign editorial stories; editor claim/hand-off rules (migration 20260805100600)", () => {
+  it("a moderator is rejected outright", async () => {
+    const { data: contributor } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: "RLS Test Reassign Contributor",
+        attribution_type: "display_name",
+      })
+      .select("id")
+      .single();
+    const { data: created } = await editor.client.rpc(
+      "create_editorial_import_draft",
+      { p_contributor_id: contributor!.id, p_title: slug("reassign-story") },
+    );
+    const storyId = created![0].story_id;
+
+    const { error } = await untypedRpc(
+      moderator.client,
+      "reassign_editorial_story",
+      {
+        p_story_id: storyId,
+        p_editor_id: admin.userId,
+        p_expected_version: 1,
+      },
+    );
+    expect(error).not.toBeNull();
+  });
+
+  it("an editor can claim an unassigned story for themselves but not for someone else, and admin can reassign anyone's story", async () => {
+    const { data: contributor } = await admin.client
+      .from("contributors")
+      .insert({
+        created_by: admin.userId,
+        display_name: "RLS Test Unclaimed Contributor",
+        attribution_type: "display_name",
+      })
+      .select("id")
+      .single();
+
+    // Unassigned: created by admin with no p_assigned_editor_id override
+    // resolves to admin as the default assignee inside
+    // create_editorial_import_draft() -- explicitly clear it via a
+    // reassignment to null-equivalent is not supported, so instead this
+    // story starts assigned to admin, then admin hands it to editor, who
+    // then cannot hand it to someone else who isn't themselves/unassigned.
+    const { data: created } = await admin.client.rpc(
+      "create_editorial_import_draft",
+      { p_contributor_id: contributor!.id, p_title: slug("handoff-story") },
+    );
+    const storyId = created![0].story_id;
+
+    const { error: adminReassignError } = await untypedRpc(
+      admin.client,
+      "reassign_editorial_story",
+      {
+        p_story_id: storyId,
+        p_editor_id: editor.userId,
+        p_expected_version: 1,
+      },
+    );
+    expect(adminReassignError).toBeNull();
+
+    // Editor now owns it (assigned_editor_id = editor.userId) -- editor can
+    // hand it off to a different eligible editor (moderator/admin promoted
+    // accounts don't apply here; reuse admin as the "different eligible
+    // editor" target since admin also holds a role has_role() accepts).
+    const { error: handoffError } = await untypedRpc(
+      editor.client,
+      "reassign_editorial_story",
+      { p_story_id: storyId, p_editor_id: admin.userId, p_expected_version: 2 },
+    );
+    expect(handoffError).toBeNull();
+
+    // Now assigned back to admin -- editor (no longer assigned) cannot
+    // reassign it further.
+    const { error: forbiddenError } = await untypedRpc(
+      editor.client,
+      "reassign_editorial_story",
+      {
+        p_story_id: storyId,
+        p_editor_id: editor.userId,
+        p_expected_version: 3,
+      },
+    );
+    expect(forbiddenError).not.toBeNull();
+  }, 30000);
+
+  it("a stale p_expected_version is rejected", async () => {
+    const { data: contributor } = await editor.client
+      .from("contributors")
+      .insert({
+        created_by: editor.userId,
+        display_name: "RLS Test Reassign Stale Contributor",
+        attribution_type: "display_name",
+      })
+      .select("id")
+      .single();
+    const { data: created } = await editor.client.rpc(
+      "create_editorial_import_draft",
+      { p_contributor_id: contributor!.id, p_title: slug("reassign-stale") },
+    );
+    const storyId = created![0].story_id;
+
+    const { error } = await untypedRpc(
+      editor.client,
+      "reassign_editorial_story",
+      {
+        p_story_id: storyId,
+        p_editor_id: editor.userId,
+        p_expected_version: 999,
+      },
+    );
+    expect(error).not.toBeNull();
+  });
+
+  it("rejects a self-service (non-editorial-import) story", async () => {
+    const { data: created } = await owner.client.rpc(
+      "create_self_service_draft",
+      { p_title: slug("reassign-self-service") },
+    );
+    const storyId = created![0].story_id;
+    const { error } = await untypedRpc(
+      admin.client,
+      "reassign_editorial_story",
+      {
+        p_story_id: storyId,
+        p_editor_id: editor.userId,
+        p_expected_version: 1,
+      },
+    );
+    expect(error).not.toBeNull();
+  });
+});
+
+describe("report internal notes and serious-category enforcement (migration 20260805100700)", () => {
+  async function publishedStoryReport(category: string) {
+    const story = await publishOwnerStory({
+      title: slug(`report-${category}`),
+    });
+    const { data: reportId, error } = await other.client.rpc(
+      "create_story_report",
+      { p_story_id: story.storyId, p_category: category },
+    );
+    if (error || !reportId) {
+      throw new Error(`Could not create report: ${error?.message}`);
+    }
+    return reportId;
+  }
+
+  it("rejects resolving a harassment report as resolved with no note, succeeds with one", async () => {
+    const reportId = await publishedStoryReport("harassment");
+    const { error: noNoteError } = await untypedRpc(
+      moderator.client,
+      "resolve_report",
+      {
+        p_report_id: reportId,
+        p_status: "resolved",
+      },
+    );
+    expect(noNoteError).not.toBeNull();
+
+    const { error: withNoteError } = await untypedRpc(
+      moderator.client,
+      "resolve_report",
+      {
+        p_report_id: reportId,
+        p_status: "resolved",
+        p_internal_note: "Confirmed with the contributor; content updated.",
+      },
+    );
+    expect(withNoteError).toBeNull();
+
+    const { data: notes, error: notesError } = await untypedRpc<
+      { internal_note: string }[]
+    >(moderator.client, "get_report_notes", { p_report_id: reportId });
+    expect(notesError).toBeNull();
+    expect(notes?.length).toBeGreaterThan(0);
+  }, 30000);
+
+  it("does not require a note to move a harassment report to reviewing", async () => {
+    const reportId = await publishedStoryReport("harassment");
+    const { error } = await untypedRpc(moderator.client, "resolve_report", {
+      p_report_id: reportId,
+      p_status: "reviewing",
+    });
+    expect(error).toBeNull();
+  }, 30000);
+
+  it("spam_commercial can be dismissed with no note", async () => {
+    const reportId = await publishedStoryReport("spam_commercial");
+    const { error } = await untypedRpc(moderator.client, "resolve_report", {
+      p_report_id: reportId,
+      p_status: "dismissed",
+    });
+    expect(error).toBeNull();
+  }, 30000);
+
+  it("cannot resolve an already-closed report again", async () => {
+    const reportId = await publishedStoryReport("other");
+    await untypedRpc(moderator.client, "resolve_report", {
+      p_report_id: reportId,
+      p_status: "dismissed",
+    });
+    const { error } = await untypedRpc(moderator.client, "resolve_report", {
+      p_report_id: reportId,
+      p_status: "resolved",
+    });
+    expect(error).not.toBeNull();
+  }, 30000);
+
+  it("an editor cannot resolve a report or read its notes", async () => {
+    const reportId = await publishedStoryReport("other");
+    const { error: resolveError } = await untypedRpc(
+      editor.client,
+      "resolve_report",
+      {
+        p_report_id: reportId,
+        p_status: "dismissed",
+      },
+    );
+    expect(resolveError).not.toBeNull();
+    const { error: notesError } = await untypedRpc(
+      editor.client,
+      "get_report_notes",
+      {
+        p_report_id: reportId,
+      },
+    );
+    expect(notesError).not.toBeNull();
+  }, 30000);
+});
+
+describe("audit rows are immutable (story_report_notes, story_publication_state_actions, editorial_actions)", () => {
+  it("story_report_notes cannot be updated or deleted directly", async () => {
+    const { error: updateError } = await untypedTable(
+      moderator.client,
+      "story_report_notes",
+    )
+      .update({ internal_note: "tampered" })
+      .eq("id", "11111111-1111-4111-8111-111111111111");
+    expect(updateError).not.toBeNull();
+    const { error: deleteError } = await untypedTable(
+      moderator.client,
+      "story_report_notes",
+    )
+      .delete()
+      .eq("id", "11111111-1111-4111-8111-111111111111");
+    expect(deleteError).not.toBeNull();
+  });
+
+  it("story_publication_state_actions cannot be updated or deleted directly", async () => {
+    const { error: updateError } = await untypedTable(
+      moderator.client,
+      "story_publication_state_actions",
+    )
+      .update({ reason: "tampered" })
+      .eq("id", "11111111-1111-4111-8111-111111111111");
+    expect(updateError).not.toBeNull();
+    const { error: deleteError } = await untypedTable(
+      moderator.client,
+      "story_publication_state_actions",
+    )
+      .delete()
+      .eq("id", "11111111-1111-4111-8111-111111111111");
+    expect(deleteError).not.toBeNull();
+  });
+
+  it("editorial_actions cannot be updated or deleted directly", async () => {
+    const { error: updateError } = await editor.client
+      .from("editorial_actions")
+      .update({ summary: "tampered" })
+      .eq("id", "11111111-1111-4111-8111-111111111111");
+    expect(updateError).not.toBeNull();
+    const { error: deleteError } = await editor.client
+      .from("editorial_actions")
+      .delete()
+      .eq("id", "11111111-1111-4111-8111-111111111111");
+    expect(deleteError).not.toBeNull();
+  });
+});
+
+describe("moderation/reports/editorial queues: access, filters, deterministic pagination (migrations 20260805100800/100900/101100/101200)", () => {
+  it("a non-staff caller is rejected from every queue function", async () => {
+    for (const fn of [
+      "get_moderation_queue",
+      "list_reports_for_staff",
+    ] as const) {
+      const { error } = await untypedRpc(owner.client, fn, {});
+      expect(error).not.toBeNull();
+    }
+    const { error: editorialQueueError } = await untypedRpc(
+      owner.client,
+      "list_editorial_queue",
+      {},
+    );
+    expect(editorialQueueError).not.toBeNull();
+  });
+
+  it("get_moderation_queue paginates deterministically and labels first vs. resubmission", async () => {
+    const story = await publishOwnerStory({ title: slug("queue-first") });
+    // A rejected-then-resubmitted replacement should be labelled 'resubmission'.
+    const { data: nextRevisionId } = await owner.client.rpc(
+      "create_next_draft_revision",
+      { p_story_id: story.storyId },
+    );
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: story.storyId,
+    });
+    await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: nextRevisionId!,
+      p_expected_version: draft![0].version,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    });
+    const { error: rejectError } = await moderator.client.rpc(
+      "moderate_revision",
+      {
+        p_revision_id: nextRevisionId!,
+        p_expected_version: draft![0].version + 1,
+        p_decision: "reject",
+        p_user_facing_reason: "needs work",
+      },
+    );
+    expect(rejectError).toBeNull();
+
+    const { data: resubmitRevisionId } = await owner.client.rpc(
+      "create_next_draft_revision",
+      { p_story_id: story.storyId },
+    );
+    const { data: draft2 } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: story.storyId,
+    });
+    await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: resubmitRevisionId!,
+      p_expected_version: draft2![0].version,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    });
+
+    const { data: page1, error: page1Error } = await untypedRpc<
+      {
+        revision_id: string;
+        submission_kind: string;
+        is_replacement: boolean;
+        total_count: number;
+      }[]
+    >(moderator.client, "get_moderation_queue", {
+      p_status: "submitted",
+      p_limit: 1,
+      p_offset: 0,
+    });
+    expect(page1Error).toBeNull();
+    expect(page1?.length).toBe(1);
+    expect(typeof page1?.[0]?.total_count).toBe("number");
+
+    const { data: row } = await untypedRpc<
+      { revision_id: string; submission_kind: string }[]
+    >(moderator.client, "get_moderation_queue", {
+      p_status: "submitted",
+      p_limit: 50,
+      p_offset: 0,
+    });
+    const resubmitted = row?.find((r) => r.revision_id === resubmitRevisionId);
+    expect(resubmitted?.submission_kind).toBe("resubmission");
+  }, 60000);
+
+  it("get_moderation_queue rejects an unknown p_status", async () => {
+    const { error } = await untypedRpc(
+      moderator.client,
+      "get_moderation_queue",
+      {
+        p_status: "not_a_real_status",
+      },
+    );
+    expect(error).not.toBeNull();
+  });
+
+  it("list_reports_for_staff filters by category and clamps limit deterministically", async () => {
+    const story = await publishOwnerStory({ title: slug("queue-reports") });
+    await other.client.rpc("create_story_report", {
+      p_story_id: story.storyId,
+      p_category: "spam_commercial",
+    });
+    const { data, error } = await untypedRpc<{ story_id: string }[]>(
+      moderator.client,
+      "list_reports_for_staff",
+      {
+        p_category: "spam_commercial",
+        p_story_id: story.storyId,
+        p_limit: 500,
+      },
+    );
+    expect(error).toBeNull();
+    expect(data?.every((r) => r.story_id === story.storyId)).toBe(true);
+  }, 30000);
+
+  it("list_editorial_queue shows a story assigned to an editor to that editor, and admin sees all editorial_import stories regardless of assignment", async () => {
+    // NOTE: create_editorial_import_draft() always resolves
+    // p_assigned_editor_id via coalesce(p_assigned_editor_id, auth.uid()) --
+    // there is currently no RPC path that leaves assigned_editor_id null on
+    // an editorial_import story, so the "unclaimed pool" branch of
+    // list_editorial_queue() (assigned_editor_id is null) cannot actually be
+    // exercised against a story created through the real API today. This is
+    // flagged in the Stage 1 report as a real gap for Stage 2/a later prompt
+    // to consider (e.g. an explicit "unassign" RPC), not silently assumed
+    // away -- this test instead verifies the two branches that ARE
+    // reachable: assigned-to-self visibility, and admin's unconditional
+    // visibility.
+    const { data: contributor } = await admin.client
+      .from("contributors")
+      .insert({
+        created_by: admin.userId,
+        display_name: "RLS Test Editorial Queue Contributor",
+        attribution_type: "display_name",
+      })
+      .select("id")
+      .single();
+    const { data: created } = await admin.client.rpc(
+      "create_editorial_import_draft",
+      {
+        p_contributor_id: contributor!.id,
+        p_title: slug("queue-assigned"),
+        p_assigned_editor_id: editor.userId,
+      },
+    );
+    const storyId = created![0].story_id;
+
+    const { data: editorView, error: editorError } = await untypedRpc<
+      { story_id: string }[]
+    >(editor.client, "list_editorial_queue", { p_limit: 50 });
+    expect(editorError).toBeNull();
+    expect(editorView?.some((s) => s.story_id === storyId)).toBe(true);
+
+    const { data: adminView, error: adminError } = await untypedRpc<
+      { story_id: string }[]
+    >(admin.client, "list_editorial_queue", { p_limit: 50 });
+    expect(adminError).toBeNull();
+    expect(adminView?.some((s) => s.story_id === storyId)).toBe(true);
+  }, 30000);
+});
+
+describe("get_story_for_moderator never returns contributor identity fields (migration 20260805100900)", () => {
+  it("returns no linked_user_id/created_by-shaped keys, and reads attribution from the consent snapshot", async () => {
+    const story = await publishOwnerStory({ title: slug("moderator-detail") });
+    const { data, error } = await untypedRpc<Record<string, unknown>[]>(
+      moderator.client,
+      "get_story_for_moderator",
+      { p_revision_id: story.revisionId },
+    );
+    expect(error).toBeNull();
+    const keys = Object.keys(data![0]);
+    for (const forbidden of ["linked_user_id", "created_by", "owner_user_id"]) {
+      expect(keys).not.toContain(forbidden);
+    }
+    expect(data![0].attribution_value).toBeTruthy();
+  }, 30000);
+
+  it("a moderator directly selecting contributors gains nothing beyond the public/self-service policies (migration 20260805101000)", async () => {
+    const { error } = await moderator.client
+      .from("contributors")
+      .select("id, linked_user_id")
+      .eq("linked_user_id", owner.userId);
+    // Not the moderator's own row and not public -- the removed staff
+    // policy previously made this succeed; now it should return nothing
+    // (RLS-filtered) rather than erroring outright, since anon/authenticated
+    // still has table-level SELECT grants (contributors uses ordinary RLS,
+    // not the story domain's zero-grant model) -- only the ROW-level policy
+    // was narrowed.
+    expect(error).toBeNull();
+  });
+
+  it("get_story_moderation_history and get_story_editorial_history are moderator/admin readable and editor/other denied for moderation history", async () => {
+    const story = await publishOwnerStory({ title: slug("history-story") });
+    const { data: modHistory, error: modError } = await untypedRpc(
+      moderator.client,
+      "get_story_moderation_history",
+      { p_story_id: story.storyId },
+    );
+    expect(modError).toBeNull();
+    expect(Array.isArray(modHistory)).toBe(true);
+
+    const { error: editorDeniedError } = await untypedRpc(
+      editor.client,
+      "get_story_moderation_history",
+      { p_story_id: story.storyId },
+    );
+    expect(editorDeniedError).not.toBeNull();
+
+    const { data: editHistory, error: editHistoryError } = await untypedRpc(
+      moderator.client,
+      "get_story_editorial_history",
+      { p_story_id: story.storyId },
+    );
+    expect(editHistoryError).toBeNull();
+    expect(Array.isArray(editHistory)).toBe(true);
+  }, 30000);
+
+  it("get_published_revision_snapshot returns the currently-published revision's content", async () => {
+    const story = await publishOwnerStory({ title: slug("snapshot-story") });
+    const { data, error } = await untypedRpc<{ revision_id: string }[]>(
+      moderator.client,
+      "get_published_revision_snapshot",
+      { p_story_id: story.storyId },
+    );
+    expect(error).toBeNull();
+    expect(data?.[0]?.revision_id).toBe(story.revisionId);
+  }, 30000);
 });

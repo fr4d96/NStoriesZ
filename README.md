@@ -87,3 +87,48 @@ updated after every prompt or sub-phase.
     both the stranger (now correctly blocked) and the legitimate owner/editor (unaffected).
   - **Prompt 4 is now fully done.** Next up: Prompt 5 (public browsing/search) and Prompt 6
     (moderator review dashboard).
+- **Prompt 5 — Public browsing & search (complete; merged to `main`).** The actual public-facing
+  site: a homepage, a browsable/filterable story list (region, work type, tags, cost band, search),
+  individual story and contributor pages, and the search-engine plumbing (sitemap, robots.txt,
+  structured data) so the site can actually be found and indexed. Live-tested (44/44 database tests,
+  24/24 browser tests, 153/153 unit tests). Found and fixed three real things along the way: a gap
+  where anonymous visitors could read contributor records directly instead of through the intended
+  filtered view; a page that returned "200 OK" for a story or contributor page that didn't exist,
+  instead of a proper "not found" (the same category of bug found and fixed twice in Prompt 4, this
+  time on a public page); and a database bug that broke the very first real page that ever called a
+  particular search function (caught by the site failing to build, not silently).
+- **Prompt 6 — Editorial & moderation workspace (complete, all 3 stages plus live browser
+  verification; merged to `main`).** The staff tools for reviewing, approving, and moderating
+  stories, plus a proper reports-triage system for reader-submitted flags.
+  - **Stage 1 (backend):** the underlying rules and data — archiving a story now requires a written
+    reason, an editor can be reassigned to a different story with a recorded audit trail, and a
+    moderator resolving a reader's report on a serious issue (misinformation, harassment, unsafe
+    advice, copyright/privacy) must now leave a private note explaining the decision before closing
+    it. Also tightened: moderators used to be able to read raw contributor account records directly;
+    now they only see the attribution info actually needed for review. Live-tested (69/69 database
+    tests). One real bug caught and fixed before anything went live: a reassignment check that would
+    have silently let any editor hand an unclaimed story to someone else, when only an admin should
+    be able to do that.
+  - **Stage 2 (the actual screens):** real moderation and editorial dashboards, replacing the
+    placeholder pages that used to just say "not built yet." A moderator can now filter and page
+    through submitted stories (labeled as first submissions, replacements, or resubmissions),
+    open one to see exactly what was submitted — including a side-by-side comparison against
+    what's currently public, if this is a replacement — and approve, reject, or request changes,
+    each with its own required or optional reason. Approving a story now runs through a proper
+    multi-step process (start the approval, copy each new photo to public storage, then finalize)
+    designed so a failure partway through never leaves something half-published — it just leaves the
+    attempt safely resumable. Editors got a real filterable queue too, plus the ability to reassign a
+    story to a different editor.
+  - **Stage 3 (reports triage + polish):** a dedicated page for reviewing reader-submitted reports,
+    with filters, a private-notes system staff can use to record why a report was resolved (never
+    visible to the person who reported it), and a full written guide for moderators covering things
+    like misinformation, harassment, copyright, and when to escalate to an admin — plus a fix for a
+    subtle bug where a successful approve/archive action's confirmation message could get silently
+    replaced by the page refreshing before anyone saw it.
+  - **Then verified for real, in a real browser, against the real database** (not just automated
+    database checks): 12 out of 12 browser tests passed, and this caught two more genuine bugs no
+    amount of code review had caught — (1) an editor got a real error page just from visiting their
+    own story's edit screen, because a database function meant to also let editors see their own
+    prep history had accidentally been left moderator-only; and (2) the same "confirmation message
+    disappears before you can see it" bug from Stage 3, this time on the main approve/reject screen.
+    Both fixed and re-verified live before anything was merged.

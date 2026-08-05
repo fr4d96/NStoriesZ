@@ -726,6 +726,76 @@ export type Database = {
           },
         ];
       };
+      story_publication_state_actions: {
+        Row: {
+          action_type: string;
+          actor_id: string | null;
+          created_at: string;
+          id: string;
+          note: string | null;
+          reason: string | null;
+          story_id: string;
+        };
+        Insert: {
+          action_type: string;
+          actor_id?: string | null;
+          created_at?: string;
+          id?: string;
+          note?: string | null;
+          reason?: string | null;
+          story_id: string;
+        };
+        Update: {
+          action_type?: string;
+          actor_id?: string | null;
+          created_at?: string;
+          id?: string;
+          note?: string | null;
+          reason?: string | null;
+          story_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_publication_state_actions_story_id_fkey";
+            columns: ["story_id"];
+            isOneToOne: false;
+            referencedRelation: "stories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      story_report_notes: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          internal_note: string;
+          report_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          internal_note: string;
+          report_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          internal_note?: string;
+          report_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_report_notes_report_id_fkey";
+            columns: ["report_id"];
+            isOneToOne: false;
+            referencedRelation: "story_reports";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       story_reports: {
         Row: {
           category: string;
@@ -1192,7 +1262,12 @@ export type Database = {
         Returns: undefined;
       };
       archive_story: {
-        Args: { p_expected_version: number; p_story_id: string };
+        Args: {
+          p_expected_version: number;
+          p_note?: string;
+          p_reason: string;
+          p_story_id: string;
+        };
         Returns: undefined;
       };
       authorize_story_media_preview: {
@@ -1216,6 +1291,12 @@ export type Database = {
       begin_story_publication_attempt: {
         Args: { p_revision_id: string };
         Returns: string;
+      };
+      can_view_moderation_review: {
+        Args: { p_revision_id: string };
+        Returns: {
+          revision_id: string;
+        }[];
       };
       cancel_pending_story_media_upload: {
         Args: { p_media_id: string };
@@ -1310,13 +1391,26 @@ export type Database = {
         Returns: string;
       };
       get_moderation_queue: {
-        Args: never;
+        Args: {
+          p_consent_method?: string;
+          p_date_from?: string;
+          p_date_to?: string;
+          p_limit?: number;
+          p_offset?: number;
+          p_region_id?: string;
+          p_source_kind?: string;
+          p_status?: string;
+          p_work_type_id?: string;
+        };
         Returns: {
+          is_replacement: boolean;
           revision_id: string;
           slug: string;
           story_id: string;
+          submission_kind: string;
           submitted_at: string;
           title: string;
+          total_count: number;
         }[];
       };
       get_my_story_with_draft: {
@@ -1353,6 +1447,20 @@ export type Database = {
           published_story_count: number;
         }[];
       };
+      get_published_revision_snapshot: {
+        Args: { p_story_id: string };
+        Returns: {
+          content_json: Json;
+          excerpt: string;
+          revision_id: string;
+          title: string;
+          total_expense_nzd_cents: number;
+          travel_style: string;
+          trip_end_date: string;
+          trip_start_date: string;
+          trip_year: number;
+        }[];
+      };
       get_published_story: {
         Args: { p_slug: string };
         Returns: {
@@ -1387,12 +1495,39 @@ export type Database = {
           sort_order: number;
         }[];
       };
+      get_report_notes: {
+        Args: { p_report_id: string };
+        Returns: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          internal_note: string;
+          report_id: string;
+        }[];
+        SetofOptions: {
+          from: "*";
+          to: "story_report_notes";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       get_revision_selections: {
         Args: { p_revision_id: string };
         Returns: {
           locations: Json;
           tag_ids: string[];
           work_type_ids: string[];
+        }[];
+      };
+      get_story_editorial_history: {
+        Args: { p_story_id: string };
+        Returns: {
+          action_type: string;
+          created_at: string;
+          editor_id: string;
+          id: string;
+          revision_id: string;
+          summary: string;
         }[];
       };
       get_story_for_editor: {
@@ -1413,18 +1548,41 @@ export type Database = {
       get_story_for_moderator: {
         Args: { p_revision_id: string };
         Returns: {
+          attribution_type: Database["public"]["Enums"]["attribution_type"];
+          attribution_value: string;
+          confirmation_method: string;
           consent_valid: boolean;
+          content_json: Json;
+          excerpt: string;
+          identifiable_people_state: Database["public"]["Enums"]["identifiable_people_state"];
+          image_rights_confirmed_at: string;
+          media: Json;
           media_processed: boolean;
-          moderation_action_id: string;
-          moderation_created_at: string;
-          moderation_internal_note: string;
-          moderation_new_status: Database["public"]["Enums"]["story_revision_status"];
-          moderation_previous_status: Database["public"]["Enums"]["story_revision_status"];
-          moderation_reason: string;
           revision_id: string;
+          revision_number: number;
           revision_status: Database["public"]["Enums"]["story_revision_status"];
+          slug: string;
           story_id: string;
+          story_version: number;
           title: string;
+          total_expense_nzd_cents: number;
+          travel_style: string;
+          trip_end_date: string;
+          trip_start_date: string;
+          trip_year: number;
+        }[];
+      };
+      get_story_moderation_history: {
+        Args: { p_story_id: string };
+        Returns: {
+          action_id: string;
+          created_at: string;
+          internal_note: string;
+          moderator_id: string;
+          new_status: Database["public"]["Enums"]["story_revision_status"];
+          previous_status: Database["public"]["Enums"]["story_revision_status"];
+          revision_id: string;
+          user_facing_reason: string;
         }[];
       };
       get_story_preview: {
@@ -1477,6 +1635,26 @@ export type Database = {
         Args: never;
         Returns: {
           travel_style: string;
+        }[];
+      };
+      list_editorial_queue: {
+        Args: {
+          p_limit?: number;
+          p_offset?: number;
+          p_search?: string;
+          p_status?: string;
+        };
+        Returns: {
+          assigned_editor_id: string;
+          contributor_id: string;
+          created_at: string;
+          lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
+          slug: string;
+          story_id: string;
+          title: string;
+          total_count: number;
+          updated_at: string;
+          version: number;
         }[];
       };
       list_my_reports: {
@@ -1568,7 +1746,15 @@ export type Database = {
         }[];
       };
       list_reports_for_staff: {
-        Args: { p_status?: string };
+        Args: {
+          p_category?: string;
+          p_date_from?: string;
+          p_date_to?: string;
+          p_limit?: number;
+          p_offset?: number;
+          p_status?: string;
+          p_story_id?: string;
+        };
         Returns: {
           category: string;
           created_at: string;
@@ -1616,6 +1802,15 @@ export type Database = {
           p_expected_version: number;
           p_revision_id: string;
           p_user_facing_reason?: string;
+        };
+        Returns: undefined;
+      };
+      reassign_editorial_story: {
+        Args: {
+          p_editor_id: string;
+          p_expected_version?: number;
+          p_note?: string;
+          p_story_id: string;
         };
         Returns: undefined;
       };
@@ -1667,7 +1862,11 @@ export type Database = {
         Returns: undefined;
       };
       resolve_report: {
-        Args: { p_report_id: string; p_status: string };
+        Args: {
+          p_internal_note?: string;
+          p_report_id: string;
+          p_status: string;
+        };
         Returns: undefined;
       };
       revoke_publication_consent: {
