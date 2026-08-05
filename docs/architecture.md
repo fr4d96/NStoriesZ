@@ -112,6 +112,12 @@ publication pipeline (Prompt 4)" below — Prompt 6 owns the moderation workspac
 Self-service authoring (`/stories/new`, `/my-stories`, `/stories/:id/edit`, `/stories/:id/preview`)
 and editorial import/consent-approval (`/editorial/*`) are real UI as of Prompt 4 Sub-phases 3–4
 respectively — see "Self-service authoring UI" and "Editorial import + consent/approval UI" below.
+`/readiness` (the content-readiness dashboard + operational metrics, editor/moderator/admin) is
+real UI as of Prompt 7 — see "Content readiness, operational metrics, and launch tooling (Prompt 7)"
+below. New Prompt 7 modules not shown in the tree above: `app/(readiness)/readiness/` (layout,
+nav, page, actions, verify-form), `lib/story/readiness.ts`, `lib/validation/readiness.ts`,
+`lib/story/content-quality-checks.ts`, `components/story/whats-public-summary.tsx`,
+`components/sticky-visible.tsx`, `e2e/founding-story-workflow.spec.ts`.
 
 ## Authentication boundaries
 
@@ -1578,6 +1584,156 @@ spec needs no unpushed migration to become runnable, but it still needs the same
 `SUPABASE_RLS_TEST_*` credential pool every other real e2e spec in this repo requires, and this
 session does not run Playwright against the live project regardless.
 
+## Content readiness, operational metrics, and launch tooling (Prompt 7)
+
+Operational tooling for onboarding the founding catalogue safely — a per-story readiness
+checklist, privacy-conscious admin counts, advisory (non-blocking) content-quality checks, a
+same-story duplicate-image warning, an explicit "what's public" summary shown to a contributor
+before they approve, and three new runbook docs. No bulk publication was built — every story is
+still reviewed individually, per the brief's own constraint (see "No bulk publication" below).
+
+### Two new migrations
+
+- `supabase/migrations/20260806090000_content_readiness_and_metrics.sql` — new append-only
+  `story_launch_verifications` table (RLS enabled, zero policies, same convention as every other
+  story-domain table) + `record_story_launch_verification()` (editor/moderator/admin, requires the
+  target story to actually be `published`, purely observational — it never touches
+  `lifecycle_status` or any publication column); `get_content_readiness_queue()` (editor/moderator/
+  admin, one row per story with every checklist signal computed from existing tables); and
+  `get_operational_metrics()` (editor/moderator/admin, seven aggregate counts only — no per-user or
+  per-story breakdown). Two disclosed simplifications, documented in the migration's own header
+  comment rather than left implicit: (1) the brief's "attribution choice confirmed" / "publication
+  consent complete" / "contributor approval complete" collapse to one boolean,
+  `publication_consent_complete`, because `submit_revision_with_consent()` records all three
+  atomically in one `story_publication_consents` row — there is no separate schema state to
+  distinguish them; (2) `alt_text_complete` is currently structurally guaranteed true for any row
+  that could exist at all (`story_revision_media_alt_text_required`, Prompt 3, already makes the
+  failing case unrepresentable), kept anyway as a real guard against future constraint drift.
+- `supabase/migrations/20260806090100_add_sha256_to_story_preview_media.sql` — `create or replace`
+  (not `DROP`+`CREATE`; the `RETURNS TABLE` shape is unchanged, only the media `jsonb` gains a key)
+  on `get_story_preview()`, adding `'sha256'` to each media object. Diffed against the live body via
+  `execute_sql` (`pg_get_functiondef`) immediately before writing this migration, confirming it
+  matched the last migration that had touched the function (`20260804092200`) exactly — the same
+  "reconstruct from the live body, not a stale copy" discipline this codebase has needed more than
+  once. sha256 is a hash of the already-processed, already-metadata-stripped derivative, never a
+  storage path — safe to expose to the story's own owner/editor, which is who this function already
+  authorizes.
+
+Both applied via the Supabase MCP `apply_migration` tool; `get_advisors` reviewed afterward — only
+the same, already-established `rls_enabled_no_policy` (on the new table) and
+`authenticated_security_definer_function_executable` (on the two new functions) classes every other
+`SECURITY DEFINER` function in this codebase already produces, nothing new. `types/database.ts`
+regenerated via the MCP `generate_typescript_types` tool.
+
+### Content readiness dashboard (`/readiness`)
+
+A new, third staff route group — `app/(readiness)/readiness/` — reachable by **editor, moderator,
+or admin**, not scoped to only one existing workspace, since readiness spans both editorial prep
+and moderation state. `proxy.ts` gained `STAFF_READINESS_PATH`, mirroring
+`STAFF_EDITORIAL_PATH`/`STAFF_MODERATION_PATH` exactly (same flat 404 for signed-out and
+wrong-role); the layout's own role check is the defense-in-depth backstop, same split as every
+other staff route group. `page.tsx` renders the operational-metrics summary
+(`get_operational_metrics()`) above a filterable (source/lifecycle-status), paginated queue
+(`get_content_readiness_queue()`) — each story shown as a checklist of ✓/○ items, never framed as
+legal advice. A published story additionally shows a `<details>` disclosure
+(`verify-form.tsx`, client) to record a launch verification (`record_story_launch_verification()`)
+— desktop/mobile checkboxes + an optional note, purely observational. `editorial-nav.tsx` and
+`moderation-nav.tsx` both gained a "Readiness" link for discoverability.
+
+### Advisory content-quality checks
+
+`lib/story/content-quality-checks.ts` — pure, no DB/network dependency, exporting
+`runContentQualityChecks()`. Checks: thin body (word-count heuristic), unclear dates, missing
+region/work type, absolute visa/employment claims ("guaranteed"), a specific street address or
+live-location statement, potentially identifying details (email/phone/passport-ID-shaped strings),
+employer accusations, excessive promotional links, images missing alt text, images with unresolved
+rights. **Deliberately advisory-only, per the brief's own instruction** ("automated checks may flag
+content but must not automatically decide publication") — nothing here blocks a save, a submission,
+or an approval; it exists to prompt a human reviewer to look closer. Small, conservative regex word
+lists — false positives are expected and fine (advisory), false negatives are far more likely given
+the narrow lists; not wired into a page yet in this pass (a future prompt can surface these as
+badges on the editorial/moderation review pages without touching this pure module).
+
+### Duplicate-image warning
+
+`components/story/image-upload-manager.tsx` now computes a same-story `sha256` collision check
+(from the `sha256` field `get_story_preview()`/`getStoryPreview()` now returns per media item —
+`lib/story/contributor-queries.ts#RevisionMediaItem` gained the field) and shows a small amber
+"Possible duplicate" note under any image whose hash matches another already-attached image in the
+same story. Advisory only — an editor may legitimately want the same photo attached twice (e.g. a
+differently-cropped version later reuses the same original bytes before cropping).
+
+### "What's public" summary
+
+`components/story/whats-public-summary.tsx` — a plain-language, human-readable list of exactly what
+a reader will see if this story is approved (attribution text + type, title/excerpt/body, the trip
+metadata fields, image count and caption count), shown above the contributor's own approve/submit
+panel on the private preview page (`app/(contributor)/stories/[id]/preview/page.tsx`). Deliberately
+reads only from `get_story_preview()`'s existing return shape — never queries
+`story_revision_editor_notes`/`moderation_action_notes`/`story_publication_consent_notes`, so
+internal editorial/moderation notes are structurally unreachable from this component, not merely
+omitted by convention.
+
+### A real bug found and fixed via live e2e testing: the confirmation that vanishes
+
+Building `e2e/founding-story-workflow.spec.ts` (below) reproduced, live, the exact bug class Prompt
+6 Stage 3 already found and fixed twice (`review-controls.tsx`, `resolve-form.tsx`): a Server
+Component page conditionally renders `{someServerComputedBoolean && <ClientPanel/>}`; the panel's
+own successful Server Action call triggers `revalidatePath()`, which flips that boolean on the very
+next render (because the mutation it just performed changed the underlying state); React then
+unmounts the whole panel — discarding whatever success/error message it was about to show — before
+a human (or Playwright) can ever observe it. Concretely: `preview/page.tsx`'s
+`isAwaitingThisContributorsApproval` flips `false` the instant the contributor's own "Approve &
+submit for moderation" click succeeds (the story's `lifecycle_status` moves off
+`awaiting_contributor_approval`), unmounting `ContributorReviewPanel` — and its confirmation message
+— immediately. The self-service `canSubmitOwnConsent`/`SubmitConsentPanel` pairing has the identical
+structural flaw.
+
+Fixed with a new, narrow, reusable primitive, `components/sticky-visible.tsx#StickyVisible`: a
+client component whose mount decision is taken once, from the initial `show` prop, via
+`useState(show)`, and never re-derived from later prop changes — so a later server re-render that
+would have unmounted the panel instead leaves it (and whatever it's currently showing) alone.
+`preview/page.tsx`'s three previously-inline `{cond && <div>...}` blocks (the "what's public"
+summary, `ContributorReviewPanel`, `SubmitConsentPanel`) are now all wrapped in
+`<StickyVisible show={cond}>`. Confirmed live: `e2e/founding-story-workflow.spec.ts` failed with
+this exact symptom (the confirmation `getByRole("status")` never appearing) before the fix, and
+passes after it — the full 37-spec Playwright suite was re-run afterward with zero regressions.
+
+### No bulk publication
+
+Per the brief's own explicit constraint, no bulk-publish/bulk-approve/bulk-moderate function or UI
+was built — every story is still reviewed individually. `lib/story/no-bulk-publication.test.ts` is
+a structural regression test (not a UI assertion): it fails the moment any bulk-shaped
+publish/approve/moderate function name appears anywhere in `lib/story/` or the generated Supabase
+RPC surface (`types/database.ts`), regardless of whether it's ever wired into a page. The two
+scoped bulk-metadata-operation and staff-directory-picker ideas the brief floated as optional were
+deliberately not built this pass (out of scope, not silently dropped — see
+docs/implementation-status.md "Prompt 7 detail").
+
+### Documentation
+
+`docs/founding-catalogue-runbook.md` (the 12-step process, referencing `/readiness` throughout
+rather than duplicating its checklist), `docs/content-inventory-template.md` (a tracking template,
+explicitly instructed to live outside this repository — it will hold real contributor references),
+`docs/launch-content-checklist.md` (a final per-story and per-batch gate before calling a launch
+"done"). None of these three files are legal advice — each says so explicitly.
+
+### Tests
+
+`lib/story/content-quality-checks.test.ts` (13 cases, one per heuristic plus a clean-story
+baseline), `components/story/whats-public-summary.test.tsx` (4 cases), `lib/validation/readiness.test.ts`
+(search-param parser + the launch-verification Zod schema), `lib/story/no-bulk-publication.test.ts`
+(the structural regression test above). `e2e/founding-story-workflow.spec.ts` — the "critical
+Playwright founding-story workflow" acceptance criterion: signs in as the fixed `editor`/`owner`/
+`moderator` test accounts, drives the real UI through editor import → save → "Mark ready for
+contributor review" → the linked contributor's own "Approve & submit for moderation" → moderator
+"Approve and publish" → confirms the finished story appears correctly in `/readiness` with
+consent/editorial-review both checked. **Run and passing live** (`--workers=1`, same shared-queue
+reasoning as `e2e/moderation.spec.ts`), including surfacing and proving the fix for the
+"vanishing confirmation" bug above. `npm run test:rls` re-run afterward: still 69/69, unaffected
+(this prompt's only SQL changes are additive/read-only). `npm run verify`: 212/212 unit tests (up
+from 182), 33-route build (up from 32).
+
 ## Roadmap (corrected)
 
 - **Prompt 4 — complete.** Editor/self-service authoring UI, image upload, storage buckets,
@@ -1599,6 +1755,12 @@ session does not run Playwright against the live project regardless.
   (`test:rls` 69/69) — see "Editorial and moderation workspace backend (Prompt 6 Stage 1)",
   "Moderation/editorial workspace UI and orchestration (Prompt 6 Stage 2)", and "Reports triage and
   operational hardening (Prompt 6 Stage 3)" above.
+- **Prompt 7 — complete.** Content readiness dashboard (`/readiness`), operational metrics,
+  advisory content-quality checks, same-story duplicate-image warnings, an explicit "what's public"
+  contributor summary, and three founding-catalogue runbook docs. 2 migrations pushed and
+  live-verified (`test:rls` 69/69, unchanged). `e2e/founding-story-workflow.spec.ts` run live,
+  found and fixed a real "vanishing confirmation" bug (`components/sticky-visible.tsx`) — see
+  "Content readiness, operational metrics, and launch tooling (Prompt 7)" above.
 
 ## Deployment assumptions
 

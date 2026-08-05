@@ -46,6 +46,8 @@ export type RevisionMediaItem = {
   caption: string | null;
   decorative: boolean;
   processingState: string;
+  /** Hash of the processed derivative (Prompt 7) — used for same-story duplicate-image warnings, never a storage path. */
+  sha256: string | null;
 };
 
 export type StoryPreview = {

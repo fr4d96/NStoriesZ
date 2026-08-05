@@ -4,6 +4,7 @@ const editorialNav = [
   { href: "/editorial", label: "Dashboard" },
   { href: "/editorial/new", label: "New Import" },
   { href: "/editorial/contributors", label: "Contributors" },
+  { href: "/readiness", label: "Readiness" },
 ];
 
 /**

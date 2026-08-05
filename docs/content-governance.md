@@ -293,3 +293,21 @@ retains every underlying record; no function ever deletes a story, revision, con
 row (every structural foreign key in the domain is `on delete restrict`, deliberately, so this is
 enforced at the schema level, not just by which functions happen to exist). Full deletion remains
 out of scope, exactly as planned.
+
+## Operational readiness (Prompt 7)
+
+The founding-catalogue import process this document describes now has an operational tooling layer
+— `/readiness` (editor/moderator/admin), backed by `get_content_readiness_queue()`
+(`supabase/migrations/20260806090000_content_readiness_and_metrics.sql`) — that surfaces, per
+story, whether each of the steps above (attribution, consent, image rights, identifiable-people
+resolution, editorial review, moderation) is actually complete. **This is explicitly an operational
+checklist, not legal advice**, and it never gates or bypasses anything: recording a checklist item
+or a post-publication launch verification (`record_story_launch_verification()`) has no effect on
+`stories.lifecycle_status` or any publication column — the RPCs and RLS policies described
+throughout this document remain the only source of truth for what's actually enforced. See
+[docs/founding-catalogue-runbook.md](founding-catalogue-runbook.md),
+[docs/content-inventory-template.md](content-inventory-template.md), and
+[docs/launch-content-checklist.md](launch-content-checklist.md) for the operational process this
+tooling supports, and [docs/architecture.md](architecture.md#content-readiness-operational-metrics-and-launch-tooling-prompt-7)
+for the technical account. Consistent with "Moderation boundaries" above, there is still no bulk
+publication path — every story is reviewed individually, checklist or not.

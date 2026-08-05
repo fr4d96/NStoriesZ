@@ -319,105 +319,122 @@ export function ImageUploadManager({
 
       {media.length > 0 && (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {media.map((item, index) => (
-            <li
-              key={item.mediaId}
-              className="space-y-2 rounded-md border border-black/10 p-2 dark:border-white/10"
-            >
-              <div className="relative aspect-square overflow-hidden rounded bg-black/5 dark:bg-white/5">
-                {thumbnails[item.mediaId] ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
-                  <img
-                    src={thumbnails[item.mediaId]}
-                    alt={item.altText ?? ""}
-                    className="h-full w-full object-cover"
+          {media.map((item, index) => {
+            // Prompt 7: same-story duplicate-image warning -- compares
+            // sha256 hashes of already-processed derivatives (never a
+            // storage path) already present in `media`. Advisory only, not
+            // enforced -- an editor may legitimately want the same photo
+            // attached twice (e.g. cropped differently later).
+            const duplicateCount = item.sha256
+              ? media.filter((m) => m.sha256 === item.sha256).length
+              : 1;
+            const isDuplicate = duplicateCount > 1;
+            return (
+              <li
+                key={item.mediaId}
+                className="space-y-2 rounded-md border border-black/10 p-2 dark:border-white/10"
+              >
+                <div className="relative aspect-square overflow-hidden rounded bg-black/5 dark:bg-white/5">
+                  {thumbnails[item.mediaId] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
+                    <img
+                      src={thumbnails[item.mediaId]}
+                      alt={item.altText ?? ""}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs text-black/50 dark:text-white/50">
+                      {PROCESSING_LABELS[item.processingState] ??
+                        item.processingState}
+                    </div>
+                  )}
+                  {item.isCover && (
+                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+                      Cover
+                    </span>
+                  )}
+                </div>
+
+                {isDuplicate && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Possible duplicate — matches another image in this story.
+                  </p>
+                )}
+
+                <label className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={item.decorative}
+                    onChange={(e) =>
+                      updateCaption(item.mediaId, {
+                        decorative: e.target.checked,
+                      })
+                    }
                   />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-xs text-black/50 dark:text-white/50">
-                    {PROCESSING_LABELS[item.processingState] ??
-                      item.processingState}
-                  </div>
-                )}
-                {item.isCover && (
-                  <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-                    Cover
-                  </span>
-                )}
-              </div>
+                  Decorative (no alt text needed)
+                </label>
 
-              <label className="flex items-center gap-1.5 text-xs">
-                <input
-                  type="checkbox"
-                  checked={item.decorative}
-                  onChange={(e) =>
-                    updateCaption(item.mediaId, {
-                      decorative: e.target.checked,
-                    })
-                  }
-                />
-                Decorative (no alt text needed)
-              </label>
+                {!item.decorative && (
+                  <input
+                    type="text"
+                    value={item.altText ?? ""}
+                    onChange={(e) =>
+                      updateCaption(item.mediaId, { altText: e.target.value })
+                    }
+                    placeholder="Alt text (required)"
+                    className="w-full rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+                  />
+                )}
 
-              {!item.decorative && (
                 <input
                   type="text"
-                  value={item.altText ?? ""}
+                  value={item.caption ?? ""}
                   onChange={(e) =>
-                    updateCaption(item.mediaId, { altText: e.target.value })
+                    updateCaption(item.mediaId, { caption: e.target.value })
                   }
-                  placeholder="Alt text (required)"
+                  placeholder="Caption (optional)"
                   className="w-full rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
                 />
-              )}
 
-              <input
-                type="text"
-                value={item.caption ?? ""}
-                onChange={(e) =>
-                  updateCaption(item.mediaId, { caption: e.target.value })
-                }
-                placeholder="Caption (optional)"
-                className="w-full rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
-              />
-
-              <div className="flex flex-wrap gap-2 text-xs">
-                {!item.isCover && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {!item.isCover && (
+                    <button
+                      type="button"
+                      onClick={() => setCover(item.mediaId)}
+                      className="underline underline-offset-2"
+                    >
+                      Set as cover
+                    </button>
+                  )}
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => reorder(index, index - 1)}
+                      className="underline underline-offset-2"
+                    >
+                      Move up
+                    </button>
+                  )}
+                  {index < media.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => reorder(index, index + 1)}
+                      className="underline underline-offset-2"
+                    >
+                      Move down
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setCover(item.mediaId)}
-                    className="underline underline-offset-2"
+                    onClick={() => detach(item.mediaId)}
+                    className="text-red-600 underline underline-offset-2 dark:text-red-400"
                   >
-                    Set as cover
+                    Remove
                   </button>
-                )}
-                {index > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => reorder(index, index - 1)}
-                    className="underline underline-offset-2"
-                  >
-                    Move up
-                  </button>
-                )}
-                {index < media.length - 1 && (
-                  <button
-                    type="button"
-                    onClick={() => reorder(index, index + 1)}
-                    className="underline underline-offset-2"
-                  >
-                    Move down
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => detach(item.mediaId)}
-                  className="text-red-600 underline underline-offset-2 dark:text-red-400"
-                >
-                  Remove
-                </button>
-              </div>
-            </li>
-          ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

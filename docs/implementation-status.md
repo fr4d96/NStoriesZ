@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-05 (Prompt 6 Stage 3 — Prompt 6 now complete).
+Last updated: 2026-08-05 (Prompt 7 — content readiness, operational metrics, and founding-catalogue
+launch tooling — now complete).
 
 ## Status legend
 
@@ -11,16 +12,16 @@ Last updated: 2026-08-05 (Prompt 6 Stage 3 — Prompt 6 now complete).
 
 ## Prompt checklist
 
-| #   | Prompt                                                                                                                                                                    | Status                                                                                                                                                                                                  | Notes                                                                                                                                                                                                                  |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | Repository inspection & documentation baseline                                                                                                                            | complete                                                                                                                                                                                                | CLAUDE.md and docs/ created against an empty repo.                                                                                                                                                                     |
-| 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**                                                                       | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                                                                                           |
-| 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                                                                             | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                                                                                                |
-| 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.**                                                              | See "Prompt 3 detail" below.                                                                                                                                                                                           |
-| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **complete — all 5 sub-phases done: all 8 migrations pushed and live-verified (`test:rls` 33/33); the cross-contributor UI-level access spec found and fixed a real per-row `notFound()`-as-200 leak.** | Built on `prompt-4-authoring-images`; PR #5 (Sub-phases 1–4) already merged to `main`, Sub-phase 5 lands as a follow-up PR. See "Prompt 4 detail" below.                                                               |
-| 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | **complete — 5 migrations pushed and live-verified (`test:rls` 44/44); 24/24 Playwright specs pass; a real ambiguous-column bug and a real public per-row 404 gap were found and fixed.**               | See "Prompt 5 detail" below.                                                                                                                                                                                           |
-| 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | **complete — all 3 stages. All 10 migrations pushed and live-verified (`test:rls` 69/69); Stage 3 added no new migration. `npm run verify` clean (182/182 tests, 32 routes).**                          | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` got real UI in Stage 2/3 instead of a role-gated JSON stub. See "Prompt 6 detail — Stage 1", "Stage 2", and "Stage 3" below. |
-| 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | not started                                                                                                                                                                                             | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4.                                                                                                    |
+| #   | Prompt                                                                                                                                                                    | Status                                                                                                                                                                                                                              | Notes                                                                                                                                                                                                                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | Repository inspection & documentation baseline                                                                                                                            | complete                                                                                                                                                                                                                            | CLAUDE.md and docs/ created against an empty repo.                                                                                                                                                                     |
+| 1   | Application foundation (Next.js scaffold, Supabase client/proxy wiring, env validation, local DB workflow scaffolding, quality tooling, public shell + placeholder pages) | **Blocked — implementation complete, local Supabase runtime verification unavailable because no container runtime is installed.**                                                                                                   | Limitation accepted by user 2026-08-02. See "Prompt 1 detail" below for exactly what's verified vs. blocked.                                                                                                           |
+| 2   | Authentication, profiles, roles, and contributor identities                                                                                                               | **complete — migrations applied and live-verified against a real linked Supabase project.**                                                                                                                                         | See "Prompt 2 detail" below for what was live-verified (including a real bug found and fixed), and the role/RLS matrix.                                                                                                |
+| 3   | Core story schema & RLS (stories/story_revisions, media, consent/rights, moderation, reporting)                                                                           | **complete — migrations applied and live-verified (23/23) against a real linked Supabase project, including 3 real bugs found and fixed.**                                                                                          | See "Prompt 3 detail" below.                                                                                                                                                                                           |
+| 4   | Editor/self-service authoring UI, image upload, storage buckets, contributor approval flow                                                                                | **complete — all 5 sub-phases done: all 8 migrations pushed and live-verified (`test:rls` 33/33); the cross-contributor UI-level access spec found and fixed a real per-row `notFound()`-as-200 leak.**                             | Built on `prompt-4-authoring-images`; PR #5 (Sub-phases 1–4) already merged to `main`, Sub-phase 5 lands as a follow-up PR. See "Prompt 4 detail" below.                                                               |
+| 5   | Public discovery (browse/filter/detail, SEO, sitemap/robots, cost-band UI)                                                                                                | **complete — 5 migrations pushed and live-verified (`test:rls` 44/44); 24/24 Playwright specs pass; a real ambiguous-column bug and a real public per-row 404 gap were found and fixed.**                                           | See "Prompt 5 detail" below.                                                                                                                                                                                           |
+| 6   | Editorial and moderation workspace (queue UI, reports triage)                                                                                                             | **complete — all 3 stages. All 10 migrations pushed and live-verified (`test:rls` 69/69); Stage 3 added no new migration. `npm run verify` clean (182/182 tests, 32 routes).**                                                      | Roadmap corrected in Prompt 3 — was previously numbered 7; `/editorial` and `/moderation` got real UI in Stage 2/3 instead of a role-gated JSON stub. See "Prompt 6 detail — Stage 1", "Stage 2", and "Stage 3" below. |
+| 7   | Operational launch tooling and Playwright coverage of critical flows                                                                                                      | **complete — 2 migrations pushed and live-verified (`test:rls` 69/69, unchanged); `npm run verify` clean (212/212 unit tests, 33 routes); `e2e/founding-story-workflow.spec.ts` run live and passing, found and fixed a real bug.** | Renumbered from 8 — reporting itself is done (Prompt 3); contributor drafting/private preview folded into Prompt 4. See "Prompt 7 detail" below.                                                                       |
 
 ## Prompt 1 detail — verified vs. blocked
 
@@ -1255,6 +1256,91 @@ underlying SQL was executed directly and verified empty afterward).
   its own bookmarkable URL and Server Action target — documented as the brief invited ("your call,
   document it").
 
+## Prompt 7 detail — complete
+
+Full technical account (design decisions, the disclosed schema simplifications, the real bug found
+via live e2e testing) is in
+[docs/architecture.md](architecture.md#content-readiness-operational-metrics-and-launch-tooling-prompt-7);
+not duplicated in full here. Two scope decisions were confirmed with you before implementation:
+skip bulk metadata operations entirely (build nothing bulk, per the brief's own caution), and put
+the readiness dashboard at a new shared route (`/readiness`, editor/moderator/admin) rather than
+folding it into the existing editor-only or moderator-only workspace.
+
+**Built:**
+
+- 2 migrations (`20260806090000`, `20260806090100`) — `story_launch_verifications` (append-only) +
+  `record_story_launch_verification()`, `get_content_readiness_queue()`, `get_operational_metrics()`,
+  and a `create or replace` on `get_story_preview()` adding `sha256` to its media shape. **Applied**
+  via the Supabase MCP `apply_migration` tool; `get_advisors` reviewed (only the already-established
+  `rls_enabled_no_policy`/`authenticated_security_definer_function_executable` classes, nothing
+  new); `types/database.ts` regenerated for real via the MCP `generate_typescript_types` tool.
+- `app/(readiness)/readiness/` — a third staff route group (layout/nav/page/actions/verify-form),
+  gated in `proxy.ts` by a new `STAFF_READINESS_PATH` mirroring the existing staff-route pattern
+  exactly (flat 404 for signed-out and wrong-role). Renders operational metrics + a filterable,
+  paginated per-story readiness checklist; a published story additionally offers a launch-
+  verification disclosure form. `editorial-nav.tsx`/`moderation-nav.tsx` both gained a "Readiness"
+  link.
+- `lib/story/content-quality-checks.ts` — 10 advisory (non-blocking) heuristics, pure, no DB
+  dependency; not yet wired into a review page's UI in this pass (a real follow-up candidate, not a
+  gap in this prompt's own scope).
+- Same-story duplicate-image warning in `components/story/image-upload-manager.tsx`, using the new
+  `sha256` field threaded through `lib/story/contributor-queries.ts#RevisionMediaItem`.
+- `components/story/whats-public-summary.tsx` — shown above the contributor's own approve/submit
+  panel on the private preview page; reads only `get_story_preview()`'s existing return shape, so
+  internal editorial/moderation notes are structurally unreachable from it, not merely omitted.
+- Three new docs: `docs/founding-catalogue-runbook.md`, `docs/content-inventory-template.md`,
+  `docs/launch-content-checklist.md`. `docs/content-governance.md` gained a short "Operational
+  readiness (Prompt 7)" section cross-referencing all of the above.
+- **No bulk publication** — confirmed by a new structural regression test,
+  `lib/story/no-bulk-publication.test.ts`, rather than just by omission.
+
+**A real, live-reproducing bug found and fixed while building `e2e/founding-story-workflow.spec.ts`:**
+the exact "vanishing confirmation" bug class Prompt 6 Stage 3 already found and fixed twice
+(`review-controls.tsx`, `resolve-form.tsx`) — a Server Component page's
+`{someServerComputedBoolean && <ClientPanel/>}` unmounts the panel, discarding its own
+just-produced success/error message, the instant that panel's own successful Server Action changes
+the underlying state the boolean is computed from. Reproduced live: the contributor's "Approve &
+submit for moderation" click on `app/(contributor)/stories/[id]/preview/page.tsx` genuinely
+succeeded (confirmed directly via `execute_sql` — the story's `lifecycle_status` really did move to
+`pending_review`), but the confirmation was never observable, because
+`isAwaitingThisContributorsApproval` flipped `false` on the very next render and unmounted
+`ContributorReviewPanel` before its message could be seen — by a human or by Playwright. The
+self-service `canSubmitOwnConsent`/`SubmitConsentPanel` pairing has the identical structural flaw,
+fixed the same way. New reusable primitive, `components/sticky-visible.tsx#StickyVisible`, wraps
+all three of `preview/page.tsx`'s conditionally-rendered panels; re-ran the new spec (now passing)
+and the full 37-spec Playwright suite afterward (37/37, zero regressions).
+
+**Verified, in order:** `npm run format:check`/`lint`/`typecheck`/`test` (**212/212**, up from
+182 — 30 new: `content-quality-checks.test.ts` 13, `whats-public-summary.test.tsx` 4,
+`readiness.test.ts` 11, `no-bulk-publication.test.ts` 2) and `build` (**33 routes**, up from 32 —
+`/readiness`) all passed before anything was pushed. Both migrations then applied; types
+regenerated; `npm run verify` re-run clean afterward (same 212/212, same 33 routes). **`npm run
+test:rls` — 69/69, unchanged** (this prompt's SQL is additive/read-only; no existing authorization
+surface was touched). **`e2e/founding-story-workflow.spec.ts` run live** against the real linked
+project (`--workers=1`): failed on the vanishing-confirmation bug above before the fix, passed
+after it. **The full Playwright suite (37 specs) then re-run live, 37/37 passing**, confirming the
+`StickyVisible` fix introduced no regression anywhere else it could plausibly have mattered
+(`review-controls.tsx`/`resolve-form.tsx` were not touched — only `preview/page.tsx` needed the new
+primitive).
+
+**Left as accepted debris**, same low-cost/disposable precedent as every prior prompt's RLS-test
+fixtures: 4 `rls-test-founding-story-%` stories created by this session's live spec runs remain on
+the linked dev project. `npm run test:rls:cleanup` was not run (the Supabase CLI is still not
+installed in this environment, unchanged since Prompt 1) and a manual bulk delete via the Supabase
+MCP was deliberately not performed without asking first, since it would also remove pre-existing
+`rls-test-%` debris from prior prompts, not just this session's own rows.
+
+**Not built, deliberately out of scope per this session's confirmed scope decisions:**
+
+- Bulk metadata operations (region/work-type/tag) — the brief only constrained bulk operations if
+  built, it didn't mandate building any; skipped per your confirmed choice.
+- A staff-directory picker for the reassignment control — a pre-existing Stage 2 gap, unrelated to
+  this prompt's scope, not revisited.
+- Wiring `content-quality-checks.ts`'s findings into an actual review-page UI as visible badges —
+  the pure module and its tests are built and ready for a future prompt to surface; not required by
+  this prompt's own acceptance criteria, which asked for the checks to exist and be advisory, not
+  for a specific UI placement.
+
 ## Migration summary
 
 All in `supabase/migrations/`, applied in filename order:
@@ -1308,6 +1394,8 @@ All in `supabase/migrations/`, applied in filename order:
 | `20260805110000_moderator_story_detail_slug_version.sql`           | Prompt 6 Stage 2 — DROP+CREATE of `get_story_for_moderator()` adding `slug`/`story_version` output columns, needed by the real approve/archive Server Actions (cache invalidation, expectedVersion) with no other moderator-accessible source for either. **Applied.**                                                                                                                           |
 | `20260805110100_moderation_review_existence_check.sql`             | Prompt 6 Stage 2 — new `can_view_moderation_review(p_revision_id)`, moderator/admin-only existence check backing `proxy.ts`'s per-row 404 for `/moderation/stories/[revisionId]`, deliberately not a reuse of the full `get_story_for_moderator()` payload. **Applied.**                                                                                                                         |
 | `20260805120000_fix_get_story_editorial_history_editor_access.sql` | Post-Stage-3 corrective — bug fix, found live via `e2e/moderation.spec.ts`: `get_story_editorial_history()` was moderator/admin-only, but Stage 2's `editorial-history-panel.tsx` renders it on the assigned editor's own edit page, causing a genuine 500 for every editor. Broadened to also authorize the story's assigned editor (`coalesce(...,false)`-guarded). **Applied.**               |
+| `20260806090000_content_readiness_and_metrics.sql`                 | Prompt 7 — new append-only `story_launch_verifications` table + `record_story_launch_verification()`; new `get_content_readiness_queue()` (editor/moderator/admin, per-story founding-catalogue readiness checklist); new `get_operational_metrics()` (editor/moderator/admin, 7 aggregate counts only). **Applied.**                                                                            |
+| `20260806090100_add_sha256_to_story_preview_media.sql`             | Prompt 7 — `create or replace` (return shape unchanged) on `get_story_preview()`, adding `sha256` to each media object for same-story duplicate-image detection in the editorial/contributor image manager. **Applied.**                                                                                                                                                                         |
 
 ## Role and RLS matrix
 
@@ -1594,11 +1682,32 @@ Remaining, explicitly-accepted, non-blocking items:
 - Disposable test fixture rows from Prompt 6's RLS/e2e-spec additions are not cleaned up — same
   low-cost/accepted category as every prior stage's disposable fixtures.
 
-**Next up: Prompt 7 (operational launch tooling and Playwright coverage of critical flows).** Per the
-prompt checklist above, this is renumbered from 8 (reporting itself is already done, from Prompt 3;
-contributor drafting/private preview was folded into Prompt 4). Concretely, Prompt 7 should pick up:
-running the now-unblocked `e2e/moderation.spec.ts` and `e2e/reports-triage.spec.ts` for real once the
-`SUPABASE_RLS_TEST_*` credential pool is available; any remaining operational/launch tooling (health
-checks, deployment runbook, monitoring/alerting for the new `logStaffAction()` lines); and closing out
-the small accepted-gap list above if a future prompt's scope naturally includes a new moderation RPC
-anyway (folding the reports per-row existence check in at the same time, per Stage 3's own note).
+**Prompt 7 is now complete.** Content readiness dashboard (`/readiness`), operational metrics,
+advisory content-quality checks, same-story duplicate-image warnings, an explicit "what's public"
+contributor summary, and three founding-catalogue runbook docs — see "Prompt 7 detail" above and
+[docs/architecture.md](architecture.md#content-readiness-operational-metrics-and-launch-tooling-prompt-7)
+for the full account. This session also closed out the item flagged directly above: `.env.test.local`
+was available this session, so `e2e/moderation.spec.ts` and `e2e/reports-triage.spec.ts` (previously
+"written but not run") were run live along with the new `e2e/founding-story-workflow.spec.ts` — full
+suite **37/37 passing**. 2 new migrations pushed and live-verified (`test:rls` 69/69, unchanged).
+
+Remaining, explicitly-accepted, non-blocking items:
+
+- `/moderation/reports/[id]` still has no middleware-level per-row existence check — unchanged,
+  low-risk, same-role-only edge case (see "Prompt 6 detail — Stage 3" above); still needs a new
+  RPC/migration to fix properly, still flagged rather than built without asking.
+- `npm run e2e:cleanup:editorial-fixtures -- --execute` remains blocked on a missing
+  `.env.maintenance.local` (no service-role key available in this environment) — unchanged since
+  Prompt 4.
+- Disposable `rls-test-%` fixture rows (including 4 new `rls-test-founding-story-%` stories from
+  this session's live spec runs) are not cleaned up — same low-cost/accepted category as every
+  prior prompt's disposable fixtures; `npm run test:rls:cleanup` still can't run in this environment
+  (no Supabase CLI), and a manual bulk delete via the Supabase MCP was deliberately not performed
+  without asking first.
+- Bulk metadata operations and a staff-directory reassignment picker were both confirmed out of
+  scope for this prompt (see "Prompt 7 detail" above) — real, but not required, future work.
+- `content-quality-checks.ts`'s findings are not yet surfaced as UI badges on any review page — the
+  pure module and its tests are ready for whichever future prompt wants to wire them in.
+
+**Prompt checklist (0–7) is now fully complete.** Any further work is genuinely new scope, not a
+continuation of a planned prompt — check with the user before starting anything substantial.
