@@ -72,6 +72,15 @@ const STAFF_EDITORIAL_PATH = /^\/editorial(\/.*)?$/;
 // assumed equivalent.
 const STAFF_MODERATION_PATH = /^\/moderation(\/.*)?$/;
 
+// Prompt 7: /readiness, the content-readiness dashboard + operational
+// metrics. Reachable by editor, moderator, OR admin (readiness spans both
+// editorial prep and moderation state -- it doesn't belong to only one
+// staff role's existing workspace). Same flat-404 convention and same
+// "middleware, not a page-level notFound(), is what actually produces a
+// true HTTP 404" reasoning as STAFF_EDITORIAL_PATH/STAFF_MODERATION_PATH
+// above.
+const STAFF_READINESS_PATH = /^\/readiness(\/.*)?$/;
+
 function isProtectedPath(pathname: string) {
   return (
     PROTECTED_PATHS.some(
@@ -281,6 +290,26 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  if (STAFF_READINESS_PATH.test(request.nextUrl.pathname)) {
+    // Signed-out and signed-in-with-the-wrong-role get the IDENTICAL flat
+    // 404, same convention as every other staff route in this app.
+    if (!data?.claims?.sub) {
+      return flatNotFound();
+    }
+    const { data: roleRow } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.claims.sub)
+      .single();
+    if (
+      roleRow?.role !== "editor" &&
+      roleRow?.role !== "moderator" &&
+      roleRow?.role !== "admin"
+    ) {
+      return flatNotFound();
+    }
+  }
+
   // Prompt 4 Sub-phase 5: per-row authorization for the self-service
   // authoring pages, for the same reason as the editorial per-row check
   // just above. Only runs once we know the visitor is signed in (the
@@ -355,6 +384,8 @@ export const config = {
     "/editorial/:path*",
     "/moderation",
     "/moderation/:path*",
+    "/readiness",
+    "/readiness/:path*",
     "/stories/:id",
     "/contributors/:slug",
   ],

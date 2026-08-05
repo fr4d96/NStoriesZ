@@ -411,6 +411,54 @@ export type Database = {
           },
         ];
       };
+      story_launch_verifications: {
+        Row: {
+          created_at: string;
+          desktop_checked: boolean;
+          id: string;
+          mobile_checked: boolean;
+          note: string | null;
+          revision_id: string;
+          story_id: string;
+          verified_by: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          desktop_checked?: boolean;
+          id?: string;
+          mobile_checked?: boolean;
+          note?: string | null;
+          revision_id: string;
+          story_id: string;
+          verified_by?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          desktop_checked?: boolean;
+          id?: string;
+          mobile_checked?: boolean;
+          note?: string | null;
+          revision_id?: string;
+          story_id?: string;
+          verified_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_launch_verifications_revision_id_fkey";
+            columns: ["revision_id"];
+            isOneToOne: false;
+            referencedRelation: "story_revisions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "story_launch_verifications_story_id_fkey";
+            columns: ["story_id"];
+            isOneToOne: false;
+            referencedRelation: "stories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       story_media: {
         Row: {
           approved_public_storage_path: string | null;
@@ -1386,6 +1434,45 @@ export type Database = {
         Args: { p_revision_id: string };
         Returns: string;
       };
+      get_content_readiness_queue: {
+        Args: {
+          p_lifecycle_status?: string;
+          p_limit?: number;
+          p_offset?: number;
+          p_source_kind?: string;
+        };
+        Returns: {
+          alt_text_complete: boolean;
+          attribution_type: Database["public"]["Enums"]["attribution_type"];
+          attribution_value: string;
+          body_present: boolean;
+          contributor_display_name: string;
+          contributor_id: string;
+          contributor_linked: boolean;
+          cover_selected: boolean;
+          editorial_review_complete: boolean;
+          excerpt_present: boolean;
+          identifiable_people_resolved: boolean;
+          image_rights_confirmed: boolean;
+          images_uploaded: boolean;
+          last_moderation_reason: string;
+          last_verified_at: string;
+          last_verified_desktop: boolean;
+          last_verified_mobile: boolean;
+          lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
+          publication_consent_complete: boolean;
+          region_selected: boolean;
+          slug: string;
+          source_kind: Database["public"]["Enums"]["story_source_kind"];
+          story_id: string;
+          tags_selected: boolean;
+          title: string;
+          total_count: number;
+          trip_date_or_year_present: boolean;
+          updated_at: string;
+          work_types_selected: boolean;
+        }[];
+      };
       get_media_private_path_for_preview: {
         Args: { p_media_id: string };
         Returns: string;
@@ -1435,6 +1522,18 @@ export type Database = {
           trip_year: number;
           version: number;
           visibility: Database["public"]["Enums"]["story_visibility"];
+        }[];
+      };
+      get_operational_metrics: {
+        Args: never;
+        Returns: {
+          awaiting_contributor_approval_count: number;
+          awaiting_moderation_count: number;
+          draft_imports_count: number;
+          images_missing_alt_text_count: number;
+          missing_consent_count: number;
+          open_reports_count: number;
+          published_count: number;
         }[];
       };
       get_public_contributor: {
@@ -1828,6 +1927,15 @@ export type Database = {
           p_source_width: number;
         };
         Returns: undefined;
+      };
+      record_story_launch_verification: {
+        Args: {
+          p_desktop_checked: boolean;
+          p_mobile_checked: boolean;
+          p_note?: string;
+          p_story_id: string;
+        };
+        Returns: string;
       };
       record_story_media_copy_failed: {
         Args: {

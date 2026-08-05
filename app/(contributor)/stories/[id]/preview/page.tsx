@@ -6,6 +6,8 @@ import { ContentBlockRenderer } from "@/components/story/content-block-renderer"
 import { PreviewGallery } from "@/components/story/preview-gallery";
 import { SubmitConsentPanel } from "@/components/story/submit-consent-panel";
 import { ContributorReviewPanel } from "@/components/story/contributor-review-panel";
+import { WhatsPublicSummary } from "@/components/story/whats-public-summary";
+import { StickyVisible } from "@/components/sticky-visible";
 
 // Never statically generated or cached — this can show unpublished,
 // draft-only content, so every request must re-authorize against the live
@@ -94,7 +96,23 @@ export default async function StoryPreviewPage({
         )}
       </div>
 
-      {isAwaitingThisContributorsApproval && (
+      <StickyVisible
+        show={isAwaitingThisContributorsApproval || canSubmitOwnConsent}
+      >
+        <div className="mt-8">
+          <WhatsPublicSummary
+            attributionType={preview.attributionType}
+            attributionValue={preview.attributionValue}
+            hasExcerpt={Boolean(preview.excerpt)}
+            imageCount={preview.media.length}
+            decorativeImageCount={
+              preview.media.filter((m) => m.decorative).length
+            }
+          />
+        </div>
+      </StickyVisible>
+
+      <StickyVisible show={isAwaitingThisContributorsApproval}>
         <div className="mt-8">
           <ContributorReviewPanel
             storyId={preview.storyId}
@@ -103,9 +121,9 @@ export default async function StoryPreviewPage({
             hasMedia={preview.media.length > 0}
           />
         </div>
-      )}
+      </StickyVisible>
 
-      {canSubmitOwnConsent && (
+      <StickyVisible show={canSubmitOwnConsent}>
         <div className="mt-8">
           <SubmitConsentPanel
             storyId={preview.storyId}
@@ -120,7 +138,7 @@ export default async function StoryPreviewPage({
             }
           />
         </div>
-      )}
+      </StickyVisible>
     </div>
   );
 }

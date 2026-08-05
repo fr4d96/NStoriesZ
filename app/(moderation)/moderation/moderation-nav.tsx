@@ -4,6 +4,7 @@ const moderationNav = [
   { href: "/moderation", label: "Overview" },
   { href: "/moderation/stories", label: "Stories queue" },
   { href: "/moderation/reports", label: "Reports" },
+  { href: "/readiness", label: "Readiness" },
 ];
 
 /**
