@@ -1,4 +1,4 @@
-# Content Inventory Template — WHV Compass NZ
+# Content Inventory Template — Journiq
 
 A tracking template for the founding catalogue, used alongside
 [docs/founding-catalogue-runbook.md](founding-catalogue-runbook.md). Keep this **outside** this

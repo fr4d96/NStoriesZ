@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { resolveSafeReturnTo } from "@/lib/validation/safe-redirect";
-import { SignInForm } from "@/app/(auth)/sign-in/sign-in-form";
+import { SignInForm } from "@/components/auth/sign-in-form";
 
 export const metadata: Metadata = {
   title: "Sign in",

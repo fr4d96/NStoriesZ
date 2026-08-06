@@ -1,21 +1,33 @@
 @import "tailwindcss";
 
 /*
- * Palette per docs/design-brief.md: warm, editorial/documentary rather than
- * corporate-travel-agency. Terracotta accent (contribution CTAs, active
- * filter state), a muted surface tone for cards distinct from the page
- * background, and a soft tag tone for region/work-type/tag chips.
+ * Palette per journiq_landing_page_card_stack.html: forest green + warm
+ * paper/sand neutrals + a terracotta-orange accent -- deliberately not the
+ * earlier brown/tan palette. `--fern` is a secondary accent-green used for
+ * eyebrow labels and tag text; `--forest`/`--sage` back the header/footer
+ * and chip surfaces respectively.
+ *
+ * Theme selection: `data-theme="light"|"dark"` on <html>, set by a blocking
+ * inline script in app/layout.tsx before paint (reads localStorage, falls
+ * back to matchMedia) and toggled at runtime by components/theme-toggle.tsx.
+ * The bare `:root` values plus the prefers-color-scheme block below are only
+ * the pre-hydration/no-JS fallback -- an explicit `[data-theme]` attribute
+ * always wins because attribute selectors outrank the plain :root
+ * pseudo-class, regardless of source order.
  */
 :root {
-  --background: #fffdfa;
-  --foreground: #201a14;
+  color-scheme: light;
+  --background: #fcfbf7;
+  --foreground: #1f2926;
   --surface: #ffffff;
-  --surface-muted: #f5efe6;
-  --border-subtle: #e7ddcd;
-  --accent: #b5522a;
-  --accent-foreground: #fffdfa;
-  --tag-background: #efe4d3;
-  --tag-foreground: #5b4a32;
+  --surface-muted: #f5efe4;
+  --border-subtle: rgba(111, 125, 119, 0.22);
+  --accent: #e8794a;
+  --accent-foreground: #24130e;
+  --tag-background: #dde8df;
+  --tag-foreground: #2f6b57;
+  --forest: #173f35;
+  --fern: #2f6b57;
 }
 
 @theme inline {
@@ -28,22 +40,61 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-tag-background: var(--tag-background);
   --color-tag-foreground: var(--tag-foreground);
+  --color-forest: var(--forest);
+  --color-fern: var(--fern);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #16130f;
-    --foreground: #f3ece0;
-    --surface: #1e1a14;
-    --surface-muted: #241f18;
-    --border-subtle: #362e23;
-    --accent: #e2825a;
-    --accent-foreground: #16130f;
-    --tag-background: #2c2519;
-    --tag-foreground: #d8c8ac;
+    color-scheme: dark;
+    --background: #0f1713;
+    --foreground: #edf5f0;
+    --surface: #17221c;
+    --surface-muted: #1b2822;
+    --border-subtle: rgba(203, 224, 213, 0.2);
+    --accent: #f18b5d;
+    --accent-foreground: #1c0f0a;
+    --tag-background: #263b31;
+    --tag-foreground: #8fc8aa;
+    --forest: #285c4b;
+    --fern: #8fc8aa;
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: #fcfbf7;
+  --foreground: #1f2926;
+  --surface: #ffffff;
+  --surface-muted: #f5efe4;
+  --border-subtle: rgba(111, 125, 119, 0.22);
+  --accent: #e8794a;
+  --accent-foreground: #24130e;
+  --tag-background: #dde8df;
+  --tag-foreground: #2f6b57;
+  --forest: #173f35;
+  --fern: #2f6b57;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0f1713;
+  --foreground: #edf5f0;
+  --surface: #17221c;
+  --surface-muted: #1b2822;
+  --border-subtle: rgba(203, 224, 213, 0.2);
+  --accent: #f18b5d;
+  --accent-foreground: #1c0f0a;
+  --tag-background: #263b31;
+  --tag-foreground: #8fc8aa;
+  --forest: #285c4b;
+  --fern: #8fc8aa;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -53,8 +104,212 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Reusable presentational utilities for the landing page's editorial
+   design (serif display headings, lifted buttons, transparent-over-hero
+   header, underline-on-hover nav links, and the two remaining sections
+   that use a photographic background instead of a flat color). Class-
+   scoped, not element selectors, so nothing outside where these classes
+   are actually applied is affected. */
+.journiq-heading {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.35rem, 5vw, 4.7rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+.journiq-button {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 11px 18px;
+  font-weight: 900;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background-color 0.25s ease;
+}
+.journiq-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.13);
+}
+/* Applied by components/site-header.tsx only while on the home route and
+   above the scroll threshold -- see that file for why the header itself
+   never toggles a negative margin (the home hero supplies its own
+   -mt-[76px] instead, so switching to/from this class never shifts
+   layout). */
+.journiq-header {
+  background: linear-gradient(rgba(11, 36, 29, 0.72), transparent);
+}
+.journiq-nav-link {
+  position: relative;
+}
+.journiq-nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: -7px;
+  height: 2px;
+  background: var(--accent);
+  transition: right 0.25s ease;
+}
+.journiq-nav-link:hover::after {
+  right: 0;
+}
+.journiq-share {
+  background:
+    linear-gradient(90deg, rgba(11, 37, 30, 0.95), rgba(11, 37, 30, 0.4)),
+    url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=85")
+      center/cover;
+}
+
+/*
+ * Hero photo slideshow (components/home/hero-slideshow.tsx), ported from
+ * journiq_landing_page_card_stack.html's .hero-slide/.hero-overlay. Text
+ * over the photo is always white regardless of theme (a photo backdrop
+ * needs a fixed dark scrim either way), unlike the rest of the page.
+ */
+.hero-slide {
+  position: absolute;
+  inset: -3%;
+  opacity: 0;
+  background-position: center;
+  background-size: cover;
+  transform: scale(1.04);
+  transition: opacity 1.35s ease;
+  will-change: transform, opacity;
+}
+.hero-slide.is-active {
+  opacity: 1;
+  animation: hero-ken-burns 7.4s cubic-bezier(0.2, 0.55, 0.3, 1) both;
+}
+/* Set on the slideshow root while paused -- freezes the Ken Burns zoom
+   mid-frame instead of just stopping future slide changes, so "Pause
+   motion" reads as an immediate, visible pause rather than a no-op. */
+.hero-slideshow.is-paused .hero-slide.is-active {
+  animation-play-state: paused;
+}
+@keyframes hero-ken-burns {
+  0% {
+    transform: scale(1.04) translate3d(0, 0, 0);
+  }
+  100% {
+    transform: scale(1.13) translate3d(-1.5%, 1.2%, 0);
+  }
+}
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(11, 37, 30, 0.92),
+      rgba(11, 37, 30, 0.42) 58%,
+      rgba(11, 37, 30, 0.08)
+    ),
+    linear-gradient(0deg, rgba(11, 37, 30, 0.75), transparent 48%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide {
+    transition: none;
+  }
+  .hero-slide.is-active {
+    animation: none;
+  }
+}
+
+/* Staggered fade-up for the hero's own text/CTAs on first paint, ported
+   from journiq_landing_page_card_stack.html's hero-content-in. Each item
+   carries its own animation-delay via the inline style set where it's
+   rendered (app/(public)/page.tsx). */
+.hero-fade-item {
+  opacity: 0;
+  transform: translateY(24px);
+  animation: hero-content-in 0.8s cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
+}
+@keyframes hero-content-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Depth-stacked "card stack" carousel (components/home/featured-story-stack.tsx).
+ * The transform composes a base depth position (--stack-x/y/scale/rotate,
+ * set inline per card by depth) with a live drag offset (--drag-x/rotate,
+ * set inline only while that card is being dragged) -- Tailwind utilities
+ * can't express that composed calc(), so it's hand-authored here.
+ */
+.story-stack-card {
+  --stack-x: 0px;
+  --stack-y: 0px;
+  --stack-scale: 1;
+  --stack-rotate: 0deg;
+  --drag-x: 0px;
+  --drag-rotate: 0deg;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 28px 78px rgba(23, 63, 53, 0.22);
+  transform-origin: 50% 96%;
+  transform: translate3d(
+      calc(var(--stack-x) + var(--drag-x)),
+      var(--stack-y),
+      0
+    )
+    rotate(calc(var(--stack-rotate) + var(--drag-rotate)))
+    scale(var(--stack-scale));
+  transition:
+    transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.4s ease;
+  touch-action: pan-y;
+}
+.story-stack-card.is-dragging {
+  transition: none;
+}
+.story-stack-card.is-throwing-left {
+  z-index: 20 !important;
+  opacity: 0 !important;
+  transform: translate3d(-118%, -14px, 0) rotate(-12deg) scale(0.96) !important;
+  transition:
+    transform 0.5s cubic-bezier(0.55, 0.02, 0.8, 0.35),
+    opacity 0.38s ease !important;
+}
+.story-stack-card.is-throwing-right {
+  z-index: 20 !important;
+  opacity: 0 !important;
+  transform: translate3d(118%, -14px, 0) rotate(12deg) scale(0.96) !important;
+  transition:
+    transform 0.5s cubic-bezier(0.55, 0.02, 0.8, 0.35),
+    opacity 0.38s ease !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .story-stack-card {
+    transition: none !important;
+  }
+}
+@media (max-width: 640px) {
+  .journiq-heading {
+    font-size: clamp(2.3rem, 13vw, 3.65rem);
+  }
+  .story-stack-card {
+    border-radius: 20px;
+  }
+}
+
+/* Hide scrollbar on the featured-story carousel track -- scroll-snap plus
+   visible prev/next buttons and dots already communicate scrollability. */
+.carousel-track {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.carousel-track::-webkit-scrollbar {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

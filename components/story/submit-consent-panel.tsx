@@ -55,7 +55,7 @@ export function SubmitConsentPanel({
         />
         <span>
           I confirm I have the right to publish this story and give permission
-          for it to be published on WHV Compass NZ.
+          for it to be published on Journiq.
         </span>
       </label>
 

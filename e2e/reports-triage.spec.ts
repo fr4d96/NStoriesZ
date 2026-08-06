@@ -172,6 +172,23 @@ test.describe("reports triage workspace (real UI, real hosted project)", () => {
     expect(response?.status()).toBe(404);
   });
 
+  // Release audit: previously a known, accepted gap -- /moderation/reports/[id]
+  // had no middleware-level per-row existence check (unlike
+  // /moderation/stories/[revisionId]), so a nonexistent report id rendered a
+  // live HTTP 200 via Next's deep notFound() instead of a real 404. Fixed by
+  // can_view_moderation_report() (supabase/migrations/20260806100000_...)
+  // wired into proxy.ts, mirroring can_view_moderation_review()'s pattern.
+  test("a nonexistent report id gets a real 404, not a soft-200", async ({
+    page,
+  }) => {
+    await signInUi(page, MODERATOR_EMAIL!, MODERATOR_PASSWORD!);
+    const bogusId = "00000000-0000-0000-0000-000000000000";
+    const response = await page.goto(
+      `/moderation/reports/${bogusId}?storyId=${bogusId}`,
+    );
+    expect(response?.status()).toBe(404);
+  });
+
   test("open -> reviewing -> resolved flow, with the internal note left private", async ({
     page,
   }) => {

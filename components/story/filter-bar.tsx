@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import Link from "next/link";
 import type { StorySearchFilters } from "@/lib/validation/discovery";
 import { costBands } from "@/lib/validation/discovery";
+import { FilterIcon, StorySearchIcon } from "@/components/icons";
 
 type Option = { id: string; name: string };
 type DestinationOption = Option & { regionId: string };
@@ -185,13 +186,16 @@ export function FilterBar({
     >
       <label className="mb-4 flex flex-col gap-1 text-sm">
         <span className="font-medium">Search</span>
-        <input
-          type="search"
-          name="q"
-          defaultValue={current.q ?? ""}
-          placeholder="Find a story like yours"
-          className="rounded-md border border-border-subtle bg-surface px-3 py-2"
-        />
+        <span className="relative">
+          <StorySearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/50" />
+          <input
+            type="search"
+            name="q"
+            defaultValue={current.q ?? ""}
+            placeholder="Find a story like yours"
+            className="w-full rounded-md border border-border-subtle bg-surface py-2 pl-9 pr-3"
+          />
+        </span>
       </label>
 
       {/*
@@ -207,8 +211,9 @@ export function FilterBar({
         aria-expanded={filtersOpen}
         aria-controls={filtersId}
         onClick={() => setFiltersOpen((value) => !value)}
-        className="mb-3 text-sm font-medium sm:hidden"
+        className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium sm:hidden"
       >
+        <FilterIcon className="h-4 w-4" />
         {filtersOpen ? "Hide filters" : "Filters"}
       </button>
       <div id={filtersId} className={filtersOpen ? "block" : "hidden sm:block"}>

@@ -17,8 +17,8 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "WHV Compass NZ",
-    template: "%s | WHV Compass NZ",
+    default: "Journiq",
+    template: "%s | Journiq",
   },
   description:
     "Real, detailed Working Holiday Visa stories from people who've done a working holiday in New Zealand.",
@@ -30,6 +30,19 @@ export const metadata: Metadata = {
  * group (public, auth, contributor) supplies its own nav in its own layout,
  * so this root layout stays static and cache-friendly for public pages.
  */
+// Blocking, pre-hydration: reads the persisted theme (or the system
+// preference) and sets data-theme before first paint so there is never a
+// flash of the wrong theme or a client/server hydration mismatch.
+const themeInitScript = `(() => {
+  try {
+    const saved = localStorage.getItem("journiq-theme");
+    const system = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = saved === "dark" || saved === "light" ? saved : system;
+  } catch {
+    document.documentElement.dataset.theme = "light";
+  }
+})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,7 +52,16 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // The blocking inline script below sets data-theme before hydration,
+      // deliberately differing from the server-rendered markup (which has
+      // no data-theme attribute) -- suppressHydrationWarning tells React
+      // this specific, expected attribute mismatch is fine, matching the
+      // standard pattern for a pre-hydration theme script.
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <a
           href="#main-content"
