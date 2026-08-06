@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MapPinIcon, TripYearIcon } from "@/components/icons";
 
 export function AttributionChip({
   name,
@@ -11,10 +12,6 @@ export function AttributionChip({
   tripYear?: number | null;
   destination?: string | null;
 }) {
-  const meta = [destination, tripYear ? String(tripYear) : null]
-    .filter(Boolean)
-    .join(" · ");
-
   const nameNode = contributorSlug ? (
     <Link
       href={`/contributors/${contributorSlug}`}
@@ -36,8 +33,21 @@ export function AttributionChip({
       </span>
       <span>
         {nameNode}
-        {meta ? (
-          <span className="block text-xs text-foreground/60">{meta}</span>
+        {destination || tripYear ? (
+          <span className="flex items-center gap-2.5 text-xs text-foreground/60">
+            {destination ? (
+              <span className="inline-flex items-center gap-1">
+                <MapPinIcon className="h-3.5 w-3.5 shrink-0" />
+                {destination}
+              </span>
+            ) : null}
+            {tripYear ? (
+              <span className="inline-flex items-center gap-1">
+                <TripYearIcon className="h-3.5 w-3.5 shrink-0" />
+                {tripYear}
+              </span>
+            ) : null}
+          </span>
         ) : null}
       </span>
     </div>

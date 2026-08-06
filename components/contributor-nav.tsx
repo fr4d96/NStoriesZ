@@ -16,7 +16,7 @@ export function ContributorNav() {
     <header className="border-b border-black/10 dark:border-white/10">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
-          WHV Compass NZ
+          Journiq
         </Link>
         <nav
           aria-label="Contributor"

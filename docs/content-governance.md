@@ -1,4 +1,4 @@
-# Content Governance — WHV Compass NZ
+# Content Governance — Journiq
 
 This governs how stories and images get from a contributor or editor into public view, and how they
 can be corrected or removed afterward. It exists because the product's core value proposition is

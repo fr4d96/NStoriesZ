@@ -1,4 +1,4 @@
-# Launch Content Checklist — WHV Compass NZ
+# Launch Content Checklist — Journiq
 
 A final, per-story gate before telling anyone a story is "live" — use this after
 [docs/founding-catalogue-runbook.md](founding-catalogue-runbook.md)'s steps are done and the story

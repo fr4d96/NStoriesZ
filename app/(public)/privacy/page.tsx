@@ -9,9 +9,9 @@ export default function PrivacyPage() {
   return (
     <PlaceholderPage title="Privacy">
       <p>
-        Our full privacy policy is being finalised. WHV Compass NZ does not
-        collect passport scans, visa or immigration documents, bank credentials,
-        exact live locations, or medical records.
+        Our full privacy policy is being finalised. Journiq does not collect
+        passport scans, visa or immigration documents, bank credentials, exact
+        live locations, or medical records.
       </p>
     </PlaceholderPage>
   );

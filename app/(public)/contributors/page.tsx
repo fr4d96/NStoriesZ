@@ -7,7 +7,7 @@ export const revalidate = 60;
 export const metadata: Metadata = {
   title: "Contributors",
   description:
-    "Contributors who've published a real Working Holiday Visa story on WHV Compass NZ.",
+    "Contributors who've published a real Working Holiday Visa story on Journiq.",
 };
 
 type SearchParams = Record<string, string | string[] | undefined>;

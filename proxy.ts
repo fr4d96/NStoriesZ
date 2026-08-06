@@ -26,6 +26,13 @@ const EDITORIAL_EDIT_PAGE_PATH = /^\/editorial\/([^/]+)\/edit$/;
 // above -- /moderation/stories/:id/anything-nested (there is none today,
 // but this stays narrow on purpose) must not be swept in here.
 const MODERATION_REVIEW_PAGE_PATH = /^\/moderation\/stories\/([^/]+)$/;
+// Release audit: mirrors MODERATION_REVIEW_PAGE_PATH exactly, for
+// /moderation/reports/[id] -- previously flagged in
+// docs/implementation-status.md as a known, accepted gap (the reports
+// detail page had no middleware-level per-row existence check, unlike the
+// story review page). Exact-match-only for the same reason as the other
+// per-row patterns above.
+const MODERATION_REPORT_PAGE_PATH = /^\/moderation\/reports\/([^/]+)$/;
 
 // Prompt 5: the exact same "a page-based notFound() deep in an RSC tree
 // doesn't set a real HTTP status" failure mode documented above for the
@@ -44,7 +51,7 @@ const CONTRIBUTOR_DETAIL_PAGE_PATH = /^\/contributors\/([^/]+)$/;
 
 function publicNotFound() {
   return new NextResponse(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Not found | WHV Compass NZ</title></head>' +
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Not found | Journiq</title></head>' +
       "<body><h1>Page not found</h1><p>This page does not exist or is no longer available.</p>" +
       '<p><a href="/stories">Browse stories</a></p></body></html>',
     { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
@@ -156,6 +163,21 @@ async function canViewModerationReview(
 ) {
   const { data, error } = await supabase.rpc("can_view_moderation_review", {
     p_revision_id: revisionId,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Release audit: same shape as canViewModerationReview() above, for
+ * /moderation/reports/[id] via can_view_moderation_report()
+ * (supabase/migrations/20260806100000_moderation_report_existence_check.sql).
+ */
+async function canViewModerationReport(
+  supabase: ReturnType<typeof createServerClient>,
+  reportId: string,
+) {
+  const { data, error } = await supabase.rpc("can_view_moderation_report", {
+    p_report_id: reportId,
   });
   return !error && Array.isArray(data) && data.length > 0;
 }
@@ -284,6 +306,16 @@ export async function proxy(request: NextRequest) {
     );
     if (reviewMatch) {
       const allowed = await canViewModerationReview(supabase, reviewMatch[1]);
+      if (!allowed) {
+        return flatNotFound();
+      }
+    }
+
+    const reportMatch = request.nextUrl.pathname.match(
+      MODERATION_REPORT_PAGE_PATH,
+    );
+    if (reportMatch) {
+      const allowed = await canViewModerationReport(supabase, reportMatch[1]);
       if (!allowed) {
         return flatNotFound();
       }

@@ -1,4 +1,4 @@
-# Architecture — WHV Compass NZ
+# Architecture — Journiq
 
 Prompts 1–3 (application foundation; authentication/profiles/roles/contributor identity; core story
 schema, lifecycle, and RLS) are implemented — see
@@ -1733,6 +1733,56 @@ reasoning as `e2e/moderation.spec.ts`), including surfacing and proving the fix 
 "vanishing confirmation" bug above. `npm run test:rls` re-run afterward: still 69/69, unaffected
 (this prompt's only SQL changes are additive/read-only). `npm run verify`: 212/212 unit tests (up
 from 182), 33-route build (up from 32).
+
+## Landing page rebuild — card-stack carousel, discovery sections, and manual theming
+
+Full rebuild of the public home page (`app/(public)/page.tsx`) from a supplied design mockup
+(`journiq_landing_page_card_stack.html`), going beyond the earlier scroll-snap carousel prompt
+(`docs/landing-page-carousel-implementation-prompt.md`). Guardrail decisions made explicit up
+front (design-brief anti-patterns, MVP non-goals): no hotlinked stock photography anywhere, no
+newsletter (no backend for it), no hardcoded region names, no fabricated stats.
+
+### Card-stack carousel
+
+`components/home/featured-story-stack.tsx` (`"use client"`) replaces the previous scroll-snap
+`FeaturedStoryCarousel`. Depth-layered cards (`data-active`, up to 4 visible depths) driven by
+pointer-event drag with a throw-past-threshold/velocity animation, plus prev/next buttons, dots,
+and arrow-key support. The composed transform (base depth position + live drag offset) is
+expressed as CSS custom properties in `app/globals.css` (`.story-stack-card` and its
+`is-dragging`/`is-throwing-left`/`is-throwing-right` variants) since Tailwind utilities can't
+express that calc() directly; the throw variants use `!important` so they override the depth-based
+base rule regardless of which depth a card's index recomputes to after the slide index changes.
+`components/home/featured-story-slide.tsx` is the two-pane (cover photo + copy) card face —
+presentational only, reuses `firstRegionLabel`/`stringList` (`lib/story/card-fields.ts`),
+`getPublicImageUrl`, and `AttributionChip`, same "no photo" fallback and stretched-link pattern as
+`StoryCard`.
+
+### Discovery sections
+
+- `components/home/story-filter-grid.tsx` — client-side chip filter over an already-fetched story
+  batch; chip labels are whichever work-type/tag names actually appear in that batch (never
+  hardcoded), so a chip never yields zero results.
+- `components/home/region-explorer.tsx` — real `regions`/`destinations` (`listPublicRegions()`/
+  `listPublicDestinations()`), restricted to regions that appear in the fetched story batch, each
+  linking to `/stories?region=<id>` (the existing filter param `parseStorySearchParams` already
+  handles). No photography, no fabricated counts.
+- `components/home/destination-quiz.tsx` + `lib/story/region-match.ts` — a 4-question quiz whose
+  answers carry trait signals (real `work_types`/`tags` names), scored against the fetched stories'
+  own `regions`/`work_types`/`tags` by `matchRegion()` (pure function, unit-tested). No region name
+  is hardcoded in the quiz; if nothing matches, it degrades to a plain "browse all stories" link
+  rather than fabricating a result. `lib/story/card-fields.ts` gained `regionNames()` (every region
+  name a story is tagged with, not just the first) to support both this and the region explorer.
+
+### Manual theme toggle
+
+`app/globals.css` moved from `@media (prefers-color-scheme: dark)`-only tokens to a
+`data-theme="light"|"dark"` attribute model — `:root[data-theme="dark"]` outranks the plain
+`:root` pseudo-class regardless of source order or the media query, so an explicit choice always
+wins. `app/layout.tsx` sets `data-theme` via a blocking inline `<script>` in `<head>` (reads
+`localStorage["journiq-theme"]`, falls back to `matchMedia`) before first paint, avoiding both a
+flash of the wrong theme and a hydration mismatch. `components/theme-toggle.tsx` (`"use client"`)
+toggles the attribute and persists the choice; wired into `components/site-header.tsx` (both the
+desktop `<nav>` and the mobile-only control row) since it's a site-wide control, not homepage-only.
 
 ## Roadmap (corrected)
 

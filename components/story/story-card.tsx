@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getPublicImageUrl } from "@/lib/story/public-image-url";
+import { firstRegionLabel, stringList } from "@/lib/story/card-fields";
 import { AttributionChip } from "@/components/story/attribution-chip";
 
 // AttributionChip can itself render a link to the contributor page; nesting
@@ -25,22 +26,6 @@ export type StoryCardData = {
   tags: unknown;
 };
 
-type RegionEntry = { region_name?: string; destination_name?: string | null };
-
-function firstRegionLabel(regions: unknown): string | null {
-  if (!Array.isArray(regions) || regions.length === 0) return null;
-  const first = regions[0] as RegionEntry;
-  if (!first?.region_name) return null;
-  return first.destination_name
-    ? `${first.destination_name}, ${first.region_name}`
-    : first.region_name;
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === "string");
-}
-
 /**
  * Approved-fields-only, per docs/design-brief.md's explicit anti-patterns:
  * no rating/score, no "Explore Now"-style CTA, no traveller-count badge.
@@ -57,7 +42,7 @@ export function StoryCard({ story }: { story: StoryCardData }) {
   ].slice(0, 3);
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface transition-shadow hover:shadow-md">
+    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface transition-[transform,box-shadow] hover:-translate-y-1 hover:shadow-md">
       <div className="aspect-[4/3] w-full overflow-hidden bg-surface-muted">
         {coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- public bucket URLs are content-addressed, not a Next.js image-optimizable source list

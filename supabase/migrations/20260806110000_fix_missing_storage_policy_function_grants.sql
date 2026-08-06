@@ -1,0 +1,44 @@
+-- Bug fix: image upload was completely broken for every authenticated user
+-- (self-service AND editorial) since the media-upload storage policies were
+-- introduced. Reproduced live: a real authenticated upload to
+-- story-images-private returned
+--   {"statusCode":"403","error":"Unauthorized",
+--    "message":"permission denied for function _can_write_reserved_media_path"}
+--
+-- Root cause: `storage.objects`' "private media: reserved-path writes only"
+-- policy (20260804090700_story_media_storage_buckets.sql) calls
+-- public._can_write_reserved_media_path(name) directly inside its
+-- `with check` clause. That clause is evaluated as the actual querying
+-- role (`authenticated`, via the Storage API) -- SECURITY DEFINER only
+-- changes what happens *inside* a function body once it's already running,
+-- it does not waive the caller's own need for EXECUTE privilege to invoke
+-- the function in the first place. The migration that created the function
+-- revoked EXECUTE from public/anon/authenticated (the correct move for an
+-- internal `_`-prefixed helper normally only called from inside another
+-- SECURITY DEFINER function, where the *definer's* privileges apply) but
+-- never re-granted it to `authenticated` for this specific use as an RLS
+-- policy predicate, which is a different calling context with different
+-- requirements. This has been broken since the function was first created
+-- (20260804090700) and was never actually caught by
+-- e2e/editorial-upload.spec.ts's real byte-upload assertion in prior
+-- sessions' recorded runs -- worth a closer look separately, but the fix
+-- itself is unambiguous and this migration is additive/non-destructive.
+--
+-- public._can_access_story_media(uuid) has the exact same shape of gap in
+-- the sibling "private media: authorized read" SELECT policy on the same
+-- table (same migration, 20260804090600_story_preview_and_media_access.sql)
+-- -- currently latent/unobserved only because every real read against the
+-- private bucket goes through lib/story/image-pipeline.ts's service-role
+-- admin client (which bypasses Storage RLS entirely and separately already
+-- has EXECUTE via service_role's grant), not the regular authenticated
+-- client. Fixed here too, for the same correctness reason and to avoid
+-- leaving an identical landmine for any future authenticated-role read path.
+--
+-- Neither grant widens what a caller can actually do: both functions
+-- already independently re-derive ownership/edit-rights from auth.uid()
+-- and the reserved-path/media-id itself inside their own bodies (Engineering
+-- Rules 2/3) -- this migration only lets the RLS policy engine call them at
+-- all, it does not change what they return for any given caller/row.
+
+grant execute on function public._can_write_reserved_media_path(text) to authenticated;
+grant execute on function public._can_access_story_media(uuid) to authenticated;

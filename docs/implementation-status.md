@@ -1,10 +1,23 @@
-# Implementation Status — WHV Compass NZ
+# Implementation Status — Journiq
 
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-05 (Prompt 7 — content readiness, operational metrics, and founding-catalogue
-launch tooling — now complete).
+Last updated: 2026-08-06 (release audit — `/moderation/reports/[id]` per-row 404 gap fixed and
+live-verified; see "Release audit (2026-08-06)" below).
+
+**2026-08-06 — Rebrand + home hero redesign.** Product renamed from "WHV Compass NZ" to
+"Journiq" across all user-facing copy, metadata, `package.json`/`package-lock.json`, and docs
+(historical migration/seed identifiers like `whv-compass-terms-2026-08` and disposable test
+emails were deliberately left untouched — they're data-level identifiers, not branding, and
+`supabase/migrations/` is not edited retroactively). The home hero
+(`app/(public)/page.tsx`, new `components/home/hero-backdrop.tsx`) now uses a full-bleed
+illustrated Remarkables/Queenstown backdrop, in the site's existing warm terracotta palette
+(not the dark-teal "corporate travel agency" look docs/design-brief.md explicitly rules out) —
+copy, CTA language, and the `PersonalExperienceLabel` component are unchanged. The SVG
+illustration is a placeholder for real on-location photography per the design brief.
+`lint`/`typecheck`/`format:check`/`test` (212/212) all pass; not yet live-verified in a browser
+in this environment (see note below) or run through `test:e2e`.
 
 ## Status legend
 
@@ -1341,6 +1354,145 @@ MCP was deliberately not performed without asking first, since it would also rem
   this prompt's own acceptance criteria, which asked for the checks to exist and be advisory, not
   for a specific UI placement.
 
+## Release audit (2026-08-06)
+
+A release-focused security/correctness audit was run against the live linked project
+(`ybhydepjaantkngngvuf`) ahead of a private-beta go/no-go decision. This was a targeted audit of a
+codebase that had already been through 7 prompts of iterative live-verification, not a from-scratch
+review — the goal was to find anything the prior passes missed, using both automated tooling and a
+mechanical check for this codebase's own most-repeated real bug class.
+
+**Method:**
+
+1. `get_advisors` (security + performance) run against the live project. Result: the ~90
+   `*_security_definer_function_executable` WARNs are expected noise for this codebase's architecture
+   (every table has RLS-enabled-no-policy by design — access is exclusively through `SECURITY
+DEFINER` RPCs that re-derive the caller's identity/role themselves, already documented in "Decisions
+   made so far"). One new, real, actionable finding: `auth_leaked_password_protection` is not
+   enabled — see "Manual Supabase settings required" below.
+2. Every live function whose body references `assigned_editor_id`/`linked_user_id`/`owner_user_id`/
+   `initiated_by`/`created_by`/`moderator_id`/`editor_id` compared against `auth.uid()` was pulled via
+   `pg_get_functiondef` and read directly (not from migration files, which can be stale once
+   superseded by a later `CREATE OR REPLACE` — the exact trap that caused two of this codebase's own
+   documented past bugs). This mechanically re-checks the "SQL three-valued logic" bug class
+   documented five separate times in this file (Prompts 3, 4, 5, and twice in Prompt 6) — a bare
+   nullable-column `= auth.uid()` inside `if not (...) then raise` silently no-ops when the column is
+   `NULL`. **Result: every live instance is now safe** — either wrapped in `coalesce(..., false)`, or
+   structurally immune because it's inside an `EXISTS (...)` subquery (`exists` never returns `NULL`)
+   or an `if x then ... elsif y then ... else raise` chain (a `NULL` branch condition falls through to
+   the next branch, not into the `then`, so this shape was never actually vulnerable to begin with).
+   No new instance of this bug class was found.
+3. `revoke_publication_consent()`, `get_published_story()`, and `get_published_story_media()` were
+   read together to directly confirm Engineering Rules 10–14 hold at the function level: all three
+   public-read paths check `consent_revoked_at is not null` and return zero rows if so (on top of the
+   redundant `visibility = 'public' and lifecycle_status = 'published'` check, since revocation also
+   flips a published story to `archived`), and `get_published_story_media()` additionally requires
+   `metadata_removed_at is not null` before ever returning a path — an already-removed-EXIF image
+   can't leak through this path even mid-processing.
+4. `proxy.ts` (the per-row IDOR gate for every dynamic staff/contributor/public route) was read in
+   full against the list of dynamic routes in `app/`. **One real, previously-flagged gap found and
+   fixed** — see below.
+
+**Found and fixed:**
+
+- **`/moderation/reports/[id]` had no middleware-level per-row existence check** — flagged as a known,
+  accepted, non-blocking gap since Prompt 6 Stage 3 ("still needs a new RPC/migration to fix
+  properly, still flagged rather than built without asking"). Not an authorization bypass (the
+  role-level check on `/moderation/*` already applied), but a wrong-status-code correctness gap: a
+  nonexistent or wrong-`storyId` report id rendered Next's deep `notFound()` as a live HTTP 200
+  instead of a real 404 — the same failure mode already fixed for every other staff per-row route in
+  this app (`/moderation/stories/[revisionId]`, `/editorial/[id]/edit`, `/stories/[id]/edit`,
+  `/stories/[id]/preview`). Fixed the same proven way: `can_view_moderation_report()`
+  (`supabase/migrations/20260806100000_moderation_report_existence_check.sql`, applied and
+  live-verified) mirrors `can_view_moderation_review()` exactly, wired into `proxy.ts` as
+  `canViewModerationReport()`. **Live-verified**: a new Playwright case in
+  `e2e/reports-triage.spec.ts` confirms a bogus report id now returns a genuine 404; the full
+  `e2e/moderation.spec.ts` + `e2e/reports-triage.spec.ts` batch (13/13) re-run live afterward, no
+  regressions. `npm run verify` clean afterward (unit tests, lint, typecheck, build all pass; build
+  still 33 routes).
+
+**Not independently re-verified this session** (relied on the extensive existing live-verification
+record instead, given the size of the surface and no new findings from the mechanical checks above):
+image pipeline internals (magic-byte sniffing, path-traversal regex, EXIF stripping — already
+live-verified with a real EXIF-embedded source image in Prompt 4 Sub-phase 2), the full moderation/
+editorial separation matrix, and accessibility scans beyond what's already wired into the existing
+Playwright specs. These remain exactly as documented in the relevant Prompt sections above — no
+regressions found, but also not independently re-derived from scratch.
+
+**One pre-existing, unrelated test-isolation issue observed while re-running `npm run test:rls`**:
+`list_my_reports` returned a stale report for the `owner` test account, failing one assertion
+(68/69). Root-caused to accumulated `rls-test-%` fixture debris from prior sessions' live runs (the
+same accepted-debris category documented throughout this file, e.g. "Prompt 7 detail" and "Risks")
+— not caused by this session's migration (which only adds a new, additive, read-only existence-check
+function) and not a real app defect. `npm run test:rls:cleanup` was not run without asking first,
+consistent with this file's established practice.
+
+### Critical finding, found and fixed same day: image upload was completely broken
+
+A user report ("the image upload function does not work") led to a live reproduction (real signed-in
+session, real `tests/integration/fixtures/tiny.png`, real storage/DB calls against
+`ybhydepjaantkngngvuf`) that surfaced **two independent, always-existing bugs** — every single
+authenticated image upload attempt, self-service or editorial, had been failing since the upload
+pipeline was introduced in Prompt 4 Sub-phase 2. Confirmed directly: `story_revision_media` had
+**zero rows** in the live database before this fix, for any story, ever.
+
+1. **Missing `EXECUTE` grant on `_can_write_reserved_media_path(text)`**
+   (`supabase/migrations/20260806110000_fix_missing_storage_policy_function_grants.sql`). This
+   function is called directly inside `storage.objects`' "private media: reserved-path writes only"
+   `with check` clause (`20260804090700_story_media_storage_buckets.sql`), which is evaluated as the
+   actual querying role (`authenticated`) — `security definer` only changes what happens _inside_ a
+   function once it's already running, it does not waive the caller's own need for `EXECUTE` to
+   invoke it in the first place. The migration that created the function revoked `EXECUTE` from
+   `authenticated` (correct for an internal `_`-prefixed helper normally only reached from inside
+   another `SECURITY DEFINER` function) but never re-granted it for this different calling context.
+   Reproduced live via a direct Storage API call: `{"message":"permission denied for function
+_can_write_reserved_media_path"}`. `public._can_access_story_media(uuid)` has the identical shape of
+   gap in the sibling private-bucket SELECT policy — currently latent/unobserved only because every
+   real read goes through the service-role admin client, which bypasses Storage RLS entirely — fixed
+   in the same migration for the same reason.
+2. **`finalize_story_media_upload()`'s `story_revision_media` insert unconditionally violated
+   `story_revision_media_alt_text_required`**
+   (`supabase/migrations/20260806110100_fix_finalize_upload_alt_text_constraint.sql`) — `check
+(decorative or (alt_text is not null and char_length(alt_text) > 0))`
+   (`20260803090400_story_media.sql`). The insert hardcoded `decorative = false` with no `alt_text`
+   (column default `null`), but alt text is only ever collected _after_ a successful upload via the
+   image manager's own caption UI — there was no way to reach that step, since this insert always
+   failed first. Reproduced live: `{"code":"23514","message":"new row for relation
+\"story_revision_media\" violates check constraint \"story_revision_media_alt_text_required\""}`.
+   Fixed by inserting with `decorative = true` (a freshly-attached image with no alt text yet is
+   exactly what "decorative" is for) — the existing UI flow (uncheck "Decorative", fill in real alt
+   text, save) is unchanged, this only fixes the placeholder value the row is born with.
+
+**Live-verified, both bugs, end to end**: a direct Storage API + RPC sequence (create draft → begin
+upload → raw storage `POST` → `finalize_story_media_upload`) now returns `200`/`204` throughout,
+where it previously failed at step 3 (`403`) and then, after fixing #1, at step 4 (`400`/`23514`).
+Confirmed again through the real browser UI (`/stories/[id]/edit`'s "Add images" control) — the image
+now attaches and renders in the manager (Decorative checkbox checked, Caption field, Set-as-cover/
+Remove controls), with no error banner.
+
+**Also observed, environment-specific, not a code bug**: in _this_ sandboxed session's `.env.local`,
+`SUPABASE_SERVICE_ROLE_KEY` is unset (same long-documented limitation as every prior prompt's Storage
+round-trip work — see "Prompt 4 detail" Sub-phase 2's "Not yet live-verified" note), so
+`processStoryMedia()`'s `createAdminClient()` call throws before it can run the `sharp` decode/strip/
+resize step; the route's own `catch {}` around that call swallows it silently (by design — a
+processing failure must not fail the upload response itself), leaving the image stuck at
+`processing_state = 'uploaded'` ("Preparing…" in the UI) instead of advancing to `processed`/`failed`.
+This is an environment credential gap, not a logic bug — a real deployment (or a local `.env.local`
+with the project's actual service-role key added) will exercise the real `sharp` pipeline, already
+live-verified independently in Prompt 4 Sub-phase 2 and Sub-phase 4's
+`e2e/editorial-upload.spec.ts`. Worth noting separately: that same Playwright spec (and
+`e2e/cross-contributor-access.spec.ts`'s upload assertions) reported passing in this and prior
+sessions despite these bugs being present the whole time — its assertions (absence of specific literal
+UI strings) turned out not to strongly enough pin down "the image actually got attached in the
+database," a real test-quality gap worth tightening in a future session, not chased further here to
+stay scoped to the reported bug.
+
+**Debris**: 5 disposable stories created directly against the live project while reproducing this
+(`debug-upload-script-story-*`, `image-upload-debug-story-*`, `whv-nz-*`, all owned by the
+`rls-owner@…` test account) were left in place rather than risk an ad hoc manual delete against the
+`on delete restrict` story domain outside the vetted `scripts/rls-test-cleanup.sql` path — same
+accepted-debris category as everywhere else in this file.
+
 ## Migration summary
 
 All in `supabase/migrations/`, applied in filename order:
@@ -1396,6 +1548,9 @@ All in `supabase/migrations/`, applied in filename order:
 | `20260805120000_fix_get_story_editorial_history_editor_access.sql` | Post-Stage-3 corrective — bug fix, found live via `e2e/moderation.spec.ts`: `get_story_editorial_history()` was moderator/admin-only, but Stage 2's `editorial-history-panel.tsx` renders it on the assigned editor's own edit page, causing a genuine 500 for every editor. Broadened to also authorize the story's assigned editor (`coalesce(...,false)`-guarded). **Applied.**               |
 | `20260806090000_content_readiness_and_metrics.sql`                 | Prompt 7 — new append-only `story_launch_verifications` table + `record_story_launch_verification()`; new `get_content_readiness_queue()` (editor/moderator/admin, per-story founding-catalogue readiness checklist); new `get_operational_metrics()` (editor/moderator/admin, 7 aggregate counts only). **Applied.**                                                                            |
 | `20260806090100_add_sha256_to_story_preview_media.sql`             | Prompt 7 — `create or replace` (return shape unchanged) on `get_story_preview()`, adding `sha256` to each media object for same-story duplicate-image detection in the editorial/contributor image manager. **Applied.**                                                                                                                                                                         |
+| `20260806100000_moderation_report_existence_check.sql`             | Release audit — new `can_view_moderation_report(p_report_id)`, moderator/admin-only existence check backing `proxy.ts`'s per-row 404 for `/moderation/reports/[id]`, mirroring `can_view_moderation_review()`. **Applied.**                                                                                                                                                                      |
+| `20260806110000_fix_missing_storage_policy_function_grants.sql`    | Bug fix — image upload was completely broken for every authenticated user: grants `EXECUTE` on `_can_write_reserved_media_path(text)` and `_can_access_story_media(uuid)` to `authenticated`, missing since both functions were first created (referenced directly inside `storage.objects` RLS policies, which needs the querying role's own grant). **Applied.**                               |
+| `20260806110100_fix_finalize_upload_alt_text_constraint.sql`       | Bug fix — `finalize_story_media_upload()`'s `story_revision_media` insert unconditionally violated `story_revision_media_alt_text_required`; now inserts `decorative = true` (no alt text collected yet at attach time) instead of `false`. **Applied.**                                                                                                                                         |
 
 ## Role and RLS matrix
 
@@ -1454,6 +1609,12 @@ validation/auth.ts`'s `passwordSchema` mirrors this by hand (documented in a cod
 - **SMTP**: local dev uses the built-in inbucket-style email testing server; a real project needs a
   production SMTP provider configured (`auth.email.smtp` in config.toml) or emails silently won't
   send.
+- **Leaked-password protection** (`auth.password_requirements`/dashboard "Leaked password protection"):
+  found **disabled** on the linked project by the release audit's `get_advisors` run
+  (`auth_leaked_password_protection` WARN — Supabase checks new passwords against HaveIBeenPwned.org
+  when this is on). Not expressible in a migration; enable in the dashboard (Authentication → Policies
+  → Password) before inviting external beta readers, since sign-up is the one flow where this
+  actually matters.
 
 ## Decisions made so far
 
@@ -1693,9 +1854,15 @@ suite **37/37 passing**. 2 new migrations pushed and live-verified (`test:rls` 6
 
 Remaining, explicitly-accepted, non-blocking items:
 
-- `/moderation/reports/[id]` still has no middleware-level per-row existence check — unchanged,
-  low-risk, same-role-only edge case (see "Prompt 6 detail — Stage 3" above); still needs a new
-  RPC/migration to fix properly, still flagged rather than built without asking.
+- ~~`/moderation/reports/[id]` still has no middleware-level per-row existence check~~ — **fixed in
+  the release audit session (2026-08-05→2026-08-06)**: `can_view_moderation_report()`
+  (`supabase/migrations/20260806100000_moderation_report_existence_check.sql`, applied and
+  live-verified) mirrors `can_view_moderation_review()`'s existing pattern exactly; `proxy.ts` now
+  gates `/moderation/reports/[id]` the same way it already gated `/moderation/stories/[revisionId]`.
+  A new Playwright case in `e2e/reports-triage.spec.ts` ("a nonexistent report id gets a real 404,
+  not a soft-200") confirms a bogus report id now returns a genuine HTTP 404 instead of the previous
+  live 200; the full `e2e/moderation.spec.ts` + `e2e/reports-triage.spec.ts` batch (13/13) was re-run
+  live afterward with no regressions.
 - `npm run e2e:cleanup:editorial-fixtures -- --execute` remains blocked on a missing
   `.env.maintenance.local` (no service-role key available in this environment) — unchanged since
   Prompt 4.
@@ -1711,3 +1878,243 @@ Remaining, explicitly-accepted, non-blocking items:
 
 **Prompt checklist (0–7) is now fully complete.** Any further work is genuinely new scope, not a
 continuation of a planned prompt — check with the user before starting anything substantial.
+
+## Landing page rebuild (2026-08-05, new scope — not part of Prompts 0–7)
+
+The user supplied a full design-tool mockup (`journiq_landing_page_card_stack.html`: hero photo
+slideshow, drag-based card-stack carousel, filter+grid, region explorer, destination-match quiz,
+testimonial, newsletter, dialogs, manual theme toggle) and asked for it as the real homepage — a
+larger scope than the narrower carousel-only task in
+`docs/landing-page-carousel-implementation-prompt.md`. Confirmed with the user via plan-mode
+questions before building; see "Landing page rebuild — card-stack carousel, discovery sections, and
+manual theming" in `docs/architecture.md` for the technical account.
+
+**Decisions made (and explicitly _not_ built), all confirmed with the user first:**
+
+- Real data only — no hotlinked Unsplash stock photography anywhere (hero, region tiles,
+  testimonial). Sections with no real backing content simply aren't ported rather than getting a
+  fake interactive feature.
+- Manual light/dark theme toggle built for real (`data-theme` model, localStorage persistence,
+  blocking inline script) — this is a real change from the previous `prefers-color-scheme`-only
+  approach.
+- Newsletter signup **dropped entirely** — no email-list infrastructure exists; the mockup's
+  fake-success-message version would have been dishonest UX.
+- Destination-match quiz kept the mockup's UX shape but is **not** hardcoded against the mockup's
+  fictional regions — it scores real `regions`/`work_types`/`tags` data via the new
+  `lib/story/region-match.ts`, degrading to a plain "browse all stories" link when nothing matches
+  rather than fabricating a result.
+- The mockup's fake local-only "sign in"/"share your story" dialogs and in-page story-preview modal
+  were not built — the existing real `/sign-in`, `/sign-up`, and `/stories/[slug]` pages are used
+  instead, and the existing `SiteHeader`/`SiteFooter` are reused rather than rebuilt.
+
+**Status:** implementation complete — `components/home/featured-story-stack.tsx` (replaces the
+prior scroll-snap `FeaturedStoryCarousel`), `components/home/story-filter-grid.tsx`,
+`components/home/region-explorer.tsx`, `components/home/destination-quiz.tsx` +
+`lib/story/region-match.ts`, `components/theme-toggle.tsx`, and the `app/globals.css`/
+`app/layout.tsx` theming rework. `app/(public)/page.tsx` and its test extended; `e2e/home.spec.ts`
+extended with stack-carousel keyboard operability, quiz flow, region link, and theme-toggle
+persistence cases.
+
+**Live browser verification:** a dev server against the linked Supabase project was already running
+in this environment, so the rebuild was checked live in-browser (not just via unit tests) at
+375px/mobile first, then desktop, in both themes. This caught and fixed one real bug the unit
+suite couldn't: the `data-theme` blocking-script pattern in `app/layout.tsx` needs
+`suppressHydrationWarning` on `<html>` — React validates hydration on the root element's own
+attributes, so without it the intentional pre-hydration `data-theme` write (server has no such
+attribute; the inline script adds it before paint) was logging a hydration-mismatch error on every
+load. Fixed; confirmed clean afterward with a fresh tab (no accumulated console history).
+
+**Risks / remaining items:**
+
+- The linked dev Supabase project's published-story rows are entirely disposable `rls-test-%`
+  fixtures (see the recurring "fixture cleanup" items elsewhere in this doc) — confirmed via direct
+  REST query that **zero** of them carry any `regions` value, and only some carry `work_types`/
+  `tags`. That means region-explorer and the quiz's real-match path couldn't be exercised against
+  realistic content this session: region-explorer correctly rendered nothing (verified), and the
+  quiz correctly reached its "no strong match yet" fallback (verified) — both are the _intended_
+  behavior for zero-region data, not a bug, but neither path's "found a real match" branch got a
+  live look. The filter grid's chip-from-real-data path did render correctly since some fixture
+  rows have `work_types`/`tags`.
+- The quiz's match quality generally depends on catalogue breadth — even with clean data, thin
+  catalogues will legitimately hit the "no strong match yet" fallback for some answer
+  combinations. That's correct behavior, not a bug, but worth knowing before demoing.
+- The `data-theme` CSS rework was spot-checked against the public/home page and the shared
+  header/footer only in this session — worth a quick visual pass over the auth, contributor,
+  editorial, moderation, and readiness route groups the next time any of them are touched, to
+  confirm none of them hardcode a light- or dark-only assumption that the new manual toggle can now
+  actually trigger.
+- `npm run test:e2e` (the Playwright suite itself) was not run live in this session — the new
+  cases were instead exercised manually against the live dev server via the browser tool
+  (carousel drag/keyboard, quiz flow, theme persistence all confirmed working). Running the actual
+  spec file live is still worth doing before calling this fully verified end-to-end.
+
+**Follow-up pass (same day): full fidelity to the mockup, on explicit user direction.** The user
+came back after reviewing the first pass and gave two direct instructions that reverse two of the
+guardrail decisions above: (1) use the mockup's actual hero photography, animation, and wording
+throughout — "abandon the initial wording of the initial landing page" — and (2) replace the warm
+brown/terracotta palette with the mockup's forest-green + sand + orange palette ("DO NOT USE
+BROWN"). Both implemented sitewide (not homepage-only, since the color tokens in `app/globals.css`
+back every page):
+
+- `app/globals.css`: full retint — `--background`/`--foreground`/`--surface`/`--surface-muted`/
+  `--border-subtle`/`--accent`/`--accent-foreground`/`--tag-background`/`--tag-foreground` all
+  replaced with the mockup's hex values (light + dark), plus two new tokens (`--forest`, `--fern`)
+  for the header-toned dark-green bands and eyebrow-label green the mockup uses.
+- `components/home/hero-slideshow.tsx` (new) replaces `components/home/hero-backdrop.tsx`
+  (deleted): the mockup's exact 3 Unsplash photos, cross-fade + Ken Burns zoom (CSS in
+  `app/globals.css`: `.hero-slide`, `.hero-overlay`, `@keyframes hero-ken-burns`), a visible
+  pause/play control, `prefers-reduced-motion` respected via `useSyncExternalStore` (not
+  setState-in-effect — the stricter React Compiler purity lint the same fix from the first pass
+  required here too).
+- `app/(public)/page.tsx`: every section's wording replaced with the mockup's copy verbatim
+  (hero, "Featured journals", "Find your match", "Browse by interest", "Across the motu", "How
+  Journiq helps" 3-step block replacing the old 3-column trust grid, the community-note quote, and
+  the "Pass it forward" closing band), and reordered to the mockup's flow. Hero CTAs now anchor to
+  in-page sections (`#stories`, `#match`) exactly as the mockup does, since those sections now
+  exist on this page.
+- `components/story/personal-experience-label.tsx` gained a `tone="onPhoto"` variant (white/glass)
+  so the hard product-requirement disclaimer (Rule 17) still has a real, legible placement over
+  the new photo hero — the mockup's own hero doesn't include this label at all (it's a marketing
+  mockup, not the real product), so this is a deliberate addition on top of the mockup rather than
+  a literal copy of it.
+- `components/home/region-explorer.tsx` gained a `tone="onForest"` variant for the mockup's
+  always-dark `.regions` band.
+- One quote/testimonial section (`"Amélie R. · France"`) is copied verbatim from the mockup's
+  placeholder copy. **This is fabricated content attributed to a named individual** — flagged
+  rather than silently shipped: before this goes further than a working preview, either replace it
+  with a real (consented, attributed) contributor quote or restyle it as an explicitly-labeled
+  illustrative/placeholder element. Every other new section degrades honestly (renders nothing /
+  falls back) when there's no real data; this one section does not, because the mockup's own copy
+  was a fixed placeholder rather than something driven by real content.
+- Stock photography was deliberately _not_ extended beyond the hero (region tiles and the closing
+  CTA band use solid forest-green treatments instead of the mockup's additional stock photos) —
+  the user's instruction specifically named "hero images"; this is a scope call worth confirming
+  if the intent was broader.
+- Live-verified in-browser (mobile then desktop, light and dark) against the same already-running
+  dev server: hero photo/animation/pause control, forest/sand/orange palette in both themes, new
+  section copy and order, "How Journiq helps" steps, quote section, dark "Pass it forward" band.
+  `npm run verify` clean throughout (252/252 unit tests, lint, typecheck, build).
+
+**Second follow-up (same day): three bugs from that pass, all fixed and live-verified.**
+
+- The hero's "Pause motion" button never received clicks. Root cause: it was nested inside
+  `HeroSlideshow`'s `-z-10` background wrapper, and the hero's text-content div (a later,
+  higher-stacking sibling of that whole wrapper) covered it for hit-testing everywhere their boxes
+  overlapped, even where the text div was visually empty. Fixed by making the button a sibling of
+  the background layer instead of a child of it (`components/home/hero-slideshow.tsx`), matching
+  how the mockup itself structures `.hero-motion-toggle`. Also wired up the
+  `.hero-slideshow.is-paused` CSS (already present in `app/globals.css` from the first pass but
+  never actually applied) so pausing now visibly freezes the Ken Burns zoom mid-frame, not just
+  the slide-advance timer.
+- `components/site-header.tsx` had no sticky positioning at all — added `sticky top-0 z-40`.
+- Ported the mockup's remaining animations, which the first pass had genuinely skipped: hero
+  content staggered fade-in on load (`.hero-fade-item`/`@keyframes hero-content-in` in
+  `app/globals.css`), scroll-reveal-on-view for section intros and grid items (new
+  `components/home/reveal.tsx`, an `IntersectionObserver` wrapper — needed a jsdom stub added to
+  `vitest.setup.ts` since jsdom doesn't implement `IntersectionObserver`), and hover-lift
+  transforms on cards/buttons/dots/icon-buttons (`components/story/story-card.tsx`,
+  `components/home/region-explorer.tsx`, `components/home/featured-story-stack.tsx`,
+  `components/theme-toggle.tsx`). All of it routes through the existing global
+  `prefers-reduced-motion` override in `app/globals.css`, so no separate reduced-motion branching
+  was needed in the new component.
+- Live-verified: clicked the real pause button via the browser tool and confirmed it toggles to
+  "Play motion" and the slideshow changes; scrolled deep into the page and confirmed the header
+  stays pinned; watched the reveal animation fire mid-scroll on grid cards. `npm run verify` clean
+  (252/252 tests, lint, typecheck, build).
+
+**Third pass (same day): merged the user's own hand-edited archive** (`docs/landing-designs/
+journiq-landing-page-edited.zip`, extracted to `/tmp/journiq-edited` for inspection, never
+extracted over the repo). It contained the same 26-file set from the second pass, with edits to 6:
+`app/(public)/page.tsx`, `app/globals.css`, `components/site-header.tsx`,
+`components/site-footer.tsx`, `components/home/featured-story-stack.tsx`,
+`components/home/featured-story-slide.tsx`. Diffed every file against the repo before touching
+anything; the other 20 were byte-identical and untouched.
+
+Sizing/copy/typography edits (bigger stack card, serif card titles, `max-w-[1160px]` sections,
+`.journiq-heading`/`.journiq-button` utilities, a photo behind the "Community note" quote, a photo
+band behind "Pass it forward") were applied as authored. Several things needed adaptation rather
+than a blind copy, because `SiteHeader`/`SiteFooter` are shared across **every** route (including
+`(auth)/layout.tsx` and every staff layout for `SiteFooter`), not just the home page:
+
+- The edited header made `.journiq-header` (a transparent dark gradient, white text) permanent.
+  Applied everywhere unmodified, this would have made header text illegible on every non-home page
+  (light background, no hero underneath). Rewrote `SiteHeader` as route- and scroll-aware
+  (`usePathname() === "/"` and a `useSyncExternalStore`-based scroll threshold, same pattern as the
+  reduced-motion/theme hooks elsewhere in this codebase): transparent only on `/` before scrolling
+  past the hero, solid everywhere else. The header's own box never resizes when toggling (no
+  negative margin on the header); instead `app/(public)/page.tsx`'s hero section alone carries
+  `-mt-[76px]` to tuck behind the sticky header, so the transparent→solid switch never causes a
+  layout jump.
+- `ThemeToggle` and `MobileNavToggle` gained an `inverted` prop so their icon buttons stay legible
+  in both header modes.
+- Found and fixed a real bug during live verification: the mobile nav dropdown panel is always
+  opaque (`bg-surface`) but was inheriting `text-white` from the transparent header ancestor,
+  making its own links invisible against its own light background. Added an explicit
+  `text-foreground` on the dropdown `<nav>`.
+- The edited header switched its desktop/mobile-nav breakpoint from `sm` to `md` but
+  `MobileNavToggle`'s wrapper was still hardcoded to `sm:hidden` — a live 640–767px dead zone with
+  neither nav visible. Fixed by changing the wrapper to `md:hidden` to match.
+- The edited footer dropped the `/copyright` link (route still exists, just no longer linked from
+  anywhere) — added it back into the Support column.
+- The edited featured-story-slide.tsx "Read story" button had both `text-white` and
+  `text-accent-foreground` on a `bg-forest` background; `accent-foreground` is a near-black tone
+  meant for the orange accent background, not forest green, and would have been nearly invisible.
+  Removed the stray `text-accent-foreground`.
+- Merged the new `globals.css` rules (`.journiq-heading`, `.journiq-button`, `.journiq-header`,
+  `.journiq-nav-link`, `.journiq-share`) as new class-scoped utilities (nothing outside where
+  they're actually applied is affected) and deduped the two properties that arrived as a second,
+  separate `:focus-visible`/`.story-stack-card` rule block into the file's single existing
+  declarations, rather than leaving two rules for the same selector.
+- Updated `app/(public)/page.test.tsx` and `components/site-footer.test.tsx` for the new copy (the
+  personal-experience disclaimer moved from a hero pill to footer-only text — the hero pill was my
+  own earlier addition, not in the mockup or the user's edit, and dropping it doesn't violate
+  Engineering Rule 17, which is about story detail pages, not the marketing hero); added
+  `components/site-header.test.tsx` (didn't exist before) covering the new route/scroll-aware
+  behavior.
+
+**Not resolved, flagged for the user instead of guessed at:** `SiteFooter` is also rendered by
+every staff layout (`(editor)/editorial`, `(moderation)/moderation`, `(contributor)`,
+`(readiness)/readiness`) — this was already true before this change, but the new footer is a much
+more visually "marketing site" branded treatment (dark green, "Share a story" CTA) than the
+previous neutral one, so that branding now shows up under internal staff tools too. Left unchanged
+since restructuring which layouts use which footer is new scope beyond "integrate the landing
+page," not a bug — flagging for a product decision.
+
+Live-verified in-browser: header transparent→solid transition on scroll (both directions), solid
+header immediately on a non-home route (`/sign-in`), the previously-broken 640–767px width (mobile
+menu now appears correctly), the mobile dropdown contrast fix, dark mode at 1024px and 375px, and
+1440px. `npm run verify` clean throughout (257/257 tests, lint, typecheck, build).
+
+**Fourth pass (same day): "Sign in" and "Share your story" open as modals** instead of navigating
+to `/sign-in`/`/sign-up`, closing back to whatever page was open underneath. No auth logic was
+duplicated: `components/auth/sign-in-form.tsx` and `sign-up-form.tsx` (relocated from
+`app/(auth)/sign-in/` and `app/(auth)/sign-up/` — they were already self-contained
+`useActionState` client components calling the real `signInAction`/`signUpAction` Server Actions,
+just living next to their page) are rendered unchanged inside a new
+`components/auth/auth-modal.tsx`, a native-`<dialog>`-based shell (`showModal()`/`close()` via a
+ref synced to an `open` prop) that gets focus trapping, top-layer rendering, and Escape-to-close
+for free from the browser, plus a backdrop-click handler and a visible × button. `/sign-in` and
+`/sign-up` still exist and work standalone (direct navigation, bookmarks, and the auth
+middleware's own redirects to `/sign-in?next=…` all still land on a real page) — only the header's
+own buttons changed. A successful sign-in still calls `redirect()` server-side as before, which
+navigates the whole page away and closes the modal as a side effect; the "sign up success" state
+just shows its confirmation message in place of the form until the user closes the modal manually.
+
+`MobileNavToggle`'s `navItems` gained an `href`-or-`onClick` union so the mobile dropdown's "Sign
+in"/"Share your story" entries can open the same modals (closing the dropdown first) instead of
+navigating.
+
+Two test-environment gaps found and fixed along the way, both jsdom limitations rather than app
+bugs: jsdom 30's `HTMLDialogElement` is a bare stub with no `showModal()`/`close()` at all (only
+the `open` attribute reflects), so `vitest.setup.ts` gained a small polyfill, guarded for the one
+test file that runs in Vitest's plain "node" environment where the global doesn't exist. And
+`components/site-header.test.tsx` needed `SignInForm`/`SignUpForm` mocked out — importing the real
+ones pulls in their `"use server"` action module, which imports `lib/supabase/server.ts`'s
+`server-only` guard; that guard throws when it detects a `window` global, which jsdom always
+provides, even though the same import graph is perfectly fine in an actual Next.js build (the
+`"use server"` directive is specially compiled away for client bundles there).
+
+Live-verified in-browser: both modals open from their header buttons (desktop and the mobile
+dropdown), close via the × button, Escape, and backdrop click, the landing page is fully visible
+and interactive again after closing, and `/sign-in` still returns a real 200 on direct navigation.
+`npm run verify` clean (265/265 tests, lint, typecheck, build).

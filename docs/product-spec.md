@@ -1,8 +1,8 @@
-# Product Spec — WHV Compass NZ
+# Product Spec — Journiq
 
 ## Purpose
 
-WHV Compass NZ exists to help people considering or undertaking a Working Holiday Visa (WHV) in
+Journiq exists to help people considering or undertaking a Working Holiday Visa (WHV) in
 New Zealand find **real, detailed, written first-person stories** from people who did it — organized
 so a reader can find stories relevant to their own situation, and trust that what they're reading is
 a genuine personal account, properly attributed, with rights-cleared images.

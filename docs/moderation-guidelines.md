@@ -1,4 +1,4 @@
-# Moderator Guidelines — WHV Compass NZ
+# Moderator Guidelines — Journiq
 
 Read this before your first shift. It explains what you're deciding, why, and where the line sits
 between your judgment and something you should hand up to an admin. It complements
@@ -10,7 +10,7 @@ practical, plain-language version for the person actually sitting in the queue.
 
 **Say this out loud to yourself before every shift:** you are not an immigration lawyer, an
 employment lawyer, an accountant, or a licensed financial adviser, and neither is anyone else on
-this team unless explicitly told otherwise. WHV Compass NZ exists to publish **first-person
+this team unless explicitly told otherwise. Journiq exists to publish **first-person
 experience** — "here is what happened to me" — not advice, and not authoritative fact-checking of
 New Zealand immigration or employment law.
 
