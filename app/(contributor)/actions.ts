@@ -28,6 +28,7 @@ export async function updateProfileAction(
     homeCountryCode: formData.get("homeCountryCode"),
     publicProfileEnabled: formData.get("publicProfileEnabled") === "on",
     publicSlug: formData.get("publicSlug") ?? "",
+    avatarEmoji: formData.get("avatarEmoji") ?? "",
   });
 
   if (!parsed.success) {
@@ -54,6 +55,7 @@ export async function updateProfileAction(
       home_country_code: parsed.data.homeCountryCode,
       public_profile_enabled: parsed.data.publicProfileEnabled,
       public_slug: parsed.data.publicSlug || null,
+      avatar_emoji: parsed.data.avatarEmoji || null,
     })
     .eq("id", user.id);
 

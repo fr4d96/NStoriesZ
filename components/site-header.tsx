@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MobileNavToggle } from "@/components/mobile-nav-toggle";
@@ -8,7 +8,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { SignUpForm } from "@/components/auth/sign-up-form";
+import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
 import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
+import { createClient } from "@/lib/supabase/client";
 
 const primaryNav = [
   { href: "/#stories", label: "Stories" },
@@ -43,6 +45,21 @@ type AuthModalKind = "sign-in" | "sign-up" | null;
  * closes the modal as a side effect -- closing it any other way (Escape,
  * backdrop click, the × button) just returns to whatever page was open
  * underneath.
+ *
+ * Session awareness: public pages deliberately never call getCurrentUser()
+ * server-side (see (contributor)/layout.tsx's own comment) so they stay
+ * static/cache-friendly -- this header is the one place that still needs
+ * to know if the visitor is signed in, so it checks client-side only, via
+ * the browser Supabase client (lib/supabase/client.ts). That keeps every
+ * public page's server-rendered HTML untouched; only this already-client
+ * component re-renders once the check resolves.
+ *
+ * Once signed in, the same effect also reads the caller's own
+ * profiles.avatar_emoji (RLS already scopes this to auth.uid() -- see
+ * that table's "owner reads own profile" policy) to feed
+ * components/auth/user-avatar-menu.tsx, which replaces the whole
+ * My Stories/Account/New Story/Sign out button row with a single avatar
+ * that opens those same four actions in a dropdown.
  */
 export function SiteHeader() {
   const pathname = usePathname();
@@ -55,10 +72,49 @@ export function SiteHeader() {
   );
   const transparent = pathname === "/" && !scrolled;
   const [authModal, setAuthModal] = useState<AuthModalKind>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const [avatarEmoji, setAvatarEmoji] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let active = true;
+
+    async function loadAvatar(userId: string) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("avatar_emoji")
+        .eq("id", userId)
+        .single();
+      if (active) setAvatarEmoji(data?.avatar_emoji ?? null);
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setSignedIn(!!data.session);
+      if (data.session) loadAvatar(data.session.user.id);
+    });
+
+    const { data: subscription } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!active) return;
+        setSignedIn(!!session);
+        if (session) {
+          loadAvatar(session.user.id);
+        } else {
+          setAvatarEmoji(null);
+        }
+      },
+    );
+
+    return () => {
+      active = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
 
   const headerToneClasses = transparent
     ? "journiq-header text-white"
-    : "border-b border-border-subtle bg-surface text-foreground";
+    : "journiq-header-solid border-b border-border-subtle text-foreground";
   const signInToneClasses = transparent
     ? "border-white/60"
     : "border-border-subtle";
@@ -91,34 +147,45 @@ export function SiteHeader() {
 
         <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle inverted={transparent} />
-          <button
-            type="button"
-            onClick={() => setAuthModal("sign-in")}
-            className={`rounded-full border px-4 py-2 text-sm font-bold ${signInToneClasses}`}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={() => setAuthModal("sign-up")}
-            className="rounded-full bg-accent px-4 py-2 text-sm font-black text-accent-foreground"
-          >
-            Share your story
-          </button>
+          {signedIn ? (
+            <UserAvatarMenu emoji={avatarEmoji} inverted={transparent} />
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setAuthModal("sign-in")}
+                className={`rounded-full border px-4 py-2 text-sm font-bold ${signInToneClasses}`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthModal("sign-up")}
+                className="rounded-full bg-accent px-4 py-2 text-sm font-black text-accent-foreground"
+              >
+                Share your story
+              </button>
+            </>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-2 md:hidden">
           <ThemeToggle inverted={transparent} />
+          {signedIn && <UserAvatarMenu emoji={avatarEmoji} inverted={transparent} />}
           <MobileNavToggle
             inverted={transparent}
-            navItems={[
-              ...primaryNav,
-              { label: "Sign in", onClick: () => setAuthModal("sign-in") },
-              {
-                label: "Share your story",
-                onClick: () => setAuthModal("sign-up"),
-              },
-            ]}
+            navItems={
+              signedIn
+                ? primaryNav
+                : [
+                    ...primaryNav,
+                    { label: "Sign in", onClick: () => setAuthModal("sign-in") },
+                    {
+                      label: "Share your story",
+                      onClick: () => setAuthModal("sign-up"),
+                    },
+                  ]
+            }
           />
         </div>
       </div>

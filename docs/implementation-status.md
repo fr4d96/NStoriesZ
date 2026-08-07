@@ -3,8 +3,9 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-06 (release audit — `/moderation/reports/[id]` per-row 404 gap fixed and
-live-verified; see "Release audit (2026-08-06)" below).
+Last updated: 2026-08-06 (destination quiz reverted to hardcoded scoring, dropping the
+Supabase-backed region matcher; see "Fifth pass (same day): destination quiz reverted to hardcoded
+scoring" below).
 
 **2026-08-06 — Rebrand + home hero redesign.** Product renamed from "WHV Compass NZ" to
 "Journiq" across all user-facing copy, metadata, `package.json`/`package-lock.json`, and docs
@@ -2118,3 +2119,19 @@ Live-verified in-browser: both modals open from their header buttons (desktop an
 dropdown), close via the × button, Escape, and backdrop click, the landing page is fully visible
 and interactive again after closing, and `/sign-in` still returns a real 200 on direct navigation.
 `npm run verify` clean (265/265 tests, lint, typecheck, build).
+
+**Fifth pass (same day): destination quiz reverted to hardcoded scoring, per explicit user
+request** ("change back to using hardcoded answers. Do not use what is available from the database
+to compare"). `components/home/destination-quiz.tsx` no longer takes any props — it dropped its
+`stories`/`regions` inputs and the Supabase-backed matching helper `lib/story/region-match.ts`
+(and its test) entirely, deleting both files as now-dead code (confirmed via repo-wide grep that
+nothing else imported `matchRegion`). The component now hardcodes its own 5-question quiz and a
+fixed `DESTINATION_INFO` lookup for 6 destination names (Auckland, Wellington, Canterbury, Bay of
+Plenty, Queenstown Lakes, Central Otago); the result screen always shows a top-scoring destination
+from that fixed table (no more "no strong match" fallback) with an "Explore stories" CTA pointing
+to the in-page `#discover` anchor instead of a `/stories?region=<id>` link, since there's no real
+region id to link to anymore. `app/(public)/page.tsx` updated to `<DestinationQuiz />`.
+`components/home/destination-quiz.test.tsx` was rewritten from scratch for the new zero-props
+shape (walking through all 5 questions, two deterministic single-destination answer paths, back
+navigation, the `#discover` link, and restart). `npm run verify` clean (260/260 tests, lint,
+typecheck, format, build).

@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useActionState } from "react";
 import {
   updateProfileAction,
   type AccountFormState,
 } from "@/app/(contributor)/actions";
+import { AVATAR_EMOJI_OPTIONS, type AvatarEmoji } from "@/lib/avatar";
 
 const initialState: AccountFormState = {};
 
@@ -14,20 +16,60 @@ export function ProfileForm({
   homeCountryCode,
   publicProfileEnabled,
   publicSlug,
+  avatarEmoji,
 }: {
   displayName: string;
   bio: string;
   homeCountryCode: string;
   publicProfileEnabled: boolean;
   publicSlug: string;
+  avatarEmoji: string;
 }) {
   const [state, formAction, pending] = useActionState(
     updateProfileAction,
     initialState,
   );
+  const [selectedEmoji, setSelectedEmoji] = useState<AvatarEmoji | "">(
+    AVATAR_EMOJI_OPTIONS.includes(avatarEmoji as AvatarEmoji)
+      ? (avatarEmoji as AvatarEmoji)
+      : "",
+  );
 
   return (
     <form action={formAction} className="mt-4 space-y-5" noValidate>
+      <input type="hidden" name="avatarEmoji" value={selectedEmoji} />
+
+      <div>
+        <span className="block text-sm font-medium">Avatar</span>
+        <div className="mt-2 grid grid-cols-8 gap-2 sm:grid-cols-12">
+          {AVATAR_EMOJI_OPTIONS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() =>
+                setSelectedEmoji((current) =>
+                  current === emoji ? "" : emoji,
+                )
+              }
+              aria-pressed={selectedEmoji === emoji}
+              aria-label={`Use ${emoji} as your avatar`}
+              className={`flex aspect-square items-center justify-center rounded-full border text-lg transition-colors ${
+                selectedEmoji === emoji
+                  ? "border-accent bg-accent/15"
+                  : "border-border-subtle hover:bg-surface-muted"
+              }`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-foreground/55">
+          {selectedEmoji
+            ? "Tap your chosen avatar again to remove it."
+            : "Pick an avatar, or leave unset for the default."}
+        </p>
+      </div>
+
       <div>
         <label htmlFor="displayName" className="block text-sm font-medium">
           Display name
@@ -39,7 +81,7 @@ export function ProfileForm({
           maxLength={120}
           required
           defaultValue={displayName}
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 focus:border-accent focus:outline-none"
         />
       </div>
 
@@ -54,11 +96,9 @@ export function ProfileForm({
           maxLength={2}
           required
           defaultValue={homeCountryCode}
-          className="mt-1 w-24 rounded-md border border-black/20 px-3 py-2 uppercase dark:border-white/20"
+          className="mt-1 w-24 rounded-xl border border-border-subtle bg-surface px-3 py-2 uppercase focus:border-accent focus:outline-none"
         />
-        <p className="mt-1 text-xs text-black/60 dark:text-white/60">
-          2-letter code, e.g. MY.
-        </p>
+        <p className="mt-1 text-xs text-foreground/55">2-letter code, e.g. MY.</p>
       </div>
 
       <div>
@@ -71,7 +111,7 @@ export function ProfileForm({
           rows={4}
           maxLength={2000}
           defaultValue={bio}
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 focus:border-accent focus:outline-none"
         />
       </div>
 
@@ -81,7 +121,7 @@ export function ProfileForm({
           name="publicProfileEnabled"
           type="checkbox"
           defaultChecked={publicProfileEnabled}
-          className="h-4 w-4"
+          className="h-4 w-4 accent-accent"
         />
         <label htmlFor="publicProfileEnabled" className="text-sm font-medium">
           Make my profile public
@@ -98,9 +138,9 @@ export function ProfileForm({
           type="text"
           maxLength={60}
           defaultValue={publicSlug}
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 focus:border-accent focus:outline-none"
         />
-        <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+        <p className="mt-1 text-xs text-foreground/55">
           Required to make your profile public. Nothing else is shown publicly
           unless you enable the toggle above.
         </p>
@@ -112,7 +152,7 @@ export function ProfileForm({
         </p>
       )}
       {state.success && (
-        <p role="status" className="text-sm text-green-700 dark:text-green-400">
+        <p role="status" className="text-sm text-fern">
           {state.success}
         </p>
       )}
@@ -120,7 +160,7 @@ export function ProfileForm({
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/80 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-white/80"
+        className="journiq-button bg-accent text-sm text-accent-foreground disabled:opacity-60"
       >
         {pending ? "Saving…" : "Save profile"}
       </button>

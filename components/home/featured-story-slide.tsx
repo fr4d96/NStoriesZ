@@ -54,9 +54,9 @@ export function FeaturedStorySlide({
       <div className="flex min-h-0 min-w-0 flex-col justify-center gap-2 overflow-hidden p-6 sm:p-10">
         {badges.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
-            {badges.map((badge) => (
+            {badges.map((badge, index) => (
               <span
-                key={badge}
+                key={`${badge}-${index}`}
                 className="rounded-full bg-tag-background px-2 py-0.5 text-xs text-tag-foreground"
               >
                 {badge}

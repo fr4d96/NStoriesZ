@@ -161,7 +161,7 @@ export default async function HomePage() {
                 delayMs={120}
                 className="rounded-[28px] border border-border-subtle bg-gradient-to-br from-surface to-surface-muted p-6 shadow-[0_22px_70px_rgba(23,63,53,.13)] sm:p-10"
               >
-                <DestinationQuiz stories={stories} regions={regions} />
+                <DestinationQuiz />
               </Reveal>
             </div>
           </section>

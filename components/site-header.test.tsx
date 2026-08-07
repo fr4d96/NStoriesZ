@@ -23,6 +23,34 @@ vi.mock("@/components/auth/sign-up-form", () => ({
   SignUpForm: () => <div>sign-up-form</div>,
 }));
 
+// Same "use server" / server-only jsdom incompatibility as above --
+// components/auth/user-avatar-menu.tsx imports signOutAction directly for
+// its dropdown's sign-out button.
+vi.mock("@/app/(auth)/actions", () => ({
+  signOutAction: vi.fn(),
+}));
+
+// The real browser client needs NEXT_PUBLIC_SUPABASE_URL/KEY, which aren't
+// loaded into process.env under Vitest (unlike Next's own dev/build, which
+// inlines them) -- SiteHeader's session check is exercised live instead
+// (manually, and by the (contributor) layout's own auth-gated tests), so
+// this just needs to resolve to "signed out" without throwing.
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null } }),
+      onAuthStateChange: () => ({
+        data: { subscription: { unsubscribe: vi.fn() } },
+      }),
+    },
+    from: () => ({
+      select: () => ({
+        eq: () => ({ single: () => Promise.resolve({ data: null }) }),
+      }),
+    }),
+  }),
+}));
+
 import { SiteHeader } from "./site-header";
 
 beforeEach(() => {
@@ -48,7 +76,7 @@ describe("SiteHeader", () => {
     usePathnameMock.mockReturnValue("/sign-in");
     render(<SiteHeader />);
     expect(getHeader()).not.toHaveClass("journiq-header");
-    expect(getHeader()).toHaveClass("bg-surface");
+    expect(getHeader()).toHaveClass("journiq-header-solid");
   });
 
   it("switches from transparent to solid once scrolled past the threshold on the home route", () => {
@@ -62,7 +90,7 @@ describe("SiteHeader", () => {
     fireEvent.scroll(window);
 
     expect(getHeader()).not.toHaveClass("journiq-header");
-    expect(getHeader()).toHaveClass("bg-surface");
+    expect(getHeader()).toHaveClass("journiq-header-solid");
   });
 
   it("always renders the real primary nav destinations", () => {

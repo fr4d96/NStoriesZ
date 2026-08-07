@@ -43,7 +43,7 @@ export function AuthModal({
         // doesn't close on backdrop click by default, so this adds it.
         if (event.target === dialogRef.current) onClose();
       }}
-      className="m-auto w-[min(92vw,26rem)] rounded-2xl border border-border-subtle bg-surface p-0 text-foreground shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+      className="journiq-modal m-auto w-[min(92vw,26rem)] rounded-2xl border border-border-subtle bg-surface p-0 text-foreground shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
     >
       <div className="flex items-center justify-between border-b border-border-subtle px-6 py-4">
         <h2 id={titleId} className="text-lg font-semibold tracking-tight">

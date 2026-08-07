@@ -2,86 +2,156 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { StoryCardData } from "@/components/story/story-card";
-import type { PublicRegion } from "@/lib/story/public-queries";
-import { matchRegion, type RegionMatchSignal } from "@/lib/story/region-match";
 
-type Answer = { label: string; signals: RegionMatchSignal[] };
+type Answer = { label: string; scores: Record<string, number> };
 type Question = { prompt: string; answers: Answer[] };
 
-// Signal names are real work_types/tags column values (see supabase/seed.sql),
-// never a hardcoded region -- matchRegion() resolves the actual region from
-// whichever real stories carry these signals, so this list only needs to
-// describe traits, not guess at the current catalogue's geography.
-//
-// These strings must still match the work_types/tags lookup tables' free-text
-// `name` columns exactly (supabase/migrations/20260803090000_lookup_tables.sql
-// has no fixed enum) -- if an editor renames/retranslates a row, the affected
-// answer silently stops matching anything instead of erroring.
+// Deliberately hardcoded -- a fixed, fun scoring quiz, not a real
+// recommendation engine. Does not read from Supabase or compare against
+// any published story/region data; the destinations named here don't need
+// to match whatever regions currently exist in the catalogue.
 const QUESTIONS: Question[] = [
   {
-    prompt: "What kind of work sounds most like you?",
+    prompt: "Where would you feel most at home?",
+    answers: [
+      { label: "🏙️ A lively city", scores: { Auckland: 3, Wellington: 3 } },
+      { label: "🌊 A relaxed coastal town", scores: { "Bay of Plenty": 4 } },
+      {
+        label: "🏔️ Mountains and alpine scenery",
+        scores: { "Queenstown Lakes": 5, "Central Otago": 2 },
+      },
+      { label: "🌾 Open countryside", scores: { Canterbury: 5 } },
+      {
+        label: "🧺 A seasonal-work community",
+        scores: { "Bay of Plenty": 3, "Central Otago": 3 },
+      },
+    ],
+  },
+  {
+    prompt: "What kind of job would you try?",
     answers: [
       {
         label: "☕ Hospitality or café work",
-        signals: [{ workType: "Hospitality" }],
+        scores: { Wellington: 4, Auckland: 3 },
       },
-      {
-        label: "🥝 Fruit picking or orchards",
-        signals: [{ workType: "Horticulture" }, { tag: "Fruit picking" }],
-      },
-      { label: "🍇 Vineyard work", signals: [{ workType: "Viticulture" }] },
-      { label: "🐑 Farm work", signals: [{ workType: "Agriculture" }] },
-      { label: "🎒 Tourism or activities", signals: [{ workType: "Tourism" }] },
+      { label: "🥝 Fruit picking", scores: { "Bay of Plenty": 5 } },
+      { label: "🐑 Farm work", scores: { Canterbury: 5 } },
+      { label: "🎿 Ski-field work", scores: { "Queenstown Lakes": 6 } },
+      { label: "🍇 Vineyard work", scores: { "Central Otago": 6 } },
     ],
   },
   {
-    prompt: "What matters most on this trip?",
+    prompt: "What matters most?",
     answers: [
       {
-        label: "💰 Saving as much as possible",
-        signals: [{ tag: "Budget travel" }],
+        label: "💰 Saving money",
+        scores: { "Bay of Plenty": 4, Canterbury: 2 },
       },
-      { label: "🚐 Freedom to move around", signals: [{ tag: "Road trip" }] },
-      { label: "🌱 A season that lasts", signals: [{ tag: "Seasonal work" }] },
       {
-        label: "🧭 A proper first adventure",
-        signals: [{ tag: "First-time traveller" }],
+        label: "🤝 Meeting people",
+        scores: { Auckland: 3, "Queenstown Lakes": 3 },
       },
-    ],
-  },
-  {
-    prompt: "Who's coming with you?",
-    answers: [
-      { label: "🧍 Just me", signals: [{ tag: "Solo travel" }] },
-      { label: "💑 My partner", signals: [{ tag: "Couple travel" }] },
       {
-        label: "🚌 Whoever I meet along the way",
-        signals: [{ tag: "Van life" }],
+        label: "🥾 Time outdoors",
+        scores: { Canterbury: 3, "Queenstown Lakes": 4 },
+      },
+      {
+        label: "🧰 Useful experience",
+        scores: { Auckland: 3, Wellington: 3 },
+      },
+      {
+        label: "🗺️ Work and travel balance",
+        scores: { Wellington: 3, "Central Otago": 3 },
       },
     ],
   },
   {
-    prompt: "Which island calls to you?",
+    prompt: "Choose your ideal pace.",
     answers: [
-      { label: "🌊 North Island", signals: [{ tag: "North Island" }] },
-      { label: "🏔️ South Island", signals: [{ tag: "South Island" }] },
-      { label: "🧭 Not sure yet — surprise me", signals: [] },
+      {
+        label: "✨ Busy and social",
+        scores: { Auckland: 4, "Queenstown Lakes": 3 },
+      },
+      {
+        label: "🌅 Relaxed and scenic",
+        scores: { "Bay of Plenty": 3, "Central Otago": 4 },
+      },
+      {
+        label: "🚴 Active and physical",
+        scores: { Canterbury: 3, "Queenstown Lakes": 4 },
+      },
+      {
+        label: "🚐 Independent and flexible",
+        scores: { Canterbury: 2, "Central Otago": 3 },
+      },
+    ],
+  },
+  {
+    prompt: "Which season sounds best?",
+    answers: [
+      { label: "☀️ Summer", scores: { Auckland: 2, "Bay of Plenty": 3 } },
+      {
+        label: "🍂 Autumn",
+        scores: { "Central Otago": 5, "Bay of Plenty": 3 },
+      },
+      { label: "❄️ Winter", scores: { "Queenstown Lakes": 6 } },
+      { label: "🌱 Spring", scores: { Canterbury: 4, Wellington: 2 } },
+      {
+        label: "🧭 Flexible",
+        scores: {
+          Auckland: 1,
+          Wellington: 1,
+          Canterbury: 1,
+          "Bay of Plenty": 1,
+          "Queenstown Lakes": 1,
+          "Central Otago": 1,
+        },
+      },
     ],
   },
 ];
 
-export function DestinationQuiz({
-  stories,
-  regions,
-}: {
-  stories: StoryCardData[];
-  regions: PublicRegion[];
-}) {
+const DESTINATION_INFO: Record<
+  string,
+  { season: string; work: string; note: string }
+> = {
+  Auckland: {
+    season: "Year-round",
+    work: "Hospitality · Retail",
+    note: "Compare rent and commuting costs.",
+  },
+  Wellington: {
+    season: "Spring",
+    work: "Cafés · Events",
+    note: "Expect wind and a competitive rental market.",
+  },
+  Canterbury: {
+    season: "Spring",
+    work: "Farm work · Warehousing",
+    note: "Transport helps for rural roles.",
+  },
+  "Bay of Plenty": {
+    season: "Autumn",
+    work: "Fruit picking · Packhouse",
+    note: "Hours can depend on weather.",
+  },
+  "Queenstown Lakes": {
+    season: "Winter",
+    work: "Ski fields · Hospitality",
+    note: "Plan accommodation early.",
+  },
+  "Central Otago": {
+    season: "Autumn",
+    work: "Vineyards · Orchards",
+    note: "Line up your next seasonal move.",
+  },
+};
+
+const DEFAULT_DESTINATION = "Auckland";
+
+export function DestinationQuiz() {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<(number | undefined)[]>([]);
-
-  if (stories.length === 0) return null;
 
   const isResult = step === QUESTIONS.length;
   const progress = Math.round(
@@ -100,15 +170,21 @@ export function DestinationQuiz({
     setStep(0);
   }
 
-  const signals = answers.flatMap((answerIndex, questionIndex) =>
-    answerIndex === undefined
-      ? []
-      : QUESTIONS[questionIndex].answers[answerIndex].signals,
-  );
-  const result = isResult ? matchRegion(stories, signals) : null;
-  const matchedRegion = result
-    ? regions.find((region) => region.name === result.regionName)
-    : null;
+  function computeDestination(): string {
+    const totals: Record<string, number> = {};
+    answers.forEach((answerIndex, questionIndex) => {
+      if (answerIndex === undefined) return;
+      const scores = QUESTIONS[questionIndex].answers[answerIndex].scores;
+      for (const [destination, points] of Object.entries(scores)) {
+        totals[destination] = (totals[destination] ?? 0) + points;
+      }
+    });
+    const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    return ranked[0]?.[0] ?? DEFAULT_DESTINATION;
+  }
+
+  const destination = isResult ? computeDestination() : null;
+  const facts = destination ? DESTINATION_INFO[destination] : null;
 
   return (
     <div className="rounded-2xl border border-border-subtle bg-surface p-6 sm:p-8">
@@ -152,57 +228,40 @@ export function DestinationQuiz({
             </button>
           ) : null}
         </div>
-      ) : result ? (
+      ) : (
         <div>
           <span className="text-xs font-semibold tracking-wide text-accent uppercase">
-            Stories that might interest you
+            Your working holiday match
           </span>
           <h3 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
-            {result.regionName}
+            {destination}
           </h3>
-          <p className="mt-2 text-sm text-foreground/70">
-            {result.storyCount} {result.storyCount === 1 ? "story" : "stories"}{" "}
-            in our collection so far
-            {result.topWorkType
-              ? `, mostly ${result.topWorkType.toLowerCase()}`
-              : ""}
-            .
-          </p>
+          {facts ? (
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-lg bg-surface-muted p-3">
+                <span className="block text-xs text-foreground/60">
+                  Best season
+                </span>
+                <strong className="text-sm">{facts.season}</strong>
+              </div>
+              <div className="rounded-lg bg-surface-muted p-3">
+                <span className="block text-xs text-foreground/60">Work</span>
+                <strong className="text-sm">{facts.work}</strong>
+              </div>
+              <div className="rounded-lg bg-surface-muted p-3">
+                <span className="block text-xs text-foreground/60">
+                  Practical note
+                </span>
+                <strong className="text-sm">{facts.note}</strong>
+              </div>
+            </div>
+          ) : null}
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
-              href={
-                matchedRegion
-                  ? `/stories?region=${matchedRegion.id}`
-                  : "/stories"
-              }
+              href="#discover"
               className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90"
             >
               Explore stories
-            </Link>
-            <button
-              type="button"
-              onClick={restart}
-              className="rounded-md border border-border-subtle px-5 py-2.5 text-sm font-medium hover:bg-surface-muted"
-            >
-              Try again
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            We don&apos;t have a strong match yet
-          </h3>
-          <p className="mt-2 text-sm text-foreground/70">
-            Our catalogue is still growing — browse everything we&apos;ve got
-            instead.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link
-              href="/stories"
-              className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90"
-            >
-              Browse all stories
             </Link>
             <button
               type="button"

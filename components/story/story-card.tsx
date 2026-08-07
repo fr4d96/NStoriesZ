@@ -60,9 +60,9 @@ export function StoryCard({ story }: { story: StoryCardData }) {
       </div>
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex flex-wrap gap-1.5">
-          {badges.map((badge) => (
+          {badges.map((badge, index) => (
             <span
-              key={badge}
+              key={`${badge}-${index}`}
               className="rounded-full bg-tag-background px-2 py-0.5 text-xs text-tag-foreground"
             >
               {badge}
