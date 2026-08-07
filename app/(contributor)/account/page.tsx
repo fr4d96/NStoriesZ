@@ -26,7 +26,7 @@ export default async function AccountPage() {
     supabase
       .from("profiles")
       .select(
-        "display_name, bio, home_country_code, public_profile_enabled, public_slug",
+        "display_name, bio, home_country_code, public_profile_enabled, public_slug, avatar_emoji",
       )
       .eq("id", user.id)
       .single(),
@@ -41,21 +41,21 @@ export default async function AccountPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          Account
-        </h1>
+        <h1 className="journiq-heading text-[2.4rem]">Account</h1>
         <SignOutButton />
       </div>
 
       {role && (
-        <p className="mt-2 text-sm text-black/60 dark:text-white/60">
-          Role: <span className="font-medium">{role}</span>
+        <p className="mt-2 text-sm text-foreground/60">
+          Role: <span className="font-bold">{role}</span>
         </p>
       )}
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold">Profile</h2>
-        <p className="mt-1 text-sm text-black/70 dark:text-white/70">
+        <h2 className="font-[Georgia,'Times_New_Roman',serif] text-xl tracking-tight">
+          Profile
+        </h2>
+        <p className="mt-1 text-sm text-foreground/65">
           Nothing here is public unless you enable it below.
         </p>
         <ProfileForm
@@ -64,12 +64,15 @@ export default async function AccountPage() {
           homeCountryCode={profile?.home_country_code ?? "MY"}
           publicProfileEnabled={profile?.public_profile_enabled ?? false}
           publicSlug={profile?.public_slug ?? ""}
+          avatarEmoji={profile?.avatar_emoji ?? ""}
         />
       </section>
 
-      <section className="mt-10 border-t border-black/10 pt-10 dark:border-white/10">
-        <h2 className="text-lg font-semibold">Contributor identity</h2>
-        <p className="mt-1 text-sm text-black/70 dark:text-white/70">
+      <section className="mt-10 border-t border-border-subtle pt-10">
+        <h2 className="font-[Georgia,'Times_New_Roman',serif] text-xl tracking-tight">
+          Contributor identity
+        </h2>
+        <p className="mt-1 text-sm text-foreground/65">
           This is how you&apos;ll be attributed on any story you write. You
           choose this — it&apos;s never inferred from your account.
         </p>

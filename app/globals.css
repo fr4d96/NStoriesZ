@@ -28,6 +28,7 @@
   --tag-foreground: #2f6b57;
   --forest: #173f35;
   --fern: #2f6b57;
+  --header-solid: rgba(252, 251, 247, 0.95);
 }
 
 @theme inline {
@@ -60,6 +61,7 @@
     --tag-foreground: #8fc8aa;
     --forest: #285c4b;
     --fern: #8fc8aa;
+    --header-solid: rgba(15, 23, 19, 0.95);
   }
 }
 
@@ -76,6 +78,7 @@
   --tag-foreground: #2f6b57;
   --forest: #173f35;
   --fern: #2f6b57;
+  --header-solid: rgba(252, 251, 247, 0.95);
 }
 
 :root[data-theme="dark"] {
@@ -91,6 +94,7 @@
   --tag-foreground: #8fc8aa;
   --forest: #285c4b;
   --fern: #8fc8aa;
+  --header-solid: rgba(15, 23, 19, 0.95);
 }
 
 html {
@@ -145,6 +149,10 @@ body {
 .journiq-header {
   background: linear-gradient(rgba(11, 36, 29, 0.72), transparent);
 }
+.journiq-header-solid {
+  background: var(--header-solid);
+  backdrop-filter: blur(12px);
+}
 .journiq-nav-link {
   position: relative;
 }
@@ -161,6 +169,60 @@ body {
 .journiq-nav-link:hover::after {
   right: 0;
 }
+/*
+ * Entrance/exit animation for the native <dialog>-based auth modal
+ * (components/auth/auth-modal.tsx). `transition-behavior: allow-discrete`
+ * plus a matching `@starting-style` block is the standards-track way to
+ * animate a <dialog>'s show/hide (including the exit transition, which a
+ * plain `transition` on `[open]` can't do -- the browser would otherwise
+ * apply `display: none` the instant `close()` runs, before the transition
+ * has a chance to play). Targets the dialog's own box and its ::backdrop
+ * separately since ::backdrop isn't a normal descendant.
+ */
+.journiq-modal {
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    overlay 0.2s ease allow-discrete,
+    display 0.2s ease allow-discrete;
+}
+.journiq-modal[open] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+@starting-style {
+  .journiq-modal[open] {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}
+.journiq-modal::backdrop {
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    overlay 0.2s ease allow-discrete,
+    display 0.2s ease allow-discrete;
+}
+.journiq-modal[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  .journiq-modal[open]::backdrop {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .journiq-modal {
+    transition: none;
+    transform: none;
+  }
+  .journiq-modal::backdrop {
+    transition: none;
+  }
+}
+
 .journiq-share {
   background:
     linear-gradient(90deg, rgba(11, 37, 30, 0.95), rgba(11, 37, 30, 0.4)),

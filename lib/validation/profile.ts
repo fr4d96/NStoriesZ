@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AVATAR_EMOJI_OPTIONS } from "@/lib/avatar";
 
 // Mirrors the CHECK constraints in supabase/migrations/*_profiles.sql —
 // duplicated deliberately (Zod for fast/friendly form errors, the DB
@@ -32,6 +33,10 @@ export const profileUpdateSchema = z.object({
       slugPattern,
       "Use 3-60 lowercase letters, numbers, or hyphens, starting with a letter or number.",
     )
+    .optional()
+    .or(z.literal("")),
+  avatarEmoji: z
+    .enum(AVATAR_EMOJI_OPTIONS, { message: "Choose one of the provided avatars." })
     .optional()
     .or(z.literal("")),
 });

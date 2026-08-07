@@ -1,4 +1,9 @@
+"use client";
+
+import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { MobileNavToggle } from "@/components/mobile-nav-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const contributorNav = [
   { href: "/my-stories", label: "My Stories" },
@@ -8,26 +13,54 @@ const contributorNav = [
 
 /**
  * Rendered only inside the (contributor) layout, after the real session
- * check passes — deliberately separate from the static public SiteHeader so
- * there's never a contradictory "Sign in" link shown to a signed-in user.
+ * check passes — deliberately separate from the public SiteHeader (never a
+ * contradictory "Sign in" link for a signed-in user), but styled to match
+ * it: same solid-header treatment, logo mark, and underline-on-hover nav
+ * links (see app/globals.css .journiq-header-solid/.journiq-nav-link),
+ * since this is the same site, just past the sign-in wall.
  */
 export function ContributorNav() {
+  const pathname = usePathname();
+
   return (
-    <header className="border-b border-black/10 dark:border-white/10">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
+    <header className="journiq-header-solid sticky top-0 z-40 border-b border-border-subtle text-foreground">
+      <div className="mx-auto flex min-h-[76px] max-w-[1160px] items-center gap-5 px-4 sm:px-6">
+        <Link
+          href="/"
+          className="flex items-center gap-2.5 text-xl font-black tracking-tight"
+        >
+          <span className="grid h-9 w-9 -rotate-12 place-items-center rounded-full border border-current">
+            ↗
+          </span>
           Journiq
         </Link>
+
         <nav
           aria-label="Contributor"
-          className="flex items-center gap-6 text-sm"
+          className="ml-auto hidden items-center gap-6 text-sm font-bold md:flex"
         >
           {contributorNav.map((item) => (
-            <Link key={item.href} href={item.href} className="hover:underline">
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={pathname === item.href ? "page" : undefined}
+              className={`journiq-nav-link ${
+                pathname === item.href ? "text-accent" : ""
+              }`}
+            >
               {item.label}
             </Link>
           ))}
         </nav>
+
+        <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
+        </div>
+
+        <div className="ml-auto flex items-center gap-2 md:hidden">
+          <ThemeToggle />
+          <MobileNavToggle navItems={contributorNav} />
+        </div>
       </div>
     </header>
   );

@@ -46,7 +46,7 @@ export function ContributorForm({
           maxLength={120}
           required
           defaultValue={existing?.displayName ?? ""}
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 focus:border-accent focus:outline-none"
         />
       </div>
 
@@ -64,7 +64,7 @@ export function ContributorForm({
                     ? existing.attributionType === type
                     : type === "display_name"
                 }
-                className="h-4 w-4"
+                className="h-4 w-4 accent-accent"
               />
               {attributionLabels[type]}
             </label>
@@ -78,7 +78,7 @@ export function ContributorForm({
         </p>
       )}
       {state.success && (
-        <p role="status" className="text-sm text-green-700 dark:text-green-400">
+        <p role="status" className="text-sm text-fern">
           {state.success}
         </p>
       )}
@@ -86,7 +86,7 @@ export function ContributorForm({
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/80 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-white/80"
+        className="journiq-button bg-accent text-sm text-accent-foreground disabled:opacity-60"
       >
         {pending
           ? "Saving…"

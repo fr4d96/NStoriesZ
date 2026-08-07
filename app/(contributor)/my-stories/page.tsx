@@ -22,27 +22,22 @@ export default async function MyStoriesPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          My Stories
-        </h1>
-        <Link
-          href="/stories/new"
-          className="inline-flex items-center justify-center rounded-md bg-black px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-black"
-        >
+        <h1 className="journiq-heading text-[2.4rem]">My Stories</h1>
+        <Link href="/stories/new" className="journiq-button bg-accent text-accent-foreground">
           New Story
         </Link>
       </div>
 
       {stories.length === 0 ? (
-        <p className="mt-8 text-black/70 dark:text-white/70">
+        <p className="mt-8 text-foreground/65">
           You haven&apos;t started a story yet.{" "}
-          <Link href="/stories/new" className="underline underline-offset-2">
+          <Link href="/stories/new" className="text-accent underline underline-offset-2">
             Start your first one
           </Link>
           .
         </p>
       ) : (
-        <ul className="mt-8 divide-y divide-black/10 dark:divide-white/10">
+        <ul className="mt-8 divide-y divide-border-subtle">
           {stories.map((story) => {
             // A story awaiting THIS contributor's approval still has
             // current_draft_revision_id set (mark_editorial_draft_awaiting_approval()
@@ -68,16 +63,16 @@ export default async function MyStoriesPage() {
                     <StatusBadge status={story.lifecycle_status} />
                   </div>
                   {updated && (
-                    <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+                    <p className="mt-1 text-sm text-foreground/55">
                       Updated {updated}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-3 text-sm">
+                <div className="flex gap-3 text-sm font-bold">
                   {editable && (
                     <Link
                       href={`/stories/${story.id}/edit`}
-                      className="underline underline-offset-2"
+                      className="text-accent underline underline-offset-2"
                     >
                       Edit
                     </Link>
@@ -85,14 +80,14 @@ export default async function MyStoriesPage() {
                   {awaitingApproval ? (
                     <Link
                       href={`/stories/${story.id}/preview`}
-                      className="font-medium underline underline-offset-2"
+                      className="text-accent underline underline-offset-2"
                     >
                       Review
                     </Link>
                   ) : (
                     <Link
                       href={`/stories/${story.id}/preview`}
-                      className="underline underline-offset-2"
+                      className="text-foreground/70 underline underline-offset-2"
                     >
                       Preview
                     </Link>
