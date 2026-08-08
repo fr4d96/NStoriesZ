@@ -7,6 +7,7 @@ import {
   MAX_IMAGES_PER_REVISION,
   MAX_UPLOAD_BYTES,
 } from "@/lib/story/image-validation";
+import { getErrorMessage } from "@/lib/errors";
 import {
   reorderMediaAction,
   setCoverAction,
@@ -34,6 +35,14 @@ export type ImageUploadManagerProps = {
   versionRef: React.MutableRefObject<number>;
   queue: MutationQueue;
   onVersionBumped: () => void;
+  /**
+   * mediaIds already placed inline in the story text (an "image"
+   * content_json block referencing them) -- excluded from this panel
+   * entirely rather than shown-but-undeletable, so there's no separate
+   * "can't remove, it's used in your text" error state to build: removing
+   * an image from the text (in the editor) is what returns it here.
+   */
+  inlineMediaIds: ReadonlySet<string>;
 };
 
 const PROCESSING_LABELS: Record<string, string> = {
@@ -53,10 +62,12 @@ export function ImageUploadManager({
   versionRef,
   queue,
   onVersionBumped,
+  inlineMediaIds,
 }: ImageUploadManagerProps) {
   const [media, setMedia] = useState<RevisionMediaItem[]>(
     [...initialMedia].sort((a, b) => a.sortOrder - b.sortOrder),
   );
+  const visibleMedia = media.filter((m) => !inlineMediaIds.has(m.mediaId));
   const [uploading, setUploading] = useState<UploadingItem[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -174,8 +185,7 @@ export function ImageUploadManager({
               ? {
                   ...u,
                   progress: "error",
-                  error:
-                    error instanceof Error ? error.message : "Upload failed.",
+                  error: getErrorMessage(error, "Upload failed."),
                 }
               : u,
           ),
@@ -184,10 +194,18 @@ export function ImageUploadManager({
     }
   }
 
-  function reorder(fromIndex: number, toIndex: number) {
+  // Swaps two specific items' positions (rather than splicing a range),
+  // because "Move up/down" now swaps a visible item with its nearest
+  // *visible* neighbor -- images placed inline are excluded from this
+  // panel (see ImageUploadManagerProps.inlineMediaIds) but still occupy a
+  // position in `media`'s underlying order, and a naive index-shift would
+  // reorder across them incorrectly.
+  function reorder(mediaId: string, swapWithMediaId: string) {
     const next = [...media];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
+    const i = next.findIndex((m) => m.mediaId === mediaId);
+    const j = next.findIndex((m) => m.mediaId === swapWithMediaId);
+    if (i === -1 || j === -1) return;
+    [next[i], next[j]] = [next[j], next[i]];
     setMedia(next);
     queue.enqueue("media-reorder", async () => {
       const result = await reorderMediaAction(
@@ -317,14 +335,21 @@ export function ImageUploadManager({
         </ul>
       )}
 
-      {media.length > 0 && (
+      {inlineMediaIds.size > 0 && (
+        <p className="text-sm text-black/60 dark:text-white/60">
+          {inlineMediaIds.size === 1
+            ? "1 image placed in your story text isn't shown here — remove it from the text to manage it below again."
+            : `${inlineMediaIds.size} images placed in your story text aren't shown here — remove them from the text to manage them below again.`}
+        </p>
+      )}
+
+      {visibleMedia.length > 0 && (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {media.map((item, index) => {
+          {visibleMedia.map((item, index) => {
             // Prompt 7: same-story duplicate-image warning -- compares
             // sha256 hashes of already-processed derivatives (never a
-            // storage path) already present in `media`. Advisory only, not
-            // enforced -- an editor may legitimately want the same photo
-            // attached twice (e.g. cropped differently later).
+            // storage path) already present in `media` (the full,
+            // unfiltered list -- a duplicate placed inline still counts).
             const duplicateCount = item.sha256
               ? media.filter((m) => m.sha256 === item.sha256).length
               : 1;
@@ -409,16 +434,20 @@ export function ImageUploadManager({
                   {index > 0 && (
                     <button
                       type="button"
-                      onClick={() => reorder(index, index - 1)}
+                      onClick={() =>
+                        reorder(item.mediaId, visibleMedia[index - 1].mediaId)
+                      }
                       className="underline underline-offset-2"
                     >
                       Move up
                     </button>
                   )}
-                  {index < media.length - 1 && (
+                  {index < visibleMedia.length - 1 && (
                     <button
                       type="button"
-                      onClick={() => reorder(index, index + 1)}
+                      onClick={() =>
+                        reorder(item.mediaId, visibleMedia[index + 1].mediaId)
+                      }
                       className="underline underline-offset-2"
                     >
                       Move down

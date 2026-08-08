@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { recordLaunchVerificationSchema } from "@/lib/validation/readiness";
 import { recordStoryLaunchVerification } from "@/lib/story/readiness";
 import { logStaffAction } from "@/lib/log";
+import { getErrorMessage } from "@/lib/errors";
 
 export type VerificationActionState = { error?: string; success?: string };
 
@@ -65,13 +66,10 @@ export async function recordLaunchVerificationAction(
       action: "readiness.record_launch_verification",
       target: parsed.data.storyId,
       outcome: "error",
-      detail: error instanceof Error ? error.message : "unknown error",
+      detail: getErrorMessage(error, "unknown error"),
     });
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not record verification.",
+      error: getErrorMessage(error, "Could not record verification."),
     };
   }
 

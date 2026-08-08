@@ -16,8 +16,10 @@ type GalleryImage = {
 
 /**
  * The public gallery, placed distinctly from the body text (design-brief
- * "Story detail layout") -- content_json has no inline image blocks by
- * design (docs/architecture.md), so this always renders after the text.
+ * "Story detail layout"). Shows only images NOT already placed inline via
+ * an "image" content_json block -- the caller (app/(public)/stories/[id]/
+ * page.tsx) filters those out before passing `images` here, so nothing
+ * appears twice.
  */
 export function StoryGallery({ images }: { images: GalleryImage[] }) {
   if (images.length === 0) return null;

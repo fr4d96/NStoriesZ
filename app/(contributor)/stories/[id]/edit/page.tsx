@@ -15,10 +15,22 @@ import {
 import { StoryEditForm } from "@/components/story/story-edit-form";
 import { storyContentSchema } from "@/lib/validation/story";
 
-export const metadata: Metadata = {
-  title: "Edit Story",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const draft = await getEditableStoryWithDraft(id);
+  return {
+    // revision_number === 1 means this story has never been through a
+    // submit/changes-requested/resubmit cycle -- same signal the page
+    // component uses below for its "New Story" vs "Edit Story" heading, so
+    // the browser tab title always agrees with what's on the page.
+    title: draft && draft.revision_number === 1 ? "New Story" : "Edit Story",
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function EditStoryPage({
   params,
@@ -84,6 +96,7 @@ export default async function EditStoryPage({
       destinations={destinations}
       workTypes={workTypes}
       tags={tags}
+      isNewStory={draft.revision_number === 1}
     />
   );
 }

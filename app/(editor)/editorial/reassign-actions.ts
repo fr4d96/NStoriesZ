@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { reassignEditorialStorySchema } from "@/lib/validation/moderation";
 import { reassignEditorialStory } from "@/lib/story/moderation";
 import { logStaffAction } from "@/lib/log";
+import { getErrorMessage } from "@/lib/errors";
 
 export type ReassignActionState = { error?: string; success?: string };
 
@@ -60,10 +61,7 @@ export async function reassignEditorialStoryAction(
       outcome: "error",
     });
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not reassign this story.",
+      error: getErrorMessage(error, "Could not reassign this story."),
     };
   }
 

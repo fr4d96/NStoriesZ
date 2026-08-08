@@ -7,8 +7,11 @@ import {
   listPublicRegions,
 } from "@/lib/story/public-queries";
 import { getPublicImageUrl } from "@/lib/story/public-image-url";
-import { storyContentSchema } from "@/lib/validation/story";
-import { ContentBlockRenderer } from "@/components/story/content-block-renderer";
+import { imageBlockMediaIds, storyContentSchema } from "@/lib/validation/story";
+import {
+  ContentBlockRenderer,
+  type ContentBlockMediaMap,
+} from "@/components/story/content-block-renderer";
 import { StoryGallery } from "@/components/story/story-gallery";
 import { StoryCard } from "@/components/story/story-card";
 import { AttributionChip } from "@/components/story/attribution-chip";
@@ -131,6 +134,28 @@ export default async function StoryDetailPage({
           .slice(0, 3);
 
   const parsedContent = storyContentSchema.safeParse(story.content_json);
+
+  // Images placed inline (an "image" block referencing a mediaId) render
+  // via ContentBlockRenderer's own media map; the trailing StoryGallery
+  // only shows what's NOT already placed in the text, so nothing appears
+  // twice (see components/story/content-block-renderer.tsx's
+  // ContentBlockMediaMap comment and story-gallery.tsx's updated header).
+  const inlineMediaIds = new Set(
+    parsedContent.success ? imageBlockMediaIds(parsedContent.data) : [],
+  );
+  const contentMedia: ContentBlockMediaMap = {};
+  for (const m of media) {
+    const url = getPublicImageUrl(m.public_url);
+    if (url) {
+      contentMedia[m.media_id] = {
+        url,
+        altText: m.alt_text,
+        decorative: m.decorative,
+      };
+    }
+  }
+  const galleryMedia = media.filter((m) => !inlineMediaIds.has(m.media_id));
+
   const regions = regionLabels(story.regions);
   const tripLabel =
     story.trip_start_date && story.trip_end_date
@@ -200,7 +225,10 @@ export default async function StoryDetailPage({
 
       <div className="mt-8">
         {parsedContent.success ? (
-          <ContentBlockRenderer blocks={parsedContent.data} />
+          <ContentBlockRenderer
+            blocks={parsedContent.data}
+            media={contentMedia}
+          />
         ) : (
           <p className="text-red-600">
             This story&apos;s content couldn&apos;t be rendered.
@@ -208,9 +236,9 @@ export default async function StoryDetailPage({
         )}
       </div>
 
-      {media.length > 0 ? (
+      {galleryMedia.length > 0 ? (
         <div className="mt-10">
-          <StoryGallery images={media} />
+          <StoryGallery images={galleryMedia} />
         </div>
       ) : null}
 

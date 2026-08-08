@@ -28,7 +28,27 @@
   --tag-foreground: #2f6b57;
   --forest: #173f35;
   --fern: #2f6b57;
-  --header-solid: rgba(252, 251, 247, 0.95);
+  --header-solid: #fcfbf7;
+  /* shadcn/ui + Plate registry component tokens -- deliberately mapped onto
+     the existing brand palette above rather than shadcn's default gray/blue
+     scale, so components pulled from the Plate registry (components/story/
+     editor/*, components/ui/*) match this site's look instead of the
+     generic shadcn demo look. */
+  --muted: var(--surface-muted);
+  --muted-foreground: #5b6b64;
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--accent);
+  --primary: var(--forest);
+  --primary-foreground: #fcfbf7;
+  --secondary: var(--surface-muted);
+  --secondary-foreground: var(--foreground);
+  --destructive: #c0392b;
+  --destructive-foreground: #fcfbf7;
+  --brand: var(--accent);
+  --radius: 0.5rem;
 }
 
 @theme inline {
@@ -43,6 +63,24 @@
   --color-tag-foreground: var(--tag-foreground);
   --color-forest: var(--forest);
   --color-fern: var(--fern);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-brand: var(--brand);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -61,7 +99,21 @@
     --tag-foreground: #8fc8aa;
     --forest: #285c4b;
     --fern: #8fc8aa;
-    --header-solid: rgba(15, 23, 19, 0.95);
+    --header-solid: #0f1713;
+    --muted: var(--surface-muted);
+    --muted-foreground: #9db3a8;
+    --popover: var(--surface);
+    --popover-foreground: var(--foreground);
+    --border: var(--border-subtle);
+    --input: var(--border-subtle);
+    --ring: var(--accent);
+    --primary: var(--forest);
+    --primary-foreground: #edf5f0;
+    --secondary: var(--surface-muted);
+    --secondary-foreground: var(--foreground);
+    --destructive: #e57373;
+    --destructive-foreground: #1c0f0a;
+    --brand: var(--accent);
   }
 }
 
@@ -78,7 +130,21 @@
   --tag-foreground: #2f6b57;
   --forest: #173f35;
   --fern: #2f6b57;
-  --header-solid: rgba(252, 251, 247, 0.95);
+  --header-solid: #fcfbf7;
+  --muted: var(--surface-muted);
+  --muted-foreground: #5b6b64;
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--accent);
+  --primary: var(--forest);
+  --primary-foreground: #fcfbf7;
+  --secondary: var(--surface-muted);
+  --secondary-foreground: var(--foreground);
+  --destructive: #c0392b;
+  --destructive-foreground: #fcfbf7;
+  --brand: var(--accent);
 }
 
 :root[data-theme="dark"] {
@@ -94,7 +160,21 @@
   --tag-foreground: #8fc8aa;
   --forest: #285c4b;
   --fern: #8fc8aa;
-  --header-solid: rgba(15, 23, 19, 0.95);
+  --header-solid: #0f1713;
+  --muted: var(--surface-muted);
+  --muted-foreground: #9db3a8;
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--accent);
+  --primary: var(--forest);
+  --primary-foreground: #edf5f0;
+  --secondary: var(--surface-muted);
+  --secondary-foreground: var(--foreground);
+  --destructive: #e57373;
+  --destructive-foreground: #1c0f0a;
+  --brand: var(--accent);
 }
 
 html {
@@ -151,7 +231,6 @@ body {
 }
 .journiq-header-solid {
   background: var(--header-solid);
-  backdrop-filter: blur(12px);
 }
 .journiq-nav-link {
   position: relative;

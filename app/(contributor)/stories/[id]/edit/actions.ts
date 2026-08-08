@@ -8,6 +8,7 @@ import {
   revisionIdsSchema,
   type RevisionInput,
 } from "@/lib/validation/story";
+import { getErrorMessage } from "@/lib/errors";
 import {
   saveRevisionDraft,
   setRevisionLocations,
@@ -53,7 +54,7 @@ export type SaveFieldsResult =
   { ok: true; version: number } | { ok: false; error: string };
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong.";
+  return getErrorMessage(error, "Something went wrong.");
 }
 
 // Typed as the narrower "always ok:false" shape (it never actually returns

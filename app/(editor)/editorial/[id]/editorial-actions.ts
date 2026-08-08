@@ -13,6 +13,7 @@ import {
   getCurrentTermsVersion,
 } from "@/lib/story/mutations";
 import { logEditorialAction } from "@/lib/story/moderation";
+import { getErrorMessage } from "@/lib/errors";
 
 export type EditorialActionState = { error?: string; success?: string };
 
@@ -42,10 +43,10 @@ export async function markReadyForContributorReviewAction(
     await markEditorialDraftAwaitingApproval(parsed.data);
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not mark this draft ready for contributor review.",
+      error: getErrorMessage(
+        error,
+        "Could not mark this draft ready for contributor review.",
+      ),
     };
   }
 
@@ -91,7 +92,7 @@ export async function logEvidenceNoteAction(
     });
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Could not log the note.",
+      error: getErrorMessage(error, "Could not log the note."),
     };
   }
 
@@ -155,10 +156,7 @@ export async function submitWithOfflineConfirmationAction(
     });
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not submit for moderation.",
+      error: getErrorMessage(error, "Could not submit for moderation."),
     };
   }
 

@@ -8,6 +8,7 @@ import {
   getStoryPreview,
   type RevisionMediaItem,
 } from "@/lib/story/contributor-queries";
+import { getErrorMessage } from "@/lib/errors";
 
 /**
  * Re-reads the current attached-media list (via get_story_preview — the
@@ -29,8 +30,7 @@ export async function refreshMediaAction(
     return { media: preview?.media ?? [] };
   } catch (error) {
     return {
-      error:
-        error instanceof Error ? error.message : "Could not refresh media.",
+      error: getErrorMessage(error, "Could not refresh media."),
     };
   }
 }
@@ -71,7 +71,7 @@ export async function mintPreviewUrlAction(
     return { url };
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Could not load image.",
+      error: getErrorMessage(error, "Could not load image."),
     };
   }
 }

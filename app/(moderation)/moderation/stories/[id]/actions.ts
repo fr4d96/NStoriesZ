@@ -20,6 +20,7 @@ import { copyStoryMediaToPublic } from "@/lib/story/image-pipeline";
 import { runApproveOrchestration } from "@/lib/story/publish-orchestration";
 import { invalidateStoryPublicCache } from "@/lib/story/public-cache";
 import { logStaffAction } from "@/lib/log";
+import { getErrorMessage } from "@/lib/errors";
 
 /**
  * Stage 3 hardening: invalidateStoryPublicCache() calls Next's
@@ -44,7 +45,7 @@ function invalidatePublicCacheSafely(slug: string, action: string) {
       action: `${action}.cache_invalidation`,
       target: slug,
       outcome: "error",
-      detail: error instanceof Error ? error.message : "unknown error",
+      detail: getErrorMessage(error, "unknown error"),
     });
   }
 }
@@ -100,10 +101,7 @@ export async function approveStoryAction(
     detail = rows[0];
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not load this revision.",
+      error: getErrorMessage(error, "Could not load this revision."),
     };
   }
   if (!detail || detail.story_id !== parsed.data.storyId) {
@@ -198,10 +196,7 @@ export async function moderateDecisionAction(
       outcome: "error",
     });
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not record this decision.",
+      error: getErrorMessage(error, "Could not record this decision."),
     };
   }
 
@@ -277,10 +272,7 @@ export async function archiveStoryAction(
       outcome: "error",
     });
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not archive this story.",
+      error: getErrorMessage(error, "Could not archive this story."),
     };
   }
 
