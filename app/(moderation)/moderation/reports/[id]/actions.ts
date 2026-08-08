@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { resolveReportSchema } from "@/lib/validation/moderation";
 import { resolveReport } from "@/lib/story/moderation";
 import { logStaffAction } from "@/lib/log";
+import { getErrorMessage } from "@/lib/errors";
 
 export type ResolveReportActionState = { error?: string; success?: string };
 
@@ -68,10 +69,7 @@ export async function resolveReportAction(
       outcome: "error",
     });
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not update this report.",
+      error: getErrorMessage(error, "Could not update this report."),
     };
   }
 

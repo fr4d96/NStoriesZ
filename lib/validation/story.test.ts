@@ -137,12 +137,40 @@ describe("storyContentBlockSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects an image block — no inline images in content_json", () => {
+  it("accepts an image block referencing a media id, and nothing else", () => {
     const result = storyContentBlockSchema.safeParse({
       type: "image",
       mediaId: "11111111-1111-4111-8111-111111111111",
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an image block with a non-uuid or missing mediaId", () => {
+    expect(
+      storyContentBlockSchema.safeParse({
+        type: "image",
+        mediaId: "not-a-uuid",
+      }).success,
+    ).toBe(false);
+    expect(storyContentBlockSchema.safeParse({ type: "image" }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects an image block carrying altText/caption -- that data lives on story_revision_media, not content_json", () => {
+    const result = storyContentBlockSchema.safeParse({
+      type: "image",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+      altText: "should not be here",
+    });
+    // Extra keys are stripped by z.object() by default, not rejected --
+    // this test documents that the schema does NOT define an altText/
+    // caption field for images, not that it errors on one.
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      type: "image",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+    });
   });
 
   it("rejects an unknown block type", () => {

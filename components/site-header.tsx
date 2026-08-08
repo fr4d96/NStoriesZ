@@ -171,22 +171,28 @@ export function SiteHeader() {
 
         <div className="ml-auto flex items-center gap-2 md:hidden">
           <ThemeToggle inverted={transparent} />
-          {signedIn && <UserAvatarMenu emoji={avatarEmoji} inverted={transparent} />}
-          <MobileNavToggle
-            inverted={transparent}
-            navItems={
-              signedIn
-                ? primaryNav
-                : [
-                    ...primaryNav,
-                    { label: "Sign in", onClick: () => setAuthModal("sign-in") },
-                    {
-                      label: "Share your story",
-                      onClick: () => setAuthModal("sign-up"),
-                    },
-                  ]
-            }
-          />
+          {signedIn ? (
+            // Replaces the hamburger entirely on mobile once signed in --
+            // its dropdown carries the primary nav links too (extraItems),
+            // so nothing from the old hamburger menu is lost.
+            <UserAvatarMenu
+              emoji={avatarEmoji}
+              inverted={transparent}
+              extraItems={primaryNav}
+            />
+          ) : (
+            <MobileNavToggle
+              inverted={transparent}
+              navItems={[
+                ...primaryNav,
+                { label: "Sign in", onClick: () => setAuthModal("sign-in") },
+                {
+                  label: "Share your story",
+                  onClick: () => setAuthModal("sign-up"),
+                },
+              ]}
+            />
+          )}
         </div>
       </div>
 

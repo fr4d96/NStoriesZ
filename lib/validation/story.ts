@@ -38,18 +38,22 @@ export function isSafeHref(raw: string): boolean {
 
 // --- Controlled story content — block/run/mark schema ---------------------
 //
-// Engineering Rule 6/7: structured JSON only, never raw/arbitrary HTML. No
-// inline image blocks: images render as an ordered gallery from
-// story_revision_media, kept deliberately separate from content_json (see
-// docs/architecture.md). Each block's text is an array of "runs" rather than
-// a bare string so inline marks (bold/italic/link) can apply to part of a
-// block's text — this is a deliberate extension beyond Prompt 3's original
-// plain-string shape; the `content_json` column itself is a loosely-typed
-// `jsonb` array (only `jsonb_typeof(content_json) = 'array'` is checked at
-// the DB layer, confirmed by reading
+// Engineering Rule 6/7: structured JSON only, never raw/arbitrary HTML. An
+// "image" block is a reference (mediaId) to an already-uploaded,
+// already-rights-confirmed story_revision_media row -- never a raw image
+// URL -- so the actual file, its approval/rights-confirmation state, and
+// its alt text/caption/decorative flag all still live entirely outside
+// content_json (see imageBlockSchema's own comment below; docs/
+// architecture.md has the fuller rationale). Each block's text is an array
+// of "runs" rather than a bare string so inline marks (bold/italic/link)
+// can apply to part of a block's text — this is a deliberate extension
+// beyond Prompt 3's original plain-string shape; the `content_json` column
+// itself is a loosely-typed `jsonb` array (only `jsonb_typeof(content_json)
+// = 'array'` is checked at the DB layer, confirmed by reading
 // supabase/migrations/20260803090200_story_revisions.sql), so no migration
-// is needed for this change — only this schema and everything that
-// builds/reads content_json.
+// is needed for a new block *shape* — only server-side reference-integrity
+// checks like the one save_revision_draft gained for image blocks (see
+// supabase/migrations/20260808130000_content_json_image_blocks.sql).
 
 const MAX_MARKS_PER_RUN = 3; // bold + italic + link, each at most once
 const MAX_RUNS_PER_BLOCK = 100;
@@ -143,18 +147,69 @@ const listBlockSchema = z.object({
   items: z.array(runsSchema(1000)).min(1).max(50),
 });
 
+// A table cell may be empty (min 0 runs) -- unlike other blocks, a blank
+// cell is a normal, meaningful part of a grid's shape, not "no content" to
+// be dropped.
+const tableCellSchema = runsSchema(500, 0);
+const tableRowSchema = z.array(tableCellSchema).min(1).max(20);
+
+const tableBlockSchema = z.object({
+  type: z.literal("table"),
+  rows: z.array(tableRowSchema).min(1).max(50),
+});
+
+export type StoryTableRow = z.infer<typeof tableRowSchema>;
+
+// A reference, not the image itself -- deliberately holds nothing but the
+// id. altText/caption/decorative already live on the story_revision_media
+// row this points at (see components/story/image-upload-manager.tsx); this
+// block only records *where in the text* an already-uploaded, already
+// rights-confirmed image sits. Duplicating alt text/caption here would
+// recreate exactly the "duplicate captioned-image state" docs/architecture.md
+// says images were kept out of content_json to avoid. The referenced id
+// must belong to the same revision's story_revision_media -- enforced
+// server-side in save_revision_draft (see the migration that added this
+// block type), not just by this schema, since a client could otherwise
+// reference another story's private image by guessing/copying its id.
+const imageBlockSchema = z.object({
+  type: z.literal("image"),
+  mediaId: z.uuid(),
+});
+
 export const storyContentBlockSchema = z.discriminatedUnion("type", [
   paragraphBlockSchema,
   headingBlockSchema,
   quoteBlockSchema,
   listBlockSchema,
+  tableBlockSchema,
+  imageBlockSchema,
 ]);
 
 export type StoryContentBlock = z.infer<typeof storyContentBlockSchema>;
 
+/** Every "image" block's mediaId referenced in a content_json document, in document order. */
+export function imageBlockMediaIds(blocks: StoryContentBlock[]): string[] {
+  return blocks
+    .filter(
+      (block): block is Extract<StoryContentBlock, { type: "image" }> =>
+        block.type === "image",
+    )
+    .map((block) => block.mediaId);
+}
+
 function blockCharacterCount(block: StoryContentBlock): number {
   if (block.type === "list") {
     return block.items.reduce((sum, item) => sum + runsLength(item), 0);
+  }
+  if (block.type === "table") {
+    return block.rows.reduce(
+      (sum, row) =>
+        sum + row.reduce((rowSum, cell) => rowSum + runsLength(cell), 0),
+      0,
+    );
+  }
+  if (block.type === "image") {
+    return 0;
   }
   return runsLength(block.text);
 }
@@ -169,6 +224,17 @@ export const storyContentSchema = z
       MAX_DOCUMENT_CHARACTERS,
     {
       message: `Story content is too long (max ${MAX_DOCUMENT_CHARACTERS} characters).`,
+    },
+  )
+  .refine(
+    (blocks) =>
+      blocks.every(
+        (block) =>
+          block.type !== "table" ||
+          block.rows.every((row) => row.length === block.rows[0].length),
+      ),
+    {
+      message: "Every row in a table must have the same number of columns.",
     },
   );
 

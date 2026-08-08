@@ -13,6 +13,7 @@ import {
   requestEditorialChanges,
   declineEditorialPublication,
 } from "@/lib/story/mutations";
+import { getErrorMessage } from "@/lib/errors";
 
 export type ConsentActionState = { error?: string; success?: string };
 
@@ -64,10 +65,7 @@ export async function submitOwnConsentAction(
     await submitRevisionWithConsent({ ...parsed.data, expectedTermsVersion });
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not submit this story for review.",
+      error: getErrorMessage(error, "Could not submit this story for review."),
     };
   }
 
@@ -99,8 +97,7 @@ export async function requestEditorialChangesAction(
     await requestEditorialChanges(storyId.data, note.data);
   } catch (error) {
     return {
-      error:
-        error instanceof Error ? error.message : "Could not request changes.",
+      error: getErrorMessage(error, "Could not request changes."),
     };
   }
 
@@ -129,7 +126,7 @@ export async function declineEditorialPublicationAction(
     await declineEditorialPublication(storyId.data, note.data);
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : "Could not decline.",
+      error: getErrorMessage(error, "Could not decline."),
     };
   }
 

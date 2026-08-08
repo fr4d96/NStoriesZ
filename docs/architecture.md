@@ -337,10 +337,14 @@ convention.
   an old one — this is what makes `revision_id` a true immutable snapshot everywhere it's
   referenced (consent grants, the published pointer, moderation decisions). `trip_year` is an
   independent, directly-entered column (not derived from `trip_start_date`), so a year-only story
-  with no exact dates is representable. `content_json` is a controlled block array —
-  **text-only** (`paragraph`/`heading`/`quote`/`list`, see `lib/validation/story.ts`); there is no
-  inline image block, deliberately — images render as an ordered gallery from
-  `story_revision_media`, kept structurally separate to avoid duplicate captioned-image state.
+  with no exact dates is representable. `content_json` is a controlled block array
+  (`paragraph`/`heading`/`quote`/`list`/`table`/`image`, see `lib/validation/story.ts`). An
+  `image` block is a *reference* (`mediaId`) to an already-uploaded, already rights-confirmed
+  `story_revision_media` row, positioning it within the text — never a raw URL, and never a
+  duplicate of that row's `alt_text`/`caption`/`decorative` (kept structurally separate to avoid
+  duplicate captioned-image state; `save_revision_draft` rejects any `mediaId` not attached to the
+  same revision). Images not placed inline still render in the trailing gallery, built from the
+  same `story_revision_media` rows.
   `editor_note` lives in a sibling table, `story_revision_editor_notes` (staff-only, no owner
   policy at all) — RLS can't hide one column of an otherwise-readable row, so it isn't one.
 - **Per-revision relations** — `story_revision_locations` (a trigger enforces the selected

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 
@@ -16,7 +17,12 @@ export async function listMyStories() {
   return data ?? [];
 }
 
-export async function getEditableStoryWithDraft(storyId: string) {
+/**
+ * Wrapped in React's cache() so the edit page's generateMetadata() and the
+ * page component itself (both call this for the same storyId within one
+ * request) share a single RPC round trip instead of duplicating it.
+ */
+export const getEditableStoryWithDraft = cache(async (storyId: string) => {
   const user = await getCurrentUser();
   if (!user) return null;
   const supabase = await createClient();
@@ -25,7 +31,7 @@ export async function getEditableStoryWithDraft(storyId: string) {
   });
   if (error) throw error;
   return data?.[0] ?? null;
-}
+});
 
 export async function getCurrentConsentState(storyId: string) {
   const user = await getCurrentUser();

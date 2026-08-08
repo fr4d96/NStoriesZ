@@ -11,6 +11,7 @@ import {
   MAX_UPLOAD_BYTES,
   sniffImageMimeType,
 } from "@/lib/story/image-validation";
+import { getErrorMessage } from "@/lib/errors";
 
 // Node runtime (not Edge): sharp-based processing later in this same
 // request needs Node APIs, and this handler itself needs to read a
@@ -117,12 +118,7 @@ export async function POST(
     reservedPath = reserved.reserved_path;
   } catch (error) {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not reserve an upload slot.",
-      },
+      { error: getErrorMessage(error, "Could not reserve an upload slot.") },
       { status: 400 },
     );
   }
@@ -153,12 +149,7 @@ export async function POST(
       .remove([reservedPath])
       .catch(() => {});
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not finalize the upload.",
-      },
+      { error: getErrorMessage(error, "Could not finalize the upload.") },
       { status: 409 },
     );
   }

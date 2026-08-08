@@ -6,6 +6,7 @@ import { getCurrentUserRole, resolveStaffAccess } from "@/lib/auth/roles";
 import { createDraftSchema } from "@/lib/validation/story";
 import { createEditorialImportDraftShell } from "@/lib/story/mutations";
 import { createUnlinkedContributor } from "@/lib/story/editorial-queries";
+import { getErrorMessage } from "@/lib/errors";
 
 export type NewImportFormState = { error?: string };
 
@@ -68,10 +69,7 @@ export async function createEditorialImportAction(
       contributorId = created.id;
     } catch (error) {
       return {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not create the contributor record.",
+        error: getErrorMessage(error, "Could not create the contributor record."),
       };
     }
   } else {
@@ -94,10 +92,7 @@ export async function createEditorialImportAction(
     storyId = created.story_id;
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not create the import draft.",
+      error: getErrorMessage(error, "Could not create the import draft."),
     };
   }
 

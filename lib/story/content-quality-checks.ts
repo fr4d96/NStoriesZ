@@ -40,6 +40,12 @@ function blockPlainText(block: StoryContentBlock): string {
   if (block.type === "list") {
     return block.items.map(runsPlainText).join("\n");
   }
+  if (block.type === "table") {
+    return block.rows.map((row) => row.map(runsPlainText).join(" ")).join("\n");
+  }
+  if (block.type === "image") {
+    return "";
+  }
   return runsPlainText(block.text);
 }
 
@@ -63,7 +69,9 @@ function countLinkMarks(blocks: StoryContentBlock[]): number {
   for (const block of blocks) {
     if (block.type === "list") {
       block.items.forEach(countRuns);
-    } else {
+    } else if (block.type === "table") {
+      block.rows.forEach((row) => row.forEach(countRuns));
+    } else if (block.type !== "image") {
       countRuns(block.text);
     }
   }

@@ -18,13 +18,22 @@ const menuItems = [
  * four actions -- the avatar itself is the emoji chosen on /account
  * (lib/avatar.ts's pre-loaded set), falling back to a generic person icon
  * for accounts that haven't picked one yet.
+ *
+ * `extraItems` is only passed by the mobile placement in
+ * components/site-header.tsx -- on mobile, this avatar replaces the
+ * hamburger menu entirely rather than sitting next to it, so it also has
+ * to carry the primary nav links (Stories/Destinations/Work Guides/About)
+ * that the hamburger used to hold. The desktop placement leaves it unset
+ * since those links already have their own always-visible nav bar there.
  */
 export function UserAvatarMenu({
   emoji,
   inverted = false,
+  extraItems,
 }: {
   emoji: string | null;
   inverted?: boolean;
+  extraItems?: { href: string; label: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +79,22 @@ export function UserAvatarMenu({
           role="menu"
           className="absolute right-0 top-12 z-50 w-48 rounded-xl border border-border-subtle bg-surface p-1.5 text-foreground shadow-xl"
         >
+          {extraItems && extraItems.length > 0 && (
+            <>
+              {extraItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className="block rounded-lg px-3 py-2 text-sm font-medium hover:bg-surface-muted"
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <div className="my-1 border-t border-border-subtle" />
+            </>
+          )}
           {menuItems.map((item) => (
             <Link
               key={item.href}

@@ -3,9 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-06 (destination quiz reverted to hardcoded scoring, dropping the
-Supabase-backed region matcher; see "Fifth pass (same day): destination quiz reverted to hardcoded
-scoring" below).
+Last updated: 2026-08-08 (added inline image blocks, backed by the existing upload/rights/approval
+pipeline; see "Added inline image blocks to the story editor" below).
 
 **2026-08-06 — Rebrand + home hero redesign.** Product renamed from "WHV Compass NZ" to
 "Journiq" across all user-facing copy, metadata, `package.json`/`package-lock.json`, and docs
@@ -2135,3 +2134,271 @@ region id to link to anymore. `app/(public)/page.tsx` updated to `<DestinationQu
 shape (walking through all 5 questions, two deterministic single-destination answer paths, back
 navigation, the `#discover` link, and restart). `npm run verify` clean (260/260 tests, lint,
 typecheck, format, build).
+
+**2026-08-08 — New Story vs. Edit Story heading, and story editor migrated from Tiptap to Plate.**
+
+The self-service edit page (`app/(contributor)/stories/[id]/edit/page.tsx`) previously showed "Edit
+Story" unconditionally, including immediately after `/stories/new` redirects a freshly-created
+draft here. It now shows "New Story" (heading + browser tab title, via a new `generateMetadata()`)
+for a story's first-ever revision (`revision_number === 1`) and "Edit Story" once it's been through
+at least one submit/changes-requested/resubmit cycle. `lib/story/contributor-queries.ts`'s
+`getEditableStoryWithDraft()` is now wrapped in React's `cache()` so `generateMetadata()` and the
+page component share one RPC round trip instead of duplicating it. `StoryEditForm` gained an
+`isNewStory` prop (only passed by the self-service page; the editorial import page's usage is
+unaffected — an editor preparing someone else's story is always "editing").
+
+Separately, replaced the Tiptap-based rich text editor with
+[Plate](https://platejs.org) end-to-end, per explicit request. New packages: `platejs`,
+`@platejs/basic-nodes`, `@platejs/list`, `@platejs/link` (+ `use-sync-external-store`, a transitive
+peer Zustand needs that wasn't otherwise installed). Removed: `@tiptap/react`, `@tiptap/pm`,
+`@tiptap/starter-kit`, and the old `components/story/rich-text-editor.tsx` +
+`lib/story/rich-text-serialize.ts` (with their tests).
+
+- `lib/story/plate-serialize.ts` (new) converts between Plate's document value and the existing
+  canonical `StoryContentBlock[]` schema (`lib/validation/story.ts`) — the DB/validation contract
+  itself is completely unchanged, only what produces/consumes it. Plate's list model turned out to
+  be flat (confirmed empirically, not from docs — a list item is a plain paragraph node carrying
+  `indent`/`listStyleType`, not a nested `<ul>/<li>` tree); converting canonical → Plate expands a
+  `list` block's items into that many flat indented paragraphs, and Plate → canonical groups
+  consecutive same-category flat paragraphs back into one `list` block. Blockquote turned out to be
+  block-level (`{ type: "blockquote", children: [{ type: "p", children: [...] }] }`), not a flat
+  text-holding node — an earlier version of this file assumed the flat shape from hand-written
+  probe data (never exercised through the real `editor.tf.blockquote.toggle()` transform) and threw
+  a live runtime error (`Cannot read properties of undefined (reading 'length')`) the first time
+  blockquote was toggled through the real editor; fixed once caught live.
+- `components/story/story-content-editor.tsx` (new, replaces `rich-text-editor.tsx`) — same external
+  props/ref contract (`initialContent`, `onChange`, `editable`, `ariaLabel`,
+  `replaceContent()` handle) so `story-edit-form.tsx` only needed an import/rename change. Custom
+  node/leaf components (no Plate prebuilt shadcn UI kit — this repo has no shadcn/ui setup
+  anywhere else, so pulling one in for just this component would be inconsistent). Toolbar mirrors
+  the old one exactly: Bold, Italic, H2, H3, bulleted/numbered list, Quote, Link (prompt-based, same
+  UX as before), Undo, Redo.
+- Two more real bugs found and fixed live (not hypothetical): (1) the toolbar's active/pressed
+  indicators never updated after the first render — `useEditorRef()` doesn't subscribe to editor
+  state changes; fixed with `useEditorSelector`, Plate's reactive-selector hook. (2) List items
+  initially rendered their own manual "•"/"1." marker prefix, which turned out to double up with
+  `ListPlugin`'s own automatic `<ul>/<ol>` node-wrapper (confirmed live via the real DOM) — removed
+  the manual marker. That wrapper also turned out to insert the `<ul>` _inside_ whatever tag the
+  paragraph component rendered as; rendering list items as `<p>` produced invalid
+  `<p><ul>...</ul></p>` markup and a live React hydration error, fixed by rendering list-item
+  paragraphs as `<div>` instead (ordinary paragraphs still render as real `<p>`).
+- Live-verified end-to-end in-browser, not just unit tests: typing, Bold/Italic on a real selection,
+  H2 toggle, bulleted/numbered list toggle, Quote toggle, Link (with an existing mark preserved
+  inside it), Undo/Redo, full save → reload → re-edit round trip (confirmed via the actual
+  `story_revisions.content_json` row, not just the in-memory editor state), and the independent
+  read-only preview page (`content-block-renderer.tsx`, which never touches Plate at all) rendering
+  the same content correctly.
+- `npm run verify` clean: lint, typecheck, 262/262 tests (9 new in `plate-serialize.test.ts`, 6 new
+  in `story-content-editor.test.tsx`, replacing the 2 old Tiptap test files 1:1 in coverage), build.
+
+**2026-08-08 — Added a table block type to the story content schema/editor.**
+
+User asked for "all the features" of the full Plate playground demo (AI copilot, media embeds,
+columns, comments, etc.); most of that conflicts with Engineering Rule 6/7 (controlled JSON, no
+raw HTML) and the MVP non-goals (no audio/video), so scoped down via `AskUserQuestion` to one
+concrete addition: table blocks. New package: `@platejs/table@53.0.9` (matches the installed
+`platejs@53.3.3` line).
+
+- `lib/validation/story.ts`: new `tableBlockSchema` (`{ type: "table", rows: TableCell[][] }`,
+  cells are run arrays with `minRuns: 0` — unlike every other block, a blank cell is a normal part
+  of a grid's shape, not "no content" to drop). `storyContentSchema` gained a `.refine()` requiring
+  every row in a table to have the same column count (rectangular grid); `blockCharacterCount()`
+  extended to sum table cells into the existing document-length cap.
+- `lib/story/plate-serialize.ts`: table conversion both directions. Confirmed empirically (not
+  from docs) against the installed `@platejs/table`'s `getEmptyCellNode`/`getEmptyRowNode`: a table
+  is `tr` rows of `td` cells, and — like blockquote — each cell holds a block (paragraph) child
+  rather than inline children directly. `TableCellHeaderPlugin` (the `"th"` variant) is
+  deliberately never registered, so header cells are structurally absent, same reasoning as
+  underline/strike/hr elsewhere in this editor configuration.
+- `components/story/story-content-editor.tsx`: registers `TablePlugin`/`TableRowPlugin`/
+  `TableCellPlugin` (no resize/merge/border UI — kept minimal) and a "Table" toolbar button that
+  calls `insertTable(editor, { colCount: 3, rowCount: 3 })`. `TableElement` renders as a `<div>`
+  wrapping a real `<table><tbody>...`, not `<table>` itself directly — same reasoning as
+  `ParagraphElement`'s list-item `<div>` above: a bare `<table><tr>` (no `tbody`) produced the same
+  class of invalid-DOM-nesting issue already documented there for `<p><ul>`.
+- `components/story/content-block-renderer.tsx`: **a real bug, found live** — this is a _separate_
+  component from the Plate editor (used by the preview page and, later, the public story page), and
+  its `Block()` switch had no `"table"` case. Because the function has no return-type annotation,
+  TypeScript didn't flag the non-exhaustive switch, so `npm run build` stayed green while a table
+  block silently rendered as nothing on `/stories/[id]/preview`. Caught by live-testing the full
+  editor → save → reload → preview round trip in-browser (not just unit tests), not by any
+  automated check. Fixed by adding the missing case (`<table><tbody>` of `<tr>`/`<td>`, reusing the
+  existing `RunList` for cell text — no `dangerouslySetInnerHTML`, per Engineering Rule 7).
+- New tests: `plate-serialize.test.ts` (table round-trip, empty cells preserved),
+  `story-content-editor.test.tsx` (`insertTable()` produces only `td`, never `th`),
+  `content-block-renderer.test.tsx` (new file — this component had no tests before; covers the
+  table case specifically since that's what regressed).
+- `npm run verify` clean: lint, typecheck, 265/265 tests, build. Live-verified in-browser: inserted
+  a table, typed into a cell, reloaded the page (content persisted through the mutation
+  queue/DB round trip), and confirmed it renders correctly on the preview page.
+
+**2026-08-08 — Rebuilt the story editor on Plate's registry components (not hand-rolled ones).**
+
+User asked to "just use the Platejs editor directly" instead of the bare-`<button>` toolbar and
+minimal node components from the previous two entries. `AskUserQuestion` narrowed this to: adopt
+Plate's own registry UI (`platejs.org/r/*.json` — the same components their prebuilt "Editor"
+ships, fetched directly since the `shadcn` CLI's `add` command silently skipped installing the npm
+packages its own files import, for reasons not fully diagnosed — installed them by hand instead),
+but keep `storyContentSchema` closed. Not "install everything and see what happens": each registry
+file was read and trimmed to exactly the allowed block/mark set before being adapted in.
+
+- **New foundation, previously absent** (per this file's earlier note that pulling in shadcn/ui
+  "would be inconsistent" — now a deliberate, justified exception): `components.json`
+  (`style: new-york`, `baseColor: neutral`), `lib/utils.ts` (`cn()` via `clsx`+`tailwind-merge`),
+  and a `components/ui/` directory of shadcn primitives (`button`, `tooltip`, `separator`,
+  `dropdown-menu`, `popover`, `input`, plus Plate's own `editor.tsx`/`editor-static.tsx`
+  container). `app/globals.css` gained shadcn's semantic token set (`--muted`, `--popover`,
+  `--border`, `--ring`, `--primary`, `--secondary`, `--destructive`, `--brand`, `--radius*`)
+  **mapped onto the existing brand palette** (`--primary: var(--forest)`, `--ring: var(--accent)`,
+  etc.) in all four theme blocks (`:root`, `prefers-color-scheme: dark`,
+  `[data-theme="light"]`, `[data-theme="dark"]`) — additive only, since another session had
+  in-flight uncommitted edits to this same file at the time. New deps: `class-variance-authority`,
+  `tailwind-merge`, `lucide-react`, `@radix-ui/react-{toolbar,tooltip,separator,dropdown-menu,
+popover,slot}`, `@platejs/floating`.
+- `components/story/editor/` (new directory) holds the adapted registry files: `toolbar.tsx`/
+  `fixed-toolbar.tsx` (Radix-backed `Toolbar`/`ToolbarButton`/`ToolbarGroup`, replacing the old
+  plain `<button>` toolbar), `paragraph-node.tsx`/`heading-node.tsx`/`blockquote-node.tsx`/
+  `link-node.tsx` (Plate's real node components — `heading-node.tsx` trimmed to export only
+  H2/H3, not H1/H4-H6), `mark-toolbar-button.tsx`/`history-toolbar-button.tsx`/
+  `list-toolbar-button.tsx`/`link-toolbar-button.tsx`/`link-toolbar.tsx`/`table-toolbar-button.tsx`
+  (toolbar buttons, several trimmed — see below), `table-node.tsx` (kept as this app's own minimal
+  version, not the registry one — see its header comment).
+- **Real upgrade, not just a re-skin**: Link now uses Plate's actual floating link-editing popover
+  (`link-toolbar.tsx`'s `LinkFloatingToolbar`, via `@platejs/floating`) instead of a
+  `window.prompt()`. The href-safety boundary is unmoved by this — `isSafeHref()` was never
+  enforced by the old prompt either (a user could still type `javascript:` into it); the converter
+  (`plateValueToBlocks()`) dropping unsafe hrefs while keeping the text is documented as the real
+  boundary and still is. `story-content-editor.tsx` no longer imports `isSafeHref` at all, since
+  nothing in it calls the plugin's insert command directly anymore.
+- **Deliberately NOT adopted from the registry**, each for a concrete, checked reason:
+  1. `basic-blocks-kit.json`/`basic-marks-kit.json` bundle every heading level, `hr`, and every
+     mark (underline/strike/code/highlight/kbd/sub/superscript) into one plugin-array export —
+     registering that array whole would blow the closed-schema constraint the same way "install
+     the full editor-kit" would have; only the specific H2/H3/Blockquote/Bold/Italic plugins
+     needed were kept, each pointed at its own already-adapted node component.
+  2. The registry's `table-node.tsx` (~1,460 lines) brings drag-row-reorder, column resize, and
+     multi-cell merge/split — each needs data (`colSpan`/`rowSpan`, per-column pixel widths,
+     per-cell background/border) that `storyContentSchema`'s table block has no field for, and
+     three more Plate packages (`@platejs/dnd`, `@platejs/selection`, `@platejs/resizable`).
+     Wiring it in as-is would mean either loosening the schema well past "table blocks" (out of
+     this session's chosen scope) or shipping controls that visibly work in the editor and then
+     silently vanish on save/reload — worse than not having them. `table-node.tsx` here is the
+     same plain grid built in the previous entry (`<div><table><tbody>...`), just relocated;
+     `table-toolbar-button.tsx` is the registry version with its Cell (merge/split) submenu
+     removed accordingly — Row/Column insert/delete stayed, since those are plain structural
+     transforms that don't need the resize/selection UI.
+  3. `list-toolbar-button.tsx`'s registry version is a split-button with a style-variant dropdown
+     (Circle/Square/LowerAlpha/UpperRoman/...); `storyContentSchema`'s list block only ever stores
+     `"ordered" | "unordered"`, and the serializer's `isOrderedListStyle()` only recognizes
+     `"decimal"` as ordered — every other variant silently collapses to a plain bullet on
+     reload. Replaced with a plain two-button toggle (Bulleted/Numbered) calling the same
+     `toggleList()` with exactly Disc/Decimal, so nothing offered in the UI produces a surprise
+     after save.
+  4. `TableCellHeaderPlugin` ("th") stays unregistered, same reasoning as before — nothing in the
+     (trimmed) toolbar ever asks for a header row.
+- One real, live-caught bug in this pass: the registry's `editor.tsx` `Editor` component's
+  `variant="fullWidth"` (the closest named preset) carries `px-16`/`px-24`/`pb-72` — sized for a
+  full-page document editor, not a compact bordered form field. Switched to `variant="none"` with
+  this app's own compact padding/`min-h-40`, matching the box's actual size in the form.
+  `EditorContainer`'s `h-full` base style was also left in (harmless: with no explicit parent
+  height it resolves to `auto`, same as omitting it, confirmed by the rendered layout matching the
+  old design).
+- Existing test suites (`plate-serialize.test.ts`, `story-content-editor.test.tsx`) needed **no
+  changes** — `storyEditorPlugins()`'s externally-observable contract (transform keys, node
+  `type` strings, allowed/disallowed set) is unchanged; only what renders each node changed.
+- `npm run verify` clean: lint (0 warnings after removing two now-unused imports), typecheck,
+  265/265 tests, build. Live-verified in-browser: real Radix toolbar renders (icon buttons,
+  grouped with separators, dropdown chevron on Table), Bold toggle produces a real `<strong>`,
+  the Table dropdown's grid-size picker opens and renders (its hover-to-size interaction wasn't
+  fully exercisable through this session's browser-automation tool — mouse `hover` didn't reliably
+  trigger the picker's `onMouseMove` cascade through a nested Radix submenu — but the insert
+  mechanism itself, `tf.insert.table()`, is the same one already end-to-end-verified with the
+  plain "Table" button in the previous entry), and a full type → save → reload → preview-page
+  round trip persisted and rendered correctly.
+
+**2026-08-08 — Added inline image blocks to the story editor.**
+
+User asked to "integrate picture uploading into the editor" using "the image uploader from
+Platejs." Planned before implementing (per explicit request): a true Plate inline image node
+(`{ type: "img", url }` embedded directly in `content_json`, uploaded through a new lightweight
+endpoint) was refused — it has no natural place to enforce Rule 13 (private until approved), Rule
+14 (server-side EXIF/GPS strip before publish), or `submit_revision_with_consent()`'s
+rights-confirmation gate, all of which are load-bearing, existing, tested infrastructure. Built
+instead: an inline image block that's a _reference_ to an already-uploaded, already
+rights-confirmed `story_revision_media` row — uploads still go through the exact same route,
+bucket, and approval pipeline as the gallery; only the reference is new.
+
+- `lib/validation/story.ts`: `imageBlockSchema` (`{ type: "image", mediaId: uuid }` — no
+  altText/caption, deliberately, since those already live on `story_revision_media` and
+  duplicating them here would recreate the "duplicate captioned-image state"
+  docs/architecture.md's superseded note warned against). New export
+  `imageBlockMediaIds(blocks)`, used by every caller that needs to know which mediaIds are placed
+  inline (the gallery panel, both public/preview pages' gallery-dedup).
+- **The actual new security surface**: `save_revision_draft` (RPC, `supabase/migrations/
+20260808130000_content_json_image_blocks.sql`, `CREATE OR REPLACE`) now rejects any `content_json`
+  image block whose `mediaId` isn't attached to the _same_ revision's `story_revision_media` --
+  without this, a contributor could reference another story's private image by guessing/copying its
+  id (Rule 2: client-side Zod's `z.uuid()` check is shape-only, not ownership). Malformed
+  (non-uuid) mediaIds are caught via `invalid_text_representation` exception handling rather than
+  relying on SQL boolean short-circuit evaluation order, which Postgres doesn't guarantee. **Not
+  verified against a live database** -- this machine has no Docker/Supabase CLI (same
+  local-verification gap docs/architecture.md already documents); reviewed carefully against the
+  existing `update_story_media_caption`/`set_story_cover_media` ownership-check style, but flagging
+  this explicitly rather than claiming tested confidence it doesn't have.
+- `lib/story/plate-serialize.ts`: `PlateImageNode` (a void node -- `children: [{ text: "" }]`,
+  Slate's convention for "nothing editable inside this") ↔ canonical `image` block, both
+  directions. Converter drops a structurally-wrong mediaId (non-string) rather than throwing, same
+  posture as every other converter case; the real safety boundary is still
+  `storyContentSchema.safeParse()` plus the new RPC check above.
+- `components/story/editor/image-node.tsx` (new) / `image-toolbar-button.tsx` (new): the toolbar's
+  "Image" button uploads through the literal same fetch call
+  `components/story/image-upload-manager.tsx` already makes to
+  `/stories/[id]/edit/upload` (same `expectedVersion`/`versionRef` bump), then
+  `editor.tf.insertNodes({ type: "image", mediaId, children: [{ text: "" }] })` at the cursor.
+  `ImageElement` resolves its own signed preview URL via the existing `mintPreviewUrlAction` (same
+  120s-signed-URL private-bucket path the gallery thumbnails use) -- this editor only ever shows a
+  draft, never approved/public media. `StoryContentEditor` gained an optional `imageUpload` prop
+  (`storyId`/`revisionId`/`versionRef`/`onVersionBumped`); the Image button only renders when it's
+  passed, but `ImagePlugin` is always registered so existing image blocks still render read-only
+  in any future caller without upload context.
+- `components/story/content-block-renderer.tsx`: new `ContentBlockMediaMap` prop (`mediaId → {url,
+altText, decorative}`) and an `"image"` case -- resolution is the caller's job since the answer
+  depends on context (signed private URL for a draft, plain public URL for a published story). A
+  `mediaId` missing from the map (e.g. detached after the content_json referencing it was saved)
+  renders nothing, never a broken-image icon, matching this component's existing "never throw on
+  bad data" posture.
+- **Gallery de-duplication, both reading surfaces**: an image placed inline no longer also appears
+  in the trailing gallery -- `app/(public)/stories/[id]/page.tsx` and
+  `app/(contributor)/stories/[id]/preview/page.tsx` both filter their gallery's media list against
+  `imageBlockMediaIds(parsedContent.data)` before handing it to `StoryGallery`/`PreviewGallery`.
+  New `components/story/preview-content-body.tsx` (client component) mints signed URLs for the
+  preview page's inline images the same way `preview-gallery.tsx` already did for gallery
+  thumbnails -- content_json's image blocks only carry a mediaId, never a URL, even in a draft.
+  `story-gallery.tsx`'s header comment (which flatly said inline images didn't exist) is updated.
+- **Contributor editing panel** (`image-upload-manager.tsx`): images referenced inline are excluded
+  from the panel entirely (not shown-but-undeletable) -- removing an image from the story _text_ is
+  what returns it to this panel, so there's no separate "can't remove, it's used in your text"
+  error state to build. This meant `reorder()` could no longer take raw array indices (Move
+  up/down previously spliced a contiguous range; with inline-placed images interleaved and hidden,
+  that would reorder across positions the panel doesn't show) -- changed to swap two specific
+  mediaIds' positions instead, driven by each visible item's nearest _visible_ neighbor.
+- New tests: `plate-serialize.test.ts` (image node round-trip, drops a structurally-bad mediaId),
+  `story-content-editor.test.tsx` (`editor.tf.insertNodes` for an image produces exactly `{type,
+mediaId}`, nothing else), `content-block-renderer.test.tsx` (resolves via the media map,
+  decorative→empty-alt, unresolvable→renders nothing), plus three new/updated cases in
+  `lib/validation/story.test.ts` replacing the now-superseded "rejects an image block" test from
+  the previous entry (images are allowed now, deliberately, with a narrower shape than "anything
+  goes"). `story-content-editor.test.tsx` also needed a `vi.mock()` for `mintPreviewUrlAction` --
+  importing the real Server Action module (`"use server"`, itself importing
+  `server-only`-guarded `lib/supabase/server`) into a component test broke under Vitest's plain
+  module resolution, since only Next's real bundler rewrites that import boundary for client code;
+  a real, caught-live packaging quirk, not a hypothetical one.
+- `npm run verify` clean: lint, typecheck, 272/272 tests, build. Live-verified in-browser end to
+  end: uploaded a real (canvas-generated) test image via the toolbar button, watched it render
+  inline with the selected-ring styling; separately confirmed a 1×1-pixel test image legitimately
+  failed sharp's processing (the upload route's own documented "still returns 200, records the
+  failure to the DB" behavior) and rendered as "Image unavailable," not a crash. Confirmed the
+  gallery panel correctly excludes both inline-placed images and shows the new
+  count-aware notice; confirmed the preview page renders the successfully-processed image inline
+  (via `PreviewContentBody`'s client-side signed-URL minting) and silently skips the failed one,
+  with no separate gallery section rendered underneath since every attached image was inline.

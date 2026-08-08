@@ -5,15 +5,17 @@ import Link from "next/link";
 import {
   revisionInputSchema,
   travelStyles,
+  imageBlockMediaIds,
   type StoryContentBlock,
 } from "@/lib/validation/story";
 import {
-  RichTextEditor,
-  type RichTextEditorHandle,
-} from "@/components/story/rich-text-editor";
+  StoryContentEditor,
+  type StoryContentEditorHandle,
+} from "@/components/story/story-content-editor";
 import { ImageUploadManager } from "@/components/story/image-upload-manager";
 import { ContentImportPanel } from "@/components/story/content-import-panel";
 import { MutationQueue } from "@/lib/story/mutation-queue";
+import { getErrorMessage } from "@/lib/errors";
 import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
 import type {
   ActiveRegion,
@@ -62,6 +64,18 @@ export type StoryEditFormProps = {
    * explicitly opts in.
    */
   showContentImport?: boolean;
+  /**
+   * True only for a story's very first revision (revision_number === 1,
+   * the self-service edit page's own signal) -- heads the page "New Story"
+   * instead of "Edit Story" for the moment right after /stories/new
+   * redirects here, since seeing "Edit Story" on a draft you just clicked
+   * "Start writing" on read as a mismatch. Once the story has gone through
+   * a submit/changes-requested/resubmit cycle (revision_number > 1), or
+   * for the editorial import page (which never passes this at all -- an
+   * editor preparing someone else's story is always "editing", never
+   * "creating their own new story"), it's "Edit Story" as before.
+   */
+  isNewStory?: boolean;
 };
 
 const FIELDS_SAVE_DEBOUNCE_MS = 600;
@@ -88,6 +102,7 @@ export function StoryEditForm({
   workTypes,
   tags,
   showContentImport,
+  isNewStory = false,
 }: StoryEditFormProps) {
   const versionRef = useRef(initialVersion);
   const [conflict, setConflict] = useState(false);
@@ -99,7 +114,7 @@ export function StoryEditForm({
     const q = new MutationQueue({
       onVersionConflict: () => setConflict(true),
       onError: (_slot, error) =>
-        setSaveError(error instanceof Error ? error.message : "Save failed."),
+        setSaveError(getErrorMessage(error, "Save failed.")),
       // `saving` must stay true whenever ANY mutation is queued or running
       // across ANY slot -- not merely "the mutation that just settled did."
       // Reading queue.hasPending() at the moment of settling (rather than
@@ -121,6 +136,10 @@ export function StoryEditForm({
   const [excerpt, setExcerpt] = useState(initialExcerpt);
   const [content, setContent] =
     useState<StoryContentBlock[]>(initialContentJson);
+  const inlineMediaIds = useMemo(
+    () => new Set(imageBlockMediaIds(content)),
+    [content],
+  );
   const [dateMode, setDateMode] = useState<"range" | "year">(
     initialTripYear ? "year" : "range",
   );
@@ -152,7 +171,7 @@ export function StoryEditForm({
   // React state (applyingImport, below) exists only to drive UI disabling.
   const applyingImportRef = useRef(false);
   const [applyingImport, setApplyingImport] = useState(false);
-  const richTextEditorRef = useRef<RichTextEditorHandle>(null);
+  const richTextEditorRef = useRef<StoryContentEditorHandle>(null);
 
   const queueFieldsSave = useCallback(
     (next: {
@@ -319,12 +338,12 @@ export function StoryEditForm({
               versionRef.current = result.version;
               setContent(blocks);
               // The rich text editor is deliberately uncontrolled (see
-              // rich-text-editor.tsx) -- setContent() alone updates the
+              // story-content-editor.tsx) -- setContent() alone updates the
               // React state used to build the NEXT snapshot, but the
-              // visible ProseMirror document needs its own imperative
-              // resync, or a subsequent keystroke's onChange would derive
-              // its snapshot from the stale pre-import document and
-              // silently undo the import on the next autosave.
+              // visible Plate document needs its own imperative resync, or
+              // a subsequent keystroke's onChange would derive its
+              // snapshot from the stale pre-import document and silently
+              // undo the import on the next autosave.
               richTextEditorRef.current?.replaceContent(blocks);
               setSaveError(null);
               bumpVersion();
@@ -437,7 +456,7 @@ export function StoryEditForm({
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          Edit Story
+          {isNewStory ? "New Story" : "Edit Story"}
         </h1>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-black/60 dark:text-white/60" aria-live="polite">
@@ -520,12 +539,18 @@ export function StoryEditForm({
         <div>
           <span className="block text-sm font-medium">Story</span>
           <div className="mt-1">
-            <RichTextEditor
+            <StoryContentEditor
               ref={richTextEditorRef}
               initialContent={initialContentJson}
               onChange={(blocks) => {
                 setContent(blocks);
                 scheduleSave({ content: blocks });
+              }}
+              imageUpload={{
+                storyId,
+                revisionId,
+                versionRef,
+                onVersionBumped: bumpVersion,
               }}
             />
           </div>
@@ -752,6 +777,7 @@ export function StoryEditForm({
               versionRef={versionRef}
               queue={queue}
               onVersionBumped={bumpVersion}
+              inlineMediaIds={inlineMediaIds}
             />
           </div>
         </div>

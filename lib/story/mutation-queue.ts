@@ -34,6 +34,8 @@
  *    never races an in-flight autosave.
  */
 
+import { getErrorMessage } from "@/lib/errors";
+
 export type MutationQueueOptions = {
   onVersionConflict?: (slot: string, error: unknown) => void;
   onError?: (slot: string, error: unknown) => void;
@@ -44,13 +46,7 @@ const STALE_VERSION_PATTERN = /stale version/i;
 
 export function isStaleVersionConflict(error: unknown): boolean {
   if (!error) return false;
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "object" && error !== null && "message" in error
-        ? String((error as { message: unknown }).message)
-        : String(error);
-  return STALE_VERSION_PATTERN.test(message);
+  return STALE_VERSION_PATTERN.test(getErrorMessage(error, String(error)));
 }
 
 export class MutationQueue {

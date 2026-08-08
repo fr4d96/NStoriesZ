@@ -8,6 +8,7 @@ import {
   linkContributorToUser,
   unlinkContributorFromUser,
 } from "@/lib/story/editorial-queries";
+import { getErrorMessage } from "@/lib/errors";
 
 export type ContributorsFormState = { error?: string; success?: string };
 
@@ -56,10 +57,7 @@ export async function createUnlinkedContributorAction(
     });
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not create the contributor record.",
+      error: getErrorMessage(error, "Could not create the contributor record."),
     };
   }
 
@@ -85,8 +83,7 @@ export async function linkContributorAction(
     await linkContributorToUser(contributorId.data, userId.data, note);
   } catch (error) {
     return {
-      error:
-        error instanceof Error ? error.message : "Could not link the account.",
+      error: getErrorMessage(error, "Could not link the account."),
     };
   }
 
@@ -111,10 +108,7 @@ export async function unlinkContributorAction(
     await unlinkContributorFromUser(contributorId.data, note);
   } catch (error) {
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not unlink the account.",
+      error: getErrorMessage(error, "Could not unlink the account."),
     };
   }
 

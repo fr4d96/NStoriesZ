@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getStoryPreview } from "@/lib/story/contributor-queries";
-import { storyContentSchema } from "@/lib/validation/story";
-import { ContentBlockRenderer } from "@/components/story/content-block-renderer";
+import { imageBlockMediaIds, storyContentSchema } from "@/lib/validation/story";
+import { PreviewContentBody } from "@/components/story/preview-content-body";
 import { PreviewGallery } from "@/components/story/preview-gallery";
 import { SubmitConsentPanel } from "@/components/story/submit-consent-panel";
 import { ContributorReviewPanel } from "@/components/story/contributor-review-panel";
@@ -37,6 +37,16 @@ export default async function StoryPreviewPage({
   if (!preview) notFound();
 
   const parsedContent = storyContentSchema.safeParse(preview.contentJson);
+
+  // Same "don't show an inline-placed image twice" rule as the public page
+  // (app/(public)/stories/[id]/page.tsx) -- see
+  // components/story/story-gallery.tsx's header comment.
+  const inlineMediaIds = new Set(
+    parsedContent.success ? imageBlockMediaIds(parsedContent.data) : [],
+  );
+  const galleryMedia = preview.media.filter(
+    (m) => !inlineMediaIds.has(m.mediaId),
+  );
 
   // Contributor-review "approve"/request-changes/decline (Prompt 4
   // Sub-phase 4): shown only to the linked contributor, only while the
@@ -80,15 +90,18 @@ export default async function StoryPreviewPage({
         Personal experience, not advice — shared by {preview.attributionValue}.
       </p>
 
-      {preview.media.length > 0 && (
+      {galleryMedia.length > 0 && (
         <div className="mt-6">
-          <PreviewGallery media={preview.media} />
+          <PreviewGallery media={galleryMedia} />
         </div>
       )}
 
       <div className="mt-8">
         {parsedContent.success ? (
-          <ContentBlockRenderer blocks={parsedContent.data} />
+          <PreviewContentBody
+            blocks={parsedContent.data}
+            media={preview.media}
+          />
         ) : (
           <p className="text-red-600 dark:text-red-400">
             This draft&apos;s content couldn&apos;t be rendered.
