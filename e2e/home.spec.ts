@@ -6,7 +6,7 @@ test("home page loads with title, heading, and working public nav", async ({
   const response = await page.goto("/");
   expect(response?.status()).toBeLessThan(400);
 
-  await expect(page).toHaveTitle(/Journiq/);
+  await expect(page).toHaveTitle(/Kakinotes/);
   await expect(
     page.getByRole("heading", {
       level: 1,

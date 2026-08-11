@@ -51,7 +51,7 @@ const CONTRIBUTOR_DETAIL_PAGE_PATH = /^\/contributors\/([^/]+)$/;
 
 function publicNotFound() {
   return new NextResponse(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Not found | Journiq</title></head>' +
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Not found | Kakinotes</title></head>' +
       "<body><h1>Page not found</h1><p>This page does not exist or is no longer available.</p>" +
       '<p><a href="/stories">Browse stories</a></p></body></html>',
     { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },

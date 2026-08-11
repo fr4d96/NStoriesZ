@@ -205,7 +205,7 @@ export default async function HomePage() {
       <section id="how" className="py-24">
         <div className="mx-auto max-w-[1160px] px-4 sm:px-6">
           <Reveal>
-            <Eyebrow>How Journiq helps</Eyebrow>
+            <Eyebrow>How Kakinotes helps</Eyebrow>
             <h2 className="journiq-heading mt-3 max-w-4xl">
               Practical insight, without losing the story
             </h2>

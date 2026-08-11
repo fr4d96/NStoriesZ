@@ -1,4 +1,4 @@
--- Journiq — local seed data.
+-- Kakinotes — local seed data.
 --
 -- Entirely fictional (Engineering Rule 22 — never real contributor names,
 -- stories, or images, seed data included). Runs against the LOCAL stack

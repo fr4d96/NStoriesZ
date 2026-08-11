@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 import { MobileNavToggle } from "@/components/mobile-nav-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -29,10 +30,8 @@ export function ContributorNav() {
           href="/"
           className="flex items-center gap-2.5 text-xl font-black tracking-tight"
         >
-          <span className="grid h-9 w-9 -rotate-12 place-items-center rounded-full border border-current">
-            ↗
-          </span>
-          Journiq
+          <BrandLogo className="border border-current" />
+          Kakinotes
         </Link>
 
         <nav

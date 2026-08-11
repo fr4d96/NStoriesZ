@@ -1,11 +1,11 @@
-# CLAUDE.md — Journiq
+# CLAUDE.md — Kakinotes
 
 This file orients any engineer (human or AI) working in this repository. Read it, and
 [docs/implementation-status.md](docs/implementation-status.md), before starting any task.
 
 ## Product context
 
-Journiq is a public platform for detailed, written first-person stories from people
+Kakinotes is a public platform for detailed, written first-person stories from people
 who completed or are completing a Working Holiday Visa (WHV) experience in New Zealand.
 
 - The product is **stories-first**: structured, searchable, trustworthy written accounts with images —

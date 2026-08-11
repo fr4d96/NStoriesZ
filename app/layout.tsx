@@ -17,8 +17,8 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Journiq",
-    template: "%s | Journiq",
+    default: "Kakinotes",
+    template: "%s | Kakinotes",
   },
   description:
     "Real, detailed Working Holiday Visa stories from people who've done a working holiday in New Zealand.",
