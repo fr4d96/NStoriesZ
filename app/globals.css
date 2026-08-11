@@ -81,7 +81,23 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: var(--font-geist-sans);
+  /*
+   * App-wide default typeface: Avenir Next, a macOS/iOS-only system font
+   * (also used by Apple's own apps, e.g. Bear.app). Not bundled -- Avenir
+   * Next is Apple/Linotype-licensed, not freely redistributable -- so this
+   * relies on the font being present on the reader's own system, with the
+   * fallback stack covering everyone else (Windows/Linux/Android never see
+   * Avenir Next at all). This is the same stack as
+   * MARKDOWN_EDITOR_FONT_FAMILY in components/story/editor/
+   * markdown-live-decorations.ts, kept identical for consistency -- that
+   * scoped declaration is intentionally still explicit rather than
+   * inherited, since the CodeMirror editor renders into its own `.cm-content`
+   * box that doesn't reliably inherit page-level font-family in all
+   * browsers.
+   */
+  --font-sans:
+    "Avenir Next", "Avenir", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
@@ -184,7 +200,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
 
 :focus-visible {
