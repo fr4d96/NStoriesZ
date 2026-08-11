@@ -3,14 +3,13 @@ import {
   isSafeHref,
   storyContentBlockSchema,
   storyContentSchema,
+  storyContentText,
+  markdownToStoryContent,
+  imageBlockMediaIds,
   revisionInputSchema,
   submitRevisionSchema,
   createReportSchema,
 } from "./story";
-
-function run(text: string, marks?: unknown[]) {
-  return marks ? { text, marks } : { text };
-}
 
 describe("isSafeHref", () => {
   it("accepts absolute https and http URLs", () => {
@@ -53,124 +52,99 @@ describe("isSafeHref", () => {
 });
 
 describe("storyContentBlockSchema", () => {
-  it("accepts a paragraph block with plain-text runs", () => {
+  it("accepts a markdown block with plain text", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: [run("Hello")],
+      type: "markdown",
+      text: "Hello world",
     });
     expect(result.success).toBe(true);
   });
 
-  it("accepts a heading, quote, and list block", () => {
-    expect(
-      storyContentBlockSchema.safeParse({
-        type: "heading",
-        level: 2,
-        text: [run("Intro")],
-      }).success,
-    ).toBe(true);
-    expect(
-      storyContentBlockSchema.safeParse({
-        type: "quote",
-        text: [run("A quote")],
-      }).success,
-    ).toBe(true);
-    expect(
-      storyContentBlockSchema.safeParse({
-        type: "list",
-        style: "unordered",
-        items: [[run("one")], [run("two")]],
-      }).success,
-    ).toBe(true);
-  });
-
-  it("preserves interior whitespace on adjacent runs split at a mark boundary (regression: this used to render 'picking apples in' as 'pickingapplesin')", () => {
+  it("accepts headings, quotes, lists, checklists, links, tables, and image embeds", () => {
+    const text = [
+      "## Intro",
+      "",
+      "A paragraph with **bold** and *italic* text.",
+      "",
+      "> A quote",
+      "",
+      "- one",
+      "- two",
+      "",
+      "- [ ] todo item",
+      "- [x] done item",
+      "",
+      "[a link](https://example.com)",
+      "",
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+      "",
+      "![[11111111-1111-4111-8111-111111111111]]",
+    ].join("\n");
     const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: [run("picking "), run("apples", ["bold"]), run(" in Hawke's Bay.")],
+      type: "markdown",
+      text,
     });
     expect(result.success).toBe(true);
-    if (result.success && result.data.type === "paragraph") {
-      expect(result.data.text.map((r) => r.text)).toEqual([
-        "picking ",
-        "apples",
-        " in Hawke's Bay.",
-      ]);
-    }
   });
 
-  it("rejects a run that is only whitespace", () => {
+  it("rejects a leading # (h1) heading -- reserved for the story title", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: [run("   ")],
+      type: "markdown",
+      text: "# Not allowed",
     });
     expect(result.success).toBe(false);
   });
 
-  it("accepts overlapping marks on a single run", () => {
+  it("allows a literal '#' that isn't followed by a space (not a heading)", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: [
-        run("bold italic link", [
-          "bold",
-          "italic",
-          { type: "link", href: "https://example.com" },
-        ]),
-      ],
+      type: "markdown",
+      text: "Room #42 was great.",
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects a duplicate mark kind on the same run", () => {
+  it("rejects standard ![alt](url) image syntax -- images must use the embed token", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: [run("x", ["bold", "bold"])],
+      type: "markdown",
+      text: "![a photo](https://example.com/photo.jpg)",
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects a run with an unsafe link href", () => {
+  it("rejects a link with an unsafe href", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: [run("x", [{ type: "link", href: "javascript:alert(1)" }])],
+      type: "markdown",
+      text: "[click me](javascript:alert(1))",
     });
     expect(result.success).toBe(false);
   });
 
-  it("accepts an image block referencing a media id, and nothing else", () => {
+  it("accepts a link with a safe href", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "image",
-      mediaId: "11111111-1111-4111-8111-111111111111",
+      type: "markdown",
+      text: "[click me](https://example.com)",
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects an image block with a non-uuid or missing mediaId", () => {
+  it("rejects empty or whitespace-only text", () => {
     expect(
-      storyContentBlockSchema.safeParse({
-        type: "image",
-        mediaId: "not-a-uuid",
-      }).success,
+      storyContentBlockSchema.safeParse({ type: "markdown", text: "" }).success,
     ).toBe(false);
-    expect(storyContentBlockSchema.safeParse({ type: "image" }).success).toBe(
-      false,
-    );
+    expect(
+      storyContentBlockSchema.safeParse({ type: "markdown", text: "   " })
+        .success,
+    ).toBe(false);
   });
 
-  it("rejects an image block carrying altText/caption -- that data lives on story_revision_media, not content_json", () => {
+  it("rejects text over the document-wide character ceiling", () => {
     const result = storyContentBlockSchema.safeParse({
-      type: "image",
-      mediaId: "11111111-1111-4111-8111-111111111111",
-      altText: "should not be here",
+      type: "markdown",
+      text: "x".repeat(50_001),
     });
-    // Extra keys are stripped by z.object() by default, not rejected --
-    // this test documents that the schema does NOT define an altText/
-    // caption field for images, not that it errors on one.
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual({
-      type: "image",
-      mediaId: "11111111-1111-4111-8111-111111111111",
-    });
+    expect(result.success).toBe(false);
   });
 
   it("rejects an unknown block type", () => {
@@ -180,41 +154,13 @@ describe("storyContentBlockSchema", () => {
     });
     expect(result.success).toBe(false);
   });
-
-  it("rejects an empty list", () => {
-    const result = storyContentBlockSchema.safeParse({
-      type: "list",
-      style: "ordered",
-      items: [],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a block whose combined run text exceeds its ceiling", () => {
-    const longRuns = Array.from({ length: 10 }, () => run("x".repeat(600)));
-    const result = storyContentBlockSchema.safeParse({
-      type: "paragraph",
-      text: longRuns,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a heading with a disallowed level", () => {
-    const result = storyContentBlockSchema.safeParse({
-      type: "heading",
-      level: 1,
-      text: [run("Intro")],
-    });
-    expect(result.success).toBe(false);
-  });
 });
 
-describe("storyContentSchema", () => {
-  it("accepts an array of valid blocks", () => {
-    const result = storyContentSchema.safeParse([
-      { type: "heading", level: 2, text: [run("Intro")] },
-      { type: "paragraph", text: [run("Body")] },
-    ]);
+describe("storyContentSchema / storyContentText / markdownToStoryContent", () => {
+  it("accepts exactly one markdown block", () => {
+    const result = storyContentSchema.safeParse(
+      markdownToStoryContent("Hello world"),
+    );
     expect(result.success).toBe(true);
   });
 
@@ -223,13 +169,39 @@ describe("storyContentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects content over the document-wide character ceiling", () => {
-    const blocks = Array.from({ length: 200 }, () => ({
-      type: "paragraph" as const,
-      text: [run("x".repeat(4999))],
-    }));
-    const result = storyContentSchema.safeParse(blocks);
+  it("rejects more than one block", () => {
+    const result = storyContentSchema.safeParse([
+      { type: "markdown", text: "a" },
+      { type: "markdown", text: "b" },
+    ]);
     expect(result.success).toBe(false);
+  });
+
+  it("round-trips text through markdownToStoryContent/storyContentText", () => {
+    const blocks = markdownToStoryContent("Some **bold** text");
+    expect(storyContentText(blocks)).toBe("Some **bold** text");
+  });
+
+  it("storyContentText returns '' for malformed content", () => {
+    expect(storyContentText([])).toBe("");
+  });
+});
+
+describe("imageBlockMediaIds", () => {
+  it("extracts every embedded mediaId in order", () => {
+    const blocks = markdownToStoryContent(
+      "![[11111111-1111-4111-8111-111111111111]] and ![[22222222-2222-4222-8222-222222222222]]",
+    );
+    expect(imageBlockMediaIds(blocks)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ]);
+  });
+
+  it("returns an empty array when there are no embeds", () => {
+    expect(
+      imageBlockMediaIds(markdownToStoryContent("No images here.")),
+    ).toEqual([]);
   });
 });
 
@@ -237,7 +209,7 @@ describe("revisionInputSchema", () => {
   it("accepts valid input with dates in order", () => {
     const result = revisionInputSchema.safeParse({
       title: "My trip",
-      contentJson: [{ type: "paragraph", text: [run("Hello")] }],
+      contentJson: markdownToStoryContent("Hello"),
       tripStartDate: "2024-01-01",
       tripEndDate: "2024-03-01",
     });
@@ -247,7 +219,7 @@ describe("revisionInputSchema", () => {
   it("rejects trip end date before start date", () => {
     const result = revisionInputSchema.safeParse({
       title: "My trip",
-      contentJson: [{ type: "paragraph", text: [run("Hello")] }],
+      contentJson: markdownToStoryContent("Hello"),
       tripStartDate: "2024-03-01",
       tripEndDate: "2024-01-01",
     });
@@ -257,7 +229,7 @@ describe("revisionInputSchema", () => {
   it("rejects an empty title", () => {
     const result = revisionInputSchema.safeParse({
       title: "",
-      contentJson: [{ type: "paragraph", text: [run("Hello")] }],
+      contentJson: markdownToStoryContent("Hello"),
     });
     expect(result.success).toBe(false);
   });

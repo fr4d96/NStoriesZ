@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractMediaIds } from "@/lib/story/markdown-media";
 
 // --- Safe-link validation -------------------------------------------------
 //
@@ -36,207 +37,114 @@ export function isSafeHref(raw: string): boolean {
   }
 }
 
-// --- Controlled story content — block/run/mark schema ---------------------
+// --- Controlled story content — Markdown text block ------------------------
 //
-// Engineering Rule 6/7: structured JSON only, never raw/arbitrary HTML. An
-// "image" block is a reference (mediaId) to an already-uploaded,
-// already-rights-confirmed story_revision_media row -- never a raw image
-// URL -- so the actual file, its approval/rights-confirmation state, and
-// its alt text/caption/decorative flag all still live entirely outside
-// content_json (see imageBlockSchema's own comment below; docs/
-// architecture.md has the fuller rationale). Each block's text is an array
-// of "runs" rather than a bare string so inline marks (bold/italic/link)
-// can apply to part of a block's text — this is a deliberate extension
-// beyond Prompt 3's original plain-string shape; the `content_json` column
-// itself is a loosely-typed `jsonb` array (only `jsonb_typeof(content_json)
-// = 'array'` is checked at the DB layer, confirmed by reading
-// supabase/migrations/20260803090200_story_revisions.sql), so no migration
-// is needed for a new block *shape* — only server-side reference-integrity
-// checks like the one save_revision_draft gained for image blocks (see
-// supabase/migrations/20260808130000_content_json_image_blocks.sql).
-
-const MAX_MARKS_PER_RUN = 3; // bold + italic + link, each at most once
-const MAX_RUNS_PER_BLOCK = 100;
+// Engineering Rule 6/7: structured JSON only, never raw/arbitrary HTML.
+// `content_json` is still a jsonb array of typed blocks (Rule 6's "defined
+// schema of blocks"), but collapses to exactly one block: a sanitized
+// Markdown string. The Markdown editor (components/story/story-content-editor.tsx)
+// renders this live as you type; the public/preview/moderation renderer
+// (content-block-renderer.tsx) parses it with react-markdown/remark-gfm into
+// React elements from an AST -- never `dangerouslySetInnerHTML`, and raw
+// HTML in the source is never passed through (no rehype-raw), so arbitrary
+// HTML still can't reach the page.
+//
+// Images stay reference-only, exactly as before: a real `![alt](url)` is
+// rejected outright below, and the only way to embed an image is the
+// non-standard `![[<mediaId>]]` token (lib/story/markdown-media.ts), which
+// points at an already-uploaded, already-rights-confirmed
+// story_revision_media row. That id must belong to the same revision's
+// story_revision_media -- enforced server-side in save_revision_draft (see
+// the migration that updated this check for the Markdown schema), not just
+// here, since a client could otherwise reference another story's private
+// image by guessing/copying its id.
+//
+// `content_json` itself is a loosely-typed `jsonb` array at the DB layer
+// (only `jsonb_typeof(content_json) = 'array'` is checked, confirmed by
+// reading supabase/migrations/20260803090200_story_revisions.sql), so no
+// migration was needed for this block-shape change beyond the
+// reference-integrity check.
 const MAX_DOCUMENT_CHARACTERS = 50_000;
 
-const linkMarkSchema = z.object({
-  type: z.literal("link"),
-  href: z.string().refine(isSafeHref, {
-    message: "Links must be http(s) or a root-relative path.",
-  }),
-});
+// Markdown link syntax: `[text](href)`. Deliberately simple (no nested
+// brackets/parens support) -- good enough to extract every link an editor
+// or importer could plausibly produce, and a false negative here just means
+// a safe-looking link isn't caught (still rejected safely elsewhere), while
+// a false positive only over-validates, never under-validates.
+const MARKDOWN_LINK_REGEX = /\[[^\]\n]*\]\(([^)\n]*)\)/g;
 
-const markSchema = z.union([
-  z.literal("bold"),
-  z.literal("italic"),
-  linkMarkSchema,
-]);
+// Standard `![alt](url)` image syntax is never allowed -- images must use
+// the `![[mediaId]]` embed token instead (see the module comment above).
+const MARKDOWN_IMAGE_REGEX = /!\[[^\]\n]*\]\([^)\n]*\)/;
 
-export type StoryMark = z.infer<typeof markSchema>;
-
-function markKind(mark: StoryMark): "bold" | "italic" | "link" {
-  return typeof mark === "string" ? mark : mark.type;
+// A leading `# ` (h1) is reserved for the story title, never story body
+// content -- h2-h6 are fine. Checked per-line, ignoring fenced code blocks
+// so a `# ` inside a code sample isn't mistaken for a heading.
+function hasH1Heading(markdown: string): boolean {
+  let inFence = false;
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (/^\s{0,3}#\s+\S/.test(line) && !/^\s{0,3}##/.test(line)) {
+      return true;
+    }
+  }
+  return false;
 }
 
-function noDuplicateMarkKinds(marks: StoryMark[] | undefined): boolean {
-  if (!marks || marks.length === 0) return true;
-  const kinds = marks.map(markKind);
-  return new Set(kinds).size === kinds.length;
+function markdownLinkHrefs(markdown: string): string[] {
+  return Array.from(
+    markdown.matchAll(MARKDOWN_LINK_REGEX),
+    (match) => match[1],
+  );
 }
-
-function textRunSchema(maxTextLength: number) {
-  return z
-    .object({
-      // Deliberately NOT `.trim()`ed: a run is often one interior slice of
-      // continuous text split at a mark boundary (e.g. "picking " / "apples"
-      // (bold) / " in Hawke's Bay..."), so its own leading/trailing
-      // whitespace is real inter-word spacing that belongs to the
-      // surrounding text, not padding to strip. Trimming here previously
-      // deleted that spacing (a real bug, found by actually bolding a
-      // mid-sentence word and seeing "picking**apples**in" render with no
-      // spaces at all). Still reject a run that's nothing but whitespace.
-      text: z
-        .string()
-        .max(maxTextLength)
-        .refine((s) => s.trim().length > 0, {
-          message: "Text cannot be empty or only whitespace.",
-        }),
-      marks: z.array(markSchema).max(MAX_MARKS_PER_RUN).optional(),
-    })
-    .refine((run) => noDuplicateMarkKinds(run.marks), {
-      message: "A run cannot repeat the same mark twice.",
-      path: ["marks"],
-    });
-}
-
-export type StoryTextRun = z.infer<ReturnType<typeof textRunSchema>>;
-
-function runsLength(runs: StoryTextRun[]): number {
-  return runs.reduce((sum, run) => sum + run.text.length, 0);
-}
-
-function runsSchema(maxTotalLength: number, minRuns = 1) {
-  return z
-    .array(textRunSchema(maxTotalLength))
-    .min(minRuns)
-    .max(MAX_RUNS_PER_BLOCK)
-    .refine((runs) => runsLength(runs) <= maxTotalLength, {
-      message: `Text is too long (max ${maxTotalLength} characters).`,
-    });
-}
-
-const paragraphBlockSchema = z.object({
-  type: z.literal("paragraph"),
-  text: runsSchema(5000),
-});
-
-const headingBlockSchema = z.object({
-  type: z.literal("heading"),
-  level: z.union([z.literal(2), z.literal(3)]),
-  text: runsSchema(200),
-});
-
-const quoteBlockSchema = z.object({
-  type: z.literal("quote"),
-  text: runsSchema(2000),
-});
-
-const listBlockSchema = z.object({
-  type: z.literal("list"),
-  style: z.enum(["ordered", "unordered"]),
-  items: z.array(runsSchema(1000)).min(1).max(50),
-});
-
-// A table cell may be empty (min 0 runs) -- unlike other blocks, a blank
-// cell is a normal, meaningful part of a grid's shape, not "no content" to
-// be dropped.
-const tableCellSchema = runsSchema(500, 0);
-const tableRowSchema = z.array(tableCellSchema).min(1).max(20);
-
-const tableBlockSchema = z.object({
-  type: z.literal("table"),
-  rows: z.array(tableRowSchema).min(1).max(50),
-});
-
-export type StoryTableRow = z.infer<typeof tableRowSchema>;
-
-// A reference, not the image itself -- deliberately holds nothing but the
-// id. altText/caption/decorative already live on the story_revision_media
-// row this points at (see components/story/image-upload-manager.tsx); this
-// block only records *where in the text* an already-uploaded, already
-// rights-confirmed image sits. Duplicating alt text/caption here would
-// recreate exactly the "duplicate captioned-image state" docs/architecture.md
-// says images were kept out of content_json to avoid. The referenced id
-// must belong to the same revision's story_revision_media -- enforced
-// server-side in save_revision_draft (see the migration that added this
-// block type), not just by this schema, since a client could otherwise
-// reference another story's private image by guessing/copying its id.
-const imageBlockSchema = z.object({
-  type: z.literal("image"),
-  mediaId: z.uuid(),
-});
 
 export const storyContentBlockSchema = z.discriminatedUnion("type", [
-  paragraphBlockSchema,
-  headingBlockSchema,
-  quoteBlockSchema,
-  listBlockSchema,
-  tableBlockSchema,
-  imageBlockSchema,
+  z.object({
+    type: z.literal("markdown"),
+    text: z
+      .string()
+      .trim()
+      .min(1, "Your story needs at least some content.")
+      .max(MAX_DOCUMENT_CHARACTERS, {
+        message: `Story content is too long (max ${MAX_DOCUMENT_CHARACTERS} characters).`,
+      })
+      .refine((text) => !hasH1Heading(text), {
+        message:
+          "Use ## or smaller for headings inside your story — the title is your only # heading.",
+      })
+      .refine((text) => !MARKDOWN_IMAGE_REGEX.test(text), {
+        message:
+          "Images can't be pasted as links — use the image button to insert one.",
+      })
+      .refine(
+        (text) => markdownLinkHrefs(text).every((href) => isSafeHref(href)),
+        { message: "Links must be http(s) or a root-relative path." },
+      ),
+  }),
 ]);
 
 export type StoryContentBlock = z.infer<typeof storyContentBlockSchema>;
 
-/** Every "image" block's mediaId referenced in a content_json document, in document order. */
+/** The single Markdown block's text, or "" if content isn't well-formed. */
+export function storyContentText(blocks: StoryContentBlock[]): string {
+  return blocks[0]?.type === "markdown" ? blocks[0].text : "";
+}
+
+/** Wraps a Markdown string in the one-block content_json shape. */
+export function markdownToStoryContent(text: string): StoryContentBlock[] {
+  return [{ type: "markdown", text }];
+}
+
+/** Every image mediaId embedded in a content_json document, in document order. */
 export function imageBlockMediaIds(blocks: StoryContentBlock[]): string[] {
-  return blocks
-    .filter(
-      (block): block is Extract<StoryContentBlock, { type: "image" }> =>
-        block.type === "image",
-    )
-    .map((block) => block.mediaId);
+  return extractMediaIds(storyContentText(blocks));
 }
 
-function blockCharacterCount(block: StoryContentBlock): number {
-  if (block.type === "list") {
-    return block.items.reduce((sum, item) => sum + runsLength(item), 0);
-  }
-  if (block.type === "table") {
-    return block.rows.reduce(
-      (sum, row) =>
-        sum + row.reduce((rowSum, cell) => rowSum + runsLength(cell), 0),
-      0,
-    );
-  }
-  if (block.type === "image") {
-    return 0;
-  }
-  return runsLength(block.text);
-}
-
-export const storyContentSchema = z
-  .array(storyContentBlockSchema)
-  .min(1, "Your story needs at least some content.")
-  .max(200)
-  .refine(
-    (blocks) =>
-      blocks.reduce((sum, block) => sum + blockCharacterCount(block), 0) <=
-      MAX_DOCUMENT_CHARACTERS,
-    {
-      message: `Story content is too long (max ${MAX_DOCUMENT_CHARACTERS} characters).`,
-    },
-  )
-  .refine(
-    (blocks) =>
-      blocks.every(
-        (block) =>
-          block.type !== "table" ||
-          block.rows.every((row) => row.length === block.rows[0].length),
-      ),
-    {
-      message: "Every row in a table must have the same number of columns.",
-    },
-  );
+export const storyContentSchema = z.array(storyContentBlockSchema).length(1);
 
 // Mirrors supabase/migrations/20260803090200_story_revisions.sql's CHECK
 // constraints — duplicated deliberately for fast/friendly form errors; the

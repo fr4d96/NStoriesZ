@@ -1,4 +1,7 @@
-import type { StoryContentBlock, StoryMark } from "@/lib/validation/story";
+import {
+  storyContentText,
+  type StoryContentBlock,
+} from "@/lib/validation/story";
 
 // Advisory-only heuristics for the founding-catalogue readiness workflow.
 // These never block submission/approval and are not run as part of any
@@ -32,50 +35,24 @@ export type QualityCheckInput = {
   media?: QualityCheckMediaInput[];
 };
 
-function runsPlainText(runs: { text: string }[]): string {
-  return runs.map((run) => run.text).join("");
-}
-
-function blockPlainText(block: StoryContentBlock): string {
-  if (block.type === "list") {
-    return block.items.map(runsPlainText).join("\n");
-  }
-  if (block.type === "table") {
-    return block.rows.map((row) => row.map(runsPlainText).join(" ")).join("\n");
-  }
-  if (block.type === "image") {
-    return "";
-  }
-  return runsPlainText(block.text);
-}
-
+// Strips Markdown syntax down to roughly what a reader would see -- good
+// enough for word-count/regex heuristics below, not a full renderer. Media
+// embed tokens (![[mediaId]]) contribute no words, matching the old image
+// block's "" contribution.
 function extractPlainText(blocks: StoryContentBlock[]): string {
-  return blocks.map(blockPlainText).join("\n");
+  return storyContentText(blocks)
+    .replace(/!\[\[[0-9a-fA-F-]{36}\]\]/g, "")
+    .replace(/^ {0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/(?<!\*)\*(?!\*)|(?<!_)_(?!_)/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
 }
+
+const MARKDOWN_LINK_RE = /\[[^\]\n]*\]\([^)\n]*\)/g;
 
 function countLinkMarks(blocks: StoryContentBlock[]): number {
-  let count = 0;
-  const countRuns = (runs: { marks?: StoryMark[] }[]) => {
-    for (const run of runs) {
-      if (
-        run.marks?.some(
-          (mark) => typeof mark === "object" && mark.type === "link",
-        )
-      ) {
-        count += 1;
-      }
-    }
-  };
-  for (const block of blocks) {
-    if (block.type === "list") {
-      block.items.forEach(countRuns);
-    } else if (block.type === "table") {
-      block.rows.forEach((row) => row.forEach(countRuns));
-    } else if (block.type !== "image") {
-      countRuns(block.text);
-    }
-  }
-  return count;
+  const matches = storyContentText(blocks).match(MARKDOWN_LINK_RE);
+  return matches ? matches.length : 0;
 }
 
 // Deliberately small, conservative word lists -- these exist to prompt a

@@ -1,13 +1,13 @@
-# Implementation Status — Journiq
+# Implementation Status — Kakinotes
 
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-08 (added inline image blocks, backed by the existing upload/rights/approval
-pipeline; see "Added inline image blocks to the story editor" below).
+Last updated: 2026-08-12 (story editor images render inline and are drag-resizable, Bear.app-style;
+see "Inline, drag-resizable images in the story editor" below).
 
 **2026-08-06 — Rebrand + home hero redesign.** Product renamed from "WHV Compass NZ" to
-"Journiq" across all user-facing copy, metadata, `package.json`/`package-lock.json`, and docs
+"Kakinotes" across all user-facing copy, metadata, `package.json`/`package-lock.json`, and docs
 (historical migration/seed identifiers like `whv-compass-terms-2026-08` and disposable test
 emails were deliberately left untouched — they're data-level identifiers, not branding, and
 `supabase/migrations/` is not edited retroactively). The home hero
@@ -1968,7 +1968,7 @@ back every page):
   required here too).
 - `app/(public)/page.tsx`: every section's wording replaced with the mockup's copy verbatim
   (hero, "Featured journals", "Find your match", "Browse by interest", "Across the motu", "How
-  Journiq helps" 3-step block replacing the old 3-column trust grid, the community-note quote, and
+  Kakinotes helps" 3-step block replacing the old 3-column trust grid, the community-note quote, and
   the "Pass it forward" closing band), and reordered to the mockup's flow. Hero CTAs now anchor to
   in-page sections (`#stories`, `#match`) exactly as the mockup does, since those sections now
   exist on this page.
@@ -1992,7 +1992,7 @@ back every page):
   if the intent was broader.
 - Live-verified in-browser (mobile then desktop, light and dark) against the same already-running
   dev server: hero photo/animation/pause control, forest/sand/orange palette in both themes, new
-  section copy and order, "How Journiq helps" steps, quote section, dark "Pass it forward" band.
+  section copy and order, "How Kakinotes helps" steps, quote section, dark "Pass it forward" band.
   `npm run verify` clean throughout (252/252 unit tests, lint, typecheck, build).
 
 **Second follow-up (same day): three bugs from that pass, all fixed and live-verified.**
@@ -2402,3 +2402,261 @@ mediaId}`, nothing else), `content-block-renderer.test.tsx` (resolves via the me
   count-aware notice; confirmed the preview page renders the successfully-processed image inline
   (via `PreviewContentBody`'s client-side signed-URL minting) and silently skips the failed one,
   with no separate gallery section rendered underneath since every attached image was inline.
+
+**2026-08-08 — Toolbar alignment fix + underline/size/color/highlight/align/emoji.**
+
+Two asks: (1) the toolbar's controls weren't packed left-to-right (`FixedToolbar`'s `justify-between`
+was spreading multiple top-level `ToolbarGroup`s evenly across the full width, producing large
+uneven gaps -- Plate's own registry pattern wraps every group in one shared `flex w-full` div so
+`justify-between` never sees more than one child; fixed by matching that). (2) add Text Size,
+Underline, Text Colour, Text Highlighter, Text Alignment, and Emoji -- explicitly "in a fresh
+context," i.e. without re-litigating the closed-schema question again. None of the five conflict
+with any Engineering Rule (unlike the inline-image request two entries up) -- they're pure text
+formatting, so scoped and built directly rather than via another `AskUserQuestion`.
+
+- New `lib/story/text-style-palette.ts`: bounded name↔value maps for fontSize (small/large/huge,
+  "normal" = no mark at all)/color/highlight (8 named colors each, Notion's published palette
+  values). Shared by the schema (enums against these names), the serializer (reverse-lookup: a raw
+  hex/px leaf value outside the map has its mark dropped, same posture as an unsafe link href), and
+  the toolbar buttons (which only ever call `addMark()` with a palette value -- no freeform color
+  picker or numeric size input was built, unlike Plate's own registry versions of these buttons).
+- `lib/validation/story.ts`: `markSchema` gained `"underline"` (a plain literal, same shape as
+  bold/italic) and three value-carrying marks (`fontSize`/`color`/`highlight`, each enum-bound to
+  the palette). `MAX_MARKS_PER_RUN` raised 3→7. `paragraph`/`heading`/`quote` blocks gained an
+  optional `align` (`left`/`center`/`right`/`justify`; undefined means left, mirroring how
+  `decorative` etc. default false when absent elsewhere in this schema) -- `list`/`table`/`image`
+  blocks don't get one, matching Plate's own `TextAlignPlugin` target scope.
+- `lib/story/plate-serialize.ts`: new `PlateText` leaf fields (`underline`, `fontSize`, `color`,
+  `backgroundColor`) and `PlateElement.align`, converted both directions through the palette's
+  reverse-lookup helpers.
+- New packages: `@platejs/basic-styles` (FontColorPlugin/FontBackgroundColorPlugin/FontSizePlugin/
+  TextAlignPlugin -- Underline itself was already available from the already-installed
+  `@platejs/basic-nodes`). `TextAlignPlugin` is configured with `targetPlugins: ["p", "h2", "h3",
+"blockquote"]`, deliberately including blockquote (the upstream registry default only targets
+  paragraphs), since `quoteBlockSchema` also carries `align`.
+- New `components/story/editor/`: `font-size-toolbar-button.tsx` (bounded 4-item dropdown, not
+  Plate's freeform +/- pixel input), `color-toolbar-button.tsx` (one generic swatch-grid component
+  parameterized by nodeType+palette, reused for both Text color and Highlight -- not Plate's
+  registry version, a freeform hex picker with a persisted custom-color history), `align-toolbar-
+button.tsx` (adapted from the registry, trimmed to left/center/right/justify, never "start"/
+  "end"), `emoji-toolbar-button.tsx` (a curated 32-emoji grid inserting plain unicode text via
+  `editor.tf.insertText()` -- not Plate's `@platejs/emoji` package, which is a searchable database
+  with `:colon:` autocomplete; not installed, not needed for a fixed reaction set). Underline
+  reuses the existing `MarkToolbarButton` (nodeType="underline"), same as Bold/Italic.
+- `components/story/content-block-renderer.tsx`: `applyMark()` gained cases for underline (`<u>`)
+  and the three value-carrying marks (inline `style` from the palette maps -- a React style object,
+  not a parsed string, so this isn't an HTML-injection path the way `dangerouslySetInnerHTML` would
+  be). Paragraph/heading/quote gained `style={{ textAlign: block.align }}` when `align` is set.
+- Existing tests updated, not just added to: two tests in `story-content-editor.test.tsx` that
+  previously asserted underline was structurally absent (written two entries ago, before this ask)
+  now assert the opposite and were renamed/narrowed to just strike/code/hr.
+- New tests: value/enum acceptance and out-of-palette rejection in `story.test.ts`; leaf↔mark
+  round-trip and out-of-palette-drop in `plate-serialize.test.ts`; real-editor-transform tests
+  (`editor.tf.underline.toggle()`, `.fontSize/.color/.backgroundColor.addMark()`,
+  `.textAlign.setNodes()` -- the exact commands each toolbar button calls) in
+  `story-content-editor.test.tsx`; rendered-output tests (real `<u>`/`<mark>` tags, resolved inline
+  styles, no `style` attribute at all for default-left) in `content-block-renderer.test.tsx`.
+- `npm run verify` clean: lint, typecheck, 283/283 tests, build. Live-verified in-browser: toolbar
+  renders as one packed left-to-right row (Undo/Redo | B/I/U | size/color/highlight | H2/H3/Quote |
+  lists/align | link/table/image/emoji); underline, text color (swatch grid, "Clear" option),
+  highlight, and huge font size all applied correctly and simultaneously to real selected/typed
+  text (confirmed via the live DOM: real `style="color:...; background-color:...; font-size:28px"`
+  values matching the palette exactly); center alignment applied to a real paragraph; emoji
+  inserted as plain unicode text. Full save → reload → preview-page round trip confirmed every one
+  of these renders correctly through the independent `ContentBlockRenderer` path, not just in the
+  live editor.
+
+**2026-08-08 — Fixed two real bugs in the previous entry's work: illegible highlighted text, and
+an invisible bullet marker.**
+
+Both reported by the user testing the previous entry's build; both were real, not hypothetical.
+
+- **Highlighted text unreadable**: `applyMark()`'s `"highlight"` case set `color: "inherit"`,
+  meaning highlighted text picked up the surrounding page's own text color -- near-white in dark
+  mode, on top of a pale-yellow (etc.) background. Fixed to a fixed `HIGHLIGHT_TEXT_COLOR` (now
+  `TEXT_COLORS.gray`, an existing palette entry, not a new value) that stays legible against every
+  highlight color regardless of the page's theme.
+- The editor had the identical bug, but the initial fix attempt for it (`FontBackgroundColorPlugin
+.withComponent(HighlightLeaf)`, a custom leaf meant to force the same fixed text color) turned out
+  to have **no effect at all** -- confirmed by inspecting the actual rendered DOM, which showed
+  plain default-rendered spans, not the custom component's `<mark>`. Root cause: FontColorPlugin/
+  FontBackgroundColorPlugin are "nodeProps injectors" (`@platejs/basic-styles`) -- they decorate
+  whatever the leaf's _default_ render produces with extra inline style; they don't route through a
+  per-plugin component the way Bold/Italic/Underline/Link do, so overriding one via
+  `.withComponent()` silently does nothing. `highlight-leaf.tsx` was deleted. Fixed instead in
+  `color-toolbar-button.tsx`'s (now-exported) `setColorMark()`: setting a highlight now also pairs
+  a `color` mark (the same gray) unless the run already has an independently-chosen color, and
+  clearing a highlight clears that paired color back out -- but only if it still equals what the
+  pairing itself set, so a color the contributor picked on purpose is never silently discarded.
+  Editor and published output now use the exact same fixed color.
+- **Bullet marker invisible/clipped**: `paragraph-node.tsx`'s list-item branch had `px-0` (zero
+  horizontal padding). `list-style-position` defaults to "outside", which renders the marker to the
+  _left_ of the padding box -- with none, the bullet rendered flush against (or past) the editor's
+  own left edge. Fixed with `pl-6` for list items specifically (ordinary non-list paragraphs keep
+  `px-0`, matching `content-block-renderer.tsx`'s public-page list rendering, which already had
+  `pl-6` and was unaffected).
+- New/updated tests: `content-block-renderer.test.tsx`'s highlight-color assertion updated from the
+  old broken value to the new fixed gray; two new `story-content-editor.test.tsx` tests exercising
+  `setColorMark()` directly against a real (headless) editor -- pairing on set, clearing on clear,
+  and leaving an independently-chosen color alone.
+- `npm run verify` clean: lint, typecheck, 285/285 tests, build. Live-verified in-browser after a
+  full dev-server restart (this session hit the same Fast-Refresh staleness as the previous entry
+  when adding new plugin-registration files -- restarting, not just reloading, is what actually
+  picks the change up): bulleted list marker now renders with visible left padding; highlighted
+  text confirmed legible via the live DOM (`color: rgb(120,119,116)` paired with the chosen
+  highlight's background); reloaded and re-checked on the preview page through the independent
+  `ContentBlockRenderer` path, same result.
+
+**2026-08-11 — Rebuilt the story editor as a Bear.app-style Markdown editor, replacing Plate.**
+
+User asked for the "New Story" editor to feel like Bear.app: a clean, distraction-free surface
+where you type plain Markdown (`# `, `**bold**`, `- item`) and it renders styled live as you
+type, with no floating toolbar chrome. Bear itself is closed-source native Swift, so this
+replicates the experience, not the app. Scoped via `AskUserQuestion`/plan mode to a full
+replacement of the Plate rich-text editor (not a side-by-side mode), content stored as sanitized
+Markdown text rather than the old block/run/mark JSON, and full live-decoration editing (not a
+plain textarea + preview pane).
+
+- **Editing surface**: `@uiw/react-codemirror` + `@codemirror/lang-markdown`, with a custom
+  `ViewPlugin` (`components/story/editor/markdown-live-decorations.ts`) that dims Markdown
+  delimiters (`**`, `#`, `>`, list markers) to low opacity everywhere except the line the
+  cursor/selection currently touches, and styles the content between them (bold/italic/heading
+  size/strikethrough/inline code/quote/list) regardless of cursor position — the same
+  dim-unless-active-line technique Obsidian/Typora use, safer than replacing text with real DOM
+  nodes mid-edit since the underlying document text is never rewritten, only overlaid with view
+  decorations. `![[mediaId]]` embed tokens render as a small non-editable chip widget off the
+  active line, and raw text on it. A small fixed toolbar (`components/story/editor/
+markdown-editor.tsx`) inserts/toggles plain Markdown syntax at the cursor via CodeMirror
+  transactions — Bold/Italic/Strikethrough/Heading/Quote/Bulleted+Numbered list/Checklist/Link/
+  Table/Image upload — much simpler than Plate's toolbar since there's no document tree to keep
+  in sync, just text.
+- **Storage schema** (`lib/validation/story.ts`): `content_json` stays a jsonb array (Rule 6's
+  "defined schema of blocks"), collapsing to exactly one block: `{type:"markdown", text}`.
+  `storyContentBlockSchema`/`storyContentSchema` replaced entirely; new `storyContentText()`/
+  `markdownToStoryContent()` helpers convert between the one-block array and the plain string
+  every other module actually wants. Validation refinements on the text: length ≤ 50,000 chars
+  (unchanged), every `[text](href)` link's href still checked via the existing `isSafeHref()`
+  (extracted with a regex instead of walking marks), a leading `# ` (h1) is rejected (reserved
+  for the story title — h2–h6 allowed, up from h2/h3 only), and standard `![alt](url)` image
+  syntax is rejected outright.
+- **Images stay reference-only**, exactly as before, via a deliberately non-standard
+  `![[<mediaId>]]` embed token (`lib/story/markdown-media.ts`'s `extractMediaIds()`,
+  `lib/story/remark-media-embed.ts`'s remark plugin) so a raw URL can never be typed into content
+  — preserves the private-bucket/approval/EXIF-strip workflow (Rules 13/14) untouched.
+  `save_revision_draft`'s server-side reference-integrity check (added in
+  `20260808130000_content_json_image_blocks.sql`) was updated in
+  `20260811090000_markdown_content_json.sql` to `regexp_matches()` the embed tokens out of
+  `content_json[0].text` instead of walking jsonb "image" blocks — same guarantee (every embedded
+  mediaId must be attached to this revision), new extraction mechanism.
+- **Public/preview/moderation rendering** (`components/story/content-block-renderer.tsx`): now
+  `react-markdown` + `remark-gfm` (tables, strikethrough, task lists) + the media-embed plugin,
+  rendering an AST to React elements — never `dangerouslySetInnerHTML`, and raw HTML in the
+  source is never passed through (no `rehype-raw`), so Rules 6/7 hold. Kept the same `blocks`/
+  `media` prop shape as before (`ContentBlockRenderer({ blocks, media })`), so every consumer —
+  public story page, moderation page, contributor preview, the editorial import-preview panel —
+  needed zero changes.
+- **`StoryContentEditor`** (`components/story/story-content-editor.tsx`) also kept its external
+  contract (`initialContent`/`onChange: StoryContentBlock[]`, `replaceContent` ref handle) as a
+  thin adapter over the new markdown-text-based `MarkdownEditor`, specifically so
+  `story-edit-form.tsx`, `content-import-panel.tsx`, and `preview-content-body.tsx` needed no
+  changes at all — a tighter blast radius than the original plan (which assumed a string-based
+  prop change would ripple through those three files).
+- **`lib/story/content-import.ts`** (HTML/plain-text editorial import) now builds a Markdown
+  string instead of a block array — `sanitizeHtmlToBlocks`/`plainTextToBlocks` keep their names
+  and `{ok, blocks, report}` return shape (still wrapping the result via
+  `markdownToStoryContent()`), but internally walk the DOM emitting Markdown syntax with
+  escaping of literal ``* _ [ ] ` ~`` in text, plus a leading-character escape so imported text
+  starting with `#`/`-`/`>`/etc. can't be misread as a block marker. Tables/code blocks still
+  collapse to a plain-text paragraph line (unchanged behavior); images are still never inlined
+  from import.
+- **`lib/story/content-quality-checks.ts`** heuristics reimplemented as regexes over the
+  Markdown string (via `storyContentText()`) instead of walking blocks/marks — word count strips
+  Markdown syntax down to roughly-readable text first; link counting matches `[text](url)`
+  directly.
+- **Dropped** (no Bear/Markdown equivalent, and Bear itself doesn't have them): underline, custom
+  font size, font color, highlight color, and `lib/story/text-style-palette.ts` along with the
+  `StoryMark`/`StoryTextRun`/`StoryTableRow` types. **Gained** (standard GFM, previously excluded
+  only because Plate's closed plugin set didn't include them): strikethrough, checklists
+  (`- [ ]`), fenced/inline code, h4–h6.
+- **Deleted**: `lib/story/plate-serialize.ts` (+test), `lib/story/text-style-palette.ts`, the
+  Plate-registry-adapted `components/story/editor/{paragraph,heading,blockquote,image,link,
+table}-node.tsx`/`toolbar.tsx`/`fixed-toolbar.tsx`/`align`/`color`/`font-size`/`list`/`mark`/
+  `link`/`history`/`image`/`table`-toolbar-button.tsx`/`emoji-toolbar-button.tsx`, and the whole
+`components/ui/`shadcn-registry directory +`lib/utils.ts` (`cn()`) + `components.json`, once
+  confirmed (by grep) they had zero consumers left outside the deleted Plate tree.
+- **`package.json`**: removed `platejs`, `@platejs/{basic-nodes,basic-styles,floating,link,list,
+table}`, `@radix-ui/react-{dropdown-menu,popover,separator,slot,toolbar,tooltip}`,
+  `class-variance-authority`, `lucide-react`, `tailwind-merge`, `use-sync-external-store` (all
+  confirmed unused outside the deleted editor tree). Added `@uiw/react-codemirror` +
+  `@codemirror/{lang-markdown,language-data,view,state}` (the live-preview Markdown editing
+  surface), `react-markdown` + `remark-gfm` (AST-based, non-`dangerouslySetInnerHTML` rendering),
+  `unist-util-visit` (the media-embed remark plugin).
+- New/updated tests: `lib/validation/story.test.ts` and `components/story/content-block-renderer
+.test.tsx` rewritten for the Markdown schema/renderer; `lib/story/content-import.test.ts` and
+  `lib/story/content-quality-checks.test.ts` adapted to assert on `storyContentText()` output;
+  `components/story/editor/markdown-editor.test.ts` (new) headlessly drives the toolbar's
+  transform functions (`wrapSelection`/`toggleLinePrefix`/`insertTable`/`insertMediaToken`)
+  against a real `EditorView`, no React rendering — the same "closed-loop, no DOM" style the old
+  Plate test used; `components/story/story-content-editor.test.tsx` rewritten as an RTL smoke
+  test (initial content renders, toolbar present/hidden by `editable`, `replaceContent()` updates
+  the doc and fires `onChange`). `lib/story/plate-serialize.test.ts` deleted with its module.
+- Next: live-verify in-browser (typing each Markdown construct, image upload round-trip via the
+  `![[mediaId]]` token, h1/raw-image-syntax rejection, mobile viewport) and run `npm run verify`.
+
+**2026-08-12 — Inline, drag-resizable images in the story editor (Bear.app-style).**
+
+User: images embedded via `![[mediaId]]` only showed as a static "🖼 Image" text chip while
+editing — asked for them to render as the actual image, resizable by dragging like Bear.app.
+
+- **Syntax extended**: `![[<mediaId>]]` or `![[<mediaId>|<width>]]` once resized
+  (`lib/story/markdown-media.ts`) — `width` is the stored CSS-pixel display width, clamped to
+  `MIN_EMBED_WIDTH..MAX_EMBED_WIDTH` (60–2000, matching `MAX_PROCESSED_DIMENSION`). New
+  `extractMediaEmbeds()`/`clampEmbedWidth()`/updated `mediaEmbedToken(mediaId, width?)`.
+  `lib/story/remark-media-embed.ts` carries the optional width through to a `data-width` hast
+  attribute; `content-block-renderer.tsx`'s `MediaEmbed` applies it as an explicit
+  `width`/`max-width:100%` style (falls back to the original fill-the-column behavior when
+  absent) — same rendering path for the public page, moderation, and contributor preview, so a
+  resized image looks identical in the editor and once published.
+- **`save_revision_draft`** (new migration `20260812090000_media_embed_width.sql`) updated to
+  tolerate the optional `|<width>` suffix in its `regexp_matches` image-reference-integrity check
+  — same guarantee as before (every embedded mediaId must be attached to this revision), just a
+  regex change so a resized image's content_json still gets checked at all.
+- **Editor-side rendering** (`components/story/editor/markdown-live-decorations.ts`): images are
+  now the one exception to "only reveal raw syntax on the active line" — Bear never shows raw
+  image markup, cursor or not, so `MediaImageWidget` always renders as an actual `<img>` (or a
+  "Loading image…"/"Image unavailable" status chip while resolving), never falls back to text.
+  URLs are resolved via the existing `mintPreviewUrlAction` (confirmed via investigation:
+  authorized generically by mediaId, not route-specific — works for both the self-service and
+  editorial routes with no separate action needed), cached per editor instance so re-decorating
+  on every keystroke doesn't re-mint. A drag handle (bottom-right corner, visible on hover) lets
+  the user resize live; on release, it dispatches a document edit replacing the token with the
+  new `|<width>` — the underlying Markdown text is the only source of truth, same as every other
+  decoration in this file.
+- Images are also now atomic for cursor/Backspace/Delete purposes (a small dedicated
+  `EditorView.atomicRanges` extension, image-only — NOT reused for the other concealed markup,
+  which must stay steppable) so deleting an embedded image is one keystroke, not dozens through
+  invisible characters.
+- **Real bug found and fixed during this work**: the image widget's `eq()` only compared
+  `mediaId`/`width`/`tokenLength`, so once a URL resolved from "loading" to a real signed URL,
+  CodeMirror considered the new widget instance equivalent to the old one and reused the stale
+  "Loading image…" DOM node instead of calling `toDOM()` again — images never appeared despite
+  the network request succeeding. Root cause: `eq()` was comparing the cache's _live_ current
+  value against itself (both old and new widget share the same cache Map), which can never
+  detect a state transition. Fixed by snapshotting `cache.get(mediaId)` once at construction time
+  into a `cachedValue` field and comparing _that_ frozen snapshot in `eq()` instead.
+- **Second bug found and fixed**: a top-level `import { mintPreviewUrlAction } from
+".../media-actions"` in `markdown-live-decorations.ts` broke the entire test suite —
+  `server-only` (pulled in transitively via the action's own module graph) throws unconditionally
+  when evaluated outside Next's own bundler, which Vitest doesn't replicate. Fixed with a dynamic
+  `import()` inside the cache's `request()` method instead of a static top-level import, deferring
+  module evaluation until an image widget actually needs to resolve a URL — never triggered by
+  the headless/text-only tests, since none of their fixtures contain image embeds.
+- New tests: `lib/story/markdown-media.test.ts` (extraction/clamping/token round-trip),
+  `content-block-renderer.test.tsx` gained a stored-width rendering case.
+- `npm run lint`/`typecheck`/`test` (273/273)/`build` all clean. Live-verified in-browser: three
+  uploaded images render inline immediately (not chips); dragging the resize handle on one
+  visibly shrinks it in real time; after save, the Preview page shows that image at the smaller
+  stored width while the other two still fill the column, confirming the width round-trips
+  through save → parse → render correctly. Hit and worked around the same Turbopack
+  stale-export HMR issue noted in earlier entries — a full dev-server restart (not just reload)
+  was needed after renaming an export.
