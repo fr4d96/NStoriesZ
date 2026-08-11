@@ -1,11 +1,11 @@
 /**
  * Editorial-import content conversion: plain text or pasted/rich HTML ->
- * the canonical block/run/mark schema (lib/validation/story.ts). Never
- * produces raw HTML, never uses dangerouslySetInnerHTML anywhere in this
- * stack (Engineering Rules 6/7) -- this module's only job is to turn
- * arbitrary external text into the SAME controlled block shape the rich
- * text editor itself produces, so downstream code never has to know the
- * content came from an import.
+ * the canonical Markdown content_json shape (lib/validation/story.ts).
+ * Never produces raw HTML, never uses dangerouslySetInnerHTML anywhere in
+ * this stack (Engineering Rules 6/7) -- this module's only job is to turn
+ * arbitrary external text into the SAME Markdown text the live editor
+ * itself produces, so downstream code never has to know the content came
+ * from an import.
  *
  * Full rejection on any size/structural limit -- never truncation. A
  * truncated import would silently drop the tail of someone's story with no
@@ -17,9 +17,8 @@ import { HTMLElement, NodeType, parse, type Node } from "node-html-parser";
 import {
   storyContentSchema,
   isSafeHref,
+  markdownToStoryContent,
   type StoryContentBlock,
-  type StoryTextRun,
-  type StoryMark,
 } from "@/lib/validation/story";
 
 // Server Action body limit (next.config.ts) is set to this value + 25%
@@ -72,9 +71,8 @@ const SAFE_CONTAINER_TAGS = new Set([
 // Dropped entirely, but (unlike DANGEROUS_TAGS) counted separately in the
 // report as "not converted," not "removed as unsafe" -- an editor should be
 // able to tell the two apart. Images are deliberately never converted to an
-// inline block (Engineering Rule / schema design: no inline image blocks --
-// images are attached and captioned through the real upload pipeline, never
-// pasted-in).
+// inline embed token -- images are attached through the real upload
+// pipeline, never pasted-in.
 const UNSUPPORTED_LEAF_TAGS = new Set([
   "img",
   "video",
@@ -90,13 +88,15 @@ const UNSUPPORTED_LEAF_TAGS = new Set([
   "track",
 ]);
 
-const HEADING_LEVEL: Record<string, 2 | 3> = {
-  h1: 2,
-  h2: 2,
-  h3: 3,
-  h4: 3,
-  h5: 3,
-  h6: 3,
+// h1 collapses to "##" -- content_json's Markdown schema reserves a leading
+// "#" for the story title (lib/validation/story.ts).
+const HEADING_PREFIX: Record<string, string> = {
+  h1: "## ",
+  h2: "## ",
+  h3: "### ",
+  h4: "#### ",
+  h5: "##### ",
+  h6: "###### ",
 };
 
 export type ImportReport = {
@@ -111,7 +111,7 @@ export type ImportReport = {
   convertedCodeBlocks: number;
   /** Count of non-href attributes encountered on surviving elements (never propagated regardless). */
   attributesStripped: number;
-  /** Total count of href values rejected by isSafeHref() -- the mark is dropped, the link TEXT is kept. */
+  /** Total count of href values rejected by isSafeHref() -- the link is dropped, the TEXT is kept. */
   unsafeLinksRemovedCount: number;
   /**
    * At most MAX_UNSAFE_LINK_SAMPLE raw href values, for UI display only.
@@ -150,19 +150,32 @@ function bump(record: Record<string, number>, key: string) {
   record[key] = (record[key] ?? 0) + 1;
 }
 
-function finalize(
-  blocks: StoryContentBlock[],
-  report: ImportReport,
-): ImportResult {
-  if (blocks.length === 0) {
+function finalize(blockLines: string[], report: ImportReport): ImportResult {
+  if (blockLines.length === 0) {
     return { ok: false, error: "empty_content" };
   }
-  const parsed = storyContentSchema.safeParse(blocks);
+  const text = blockLines.join("\n\n").trim();
+  const parsed = storyContentSchema.safeParse(markdownToStoryContent(text));
   if (!parsed.success) {
     return { ok: false, error: "invalid_content" };
   }
-  report.blocksProduced = parsed.data.length;
+  report.blocksProduced = blockLines.length;
   return { ok: true, blocks: parsed.data, report };
+}
+
+// Escapes literal Markdown syntax characters in imported text so they
+// render as themselves rather than being reinterpreted as formatting.
+function escapeMarkdownText(text: string): string {
+  return text.replace(/[\\`*_[\]~]/g, "\\$&");
+}
+
+// A paragraph/list-item/quote line starting with a character sequence that
+// LOOKS like a block marker (heading/list/quote/fence) would silently
+// become one when rendered -- escape just the first character to prevent
+// that, matching how a real Markdown editor would type it.
+const LEADING_MARKER_RE = /^(#{1,6}\s|>|[-*+]\s|\d+[.)]\s|```|~~~)/;
+function escapeLeadingMarker(line: string): string {
+  return LEADING_MARKER_RE.test(line) ? `\\${line}` : line;
 }
 
 // --- Plain text --------------------------------------------------------
@@ -177,70 +190,24 @@ export function plainTextToBlocks(text: string): ImportResult {
   }
 
   const report = emptyReport();
-  const blocks: StoryContentBlock[] = text
+  const blockLines = text
     .split(/\r?\n\s*\r?\n/)
     .map((para) => para.replace(/\r?\n/g, " ").trim())
     .filter((para) => para.length > 0)
-    .map((para) => ({
-      type: "paragraph" as const,
-      text: [{ text: para }],
-    }));
+    .map((para) => escapeLeadingMarker(escapeMarkdownText(para)));
 
-  return finalize(blocks, report);
+  return finalize(blockLines, report);
 }
 
 // --- HTML ----------------------------------------------------------------
-
-type RunBuilder = {
-  runs: StoryTextRun[];
-  current: { text: string; marks: StoryMark[] } | null;
-};
-
-function newRunBuilder(): RunBuilder {
-  return { runs: [], current: null };
-}
-
-function flushRun(builder: RunBuilder) {
-  if (builder.current && builder.current.text.length > 0) {
-    builder.runs.push({
-      text: builder.current.text,
-      ...(builder.current.marks.length > 0
-        ? { marks: builder.current.marks }
-        : {}),
-    });
-  }
-  builder.current = null;
-}
-
-/** Starts (or continues) a run carrying exactly `marks`, appending `text`. */
-function appendText(builder: RunBuilder, text: string, marks: StoryMark[]) {
-  if (text.length === 0) return;
-  const sameMarks =
-    builder.current &&
-    builder.current.marks.length === marks.length &&
-    builder.current.marks.every(
-      (m, i) => JSON.stringify(m) === JSON.stringify(marks[i]),
-    );
-  if (builder.current && sameMarks) {
-    builder.current.text += text;
-    return;
-  }
-  flushRun(builder);
-  builder.current = { text, marks };
-}
-
-/** Deterministic <br> semantics: split into two runs within the same block, never two blocks. */
-function appendBreak(builder: RunBuilder) {
-  flushRun(builder);
-}
 
 /**
  * Counts every attribute on a surviving element except `href` on `<a>`
  * (which is read, not stripped -- its VALUE is still validated by
  * isSafeHref() before ever being used). Called for every element this
  * module processes, whether handled at block level (walkBlock) or inline
- * level (walkInline) -- attributes are never propagated into the canonical
- * schema either way, only counted for the report.
+ * level (inlineToMarkdown) -- attributes are never propagated into the
+ * canonical schema either way, only counted for the report.
  */
 function countAttributes(tag: string, node: HTMLElement, report: ImportReport) {
   const keys = Object.keys(node.attributes);
@@ -248,66 +215,44 @@ function countAttributes(tag: string, node: HTMLElement, report: ImportReport) {
   report.attributesStripped += Math.max(0, keys.length - ignorable);
 }
 
-function countMarkKinds(marks: StoryMark[]): StoryMark[] {
-  // De-duplicate by kind (bold/italic/link), matching the schema's own
-  // "no duplicate mark kind on one run" rule -- last one wins for a
-  // same-kind conflict encountered while walking nested inline tags.
-  const byKind = new Map<string, StoryMark>();
-  for (const mark of marks) {
-    const kind = typeof mark === "string" ? mark : mark.type;
-    byKind.set(kind, mark);
-  }
-  return [...byKind.values()];
-}
-
-function walkInline(
-  node: Node,
-  marks: StoryMark[],
-  builder: RunBuilder,
-  report: ImportReport,
-): void {
+function inlineToMarkdown(node: Node, report: ImportReport): string {
   if (node.nodeType === NodeType.TEXT_NODE) {
-    appendText(builder, node.rawText.replace(/\s+/g, " "), marks);
-    return;
+    return escapeMarkdownText(node.rawText.replace(/\s+/g, " "));
   }
-  if (!(node instanceof HTMLElement)) return;
+  if (!(node instanceof HTMLElement)) return "";
 
   const tag = node.rawTagName?.toLowerCase() ?? "";
   if (DANGEROUS_TAGS.has(tag)) {
     bump(report.droppedElements, tag);
-    return;
+    return "";
   }
   countAttributes(tag, node, report);
 
-  if (tag === "br") {
-    appendBreak(builder);
-    return;
+  if (tag === "br") return "\n";
+  if (UNSUPPORTED_LEAF_TAGS.has(tag)) {
+    bump(report.unsupportedElements, tag);
+    return "";
   }
 
-  let nextMarks = marks;
-  if (tag === "strong" || tag === "b") {
-    nextMarks = countMarkKinds([...marks, "bold" as const]);
-  } else if (tag === "em" || tag === "i") {
-    nextMarks = countMarkKinds([...marks, "italic" as const]);
-  } else if (tag === "a") {
+  const inner = node.childNodes
+    .map((c) => inlineToMarkdown(c, report))
+    .join("");
+  if (inner.trim().length === 0) return inner;
+
+  if (tag === "strong" || tag === "b") return `**${inner}**`;
+  if (tag === "em" || tag === "i") return `*${inner}*`;
+  if (tag === "a") {
     const href = node.getAttribute("href");
-    if (href && isSafeHref(href)) {
-      nextMarks = countMarkKinds([...marks, { type: "link" as const, href }]);
-    } else if (href) {
+    if (href && isSafeHref(href)) return `[${inner}](${href})`;
+    if (href) {
       report.unsafeLinksRemovedCount += 1;
       if (report.unsafeLinksRemovedSample.length < MAX_UNSAFE_LINK_SAMPLE) {
         report.unsafeLinksRemovedSample.push(href);
       }
-      // Mark dropped, text kept -- falls through with `marks` unchanged.
     }
-  } else if (UNSUPPORTED_LEAF_TAGS.has(tag)) {
-    bump(report.unsupportedElements, tag);
-    return;
+    return inner;
   }
-
-  for (const child of node.childNodes) {
-    walkInline(child, nextMarks, builder, report);
-  }
+  return inner;
 }
 
 function collectPlainText(node: Node): string {
@@ -320,33 +265,27 @@ function collectPlainText(node: Node): string {
   return node.childNodes.map(collectPlainText).join(" ");
 }
 
-function buildRuns(node: HTMLElement, report: ImportReport): StoryTextRun[] {
-  const builder = newRunBuilder();
-  for (const child of node.childNodes) {
-    walkInline(child, [], builder, report);
-  }
-  flushRun(builder);
-  return builder.runs;
+function buildInline(node: HTMLElement, report: ImportReport): string {
+  return node.childNodes
+    .map((c) => inlineToMarkdown(c, report))
+    .join("")
+    .trim();
 }
 
 /**
- * Converts one block-level element's children into zero or more canonical
- * blocks, appended to `out`. Nested lists/blockquotes are flattened (their
- * items/text join the SAME enclosing list/quote block) rather than
- * represented as nesting, since the schema has no nested-block shape.
+ * Converts one block-level element's children into zero or more Markdown
+ * block chunks, appended to `out` (joined with blank lines by finalize()).
+ * Nested lists/blockquotes are flattened (their items/text join the SAME
+ * enclosing list/quote block) rather than represented as nesting, matching
+ * this module's pre-Markdown behavior.
  */
-function walkBlock(
-  node: Node,
-  out: StoryContentBlock[],
-  report: ImportReport,
-): void {
+function walkBlock(node: Node, out: string[], report: ImportReport): void {
   if (node.nodeType === NodeType.TEXT_NODE) {
     const text = node.rawText.trim();
     if (text.length > 0) {
-      out.push({
-        type: "paragraph",
-        text: [{ text: text.replace(/\s+/g, " ") }],
-      });
+      out.push(
+        escapeLeadingMarker(escapeMarkdownText(text.replace(/\s+/g, " "))),
+      );
     }
     return;
   }
@@ -360,18 +299,18 @@ function walkBlock(
   }
   countAttributes(tag, node, report);
 
-  if (tag in HEADING_LEVEL) {
-    const runs = buildRuns(node, report);
-    if (runs.length > 0) {
-      out.push({ type: "heading", level: HEADING_LEVEL[tag], text: runs });
+  if (tag in HEADING_PREFIX) {
+    const inline = buildInline(node, report);
+    if (inline.length > 0) {
+      out.push(`${HEADING_PREFIX[tag]}${inline.replace(/\n/g, " ")}`);
     }
     return;
   }
 
   if (tag === "p") {
-    const runs = buildRuns(node, report);
-    if (runs.length > 0) {
-      out.push({ type: "paragraph", text: runs });
+    const inline = buildInline(node, report);
+    if (inline.length > 0) {
+      out.push(escapeLeadingMarker(inline));
     }
     return;
   }
@@ -379,22 +318,27 @@ function walkBlock(
   if (tag === "blockquote") {
     // Flatten nested blockquotes: collect every run across the whole
     // subtree into ONE quote block, rather than a quote block per level.
-    const runs = buildRuns(node, report);
-    if (runs.length > 0) {
-      out.push({ type: "quote", text: runs });
+    const inline = buildInline(node, report);
+    if (inline.length > 0) {
+      out.push(
+        inline
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n"),
+      );
     }
     return;
   }
 
   if (tag === "ul" || tag === "ol") {
-    const items: StoryTextRun[][] = [];
+    const items: string[] = [];
     collectListItems(node, items, report);
     if (items.length > 0) {
-      out.push({
-        type: "list",
-        style: tag === "ol" ? "ordered" : "unordered",
-        items,
-      });
+      out.push(
+        items
+          .map((item, i) => (tag === "ol" ? `${i + 1}. ${item}` : `- ${item}`))
+          .join("\n"),
+      );
     }
     return;
   }
@@ -403,7 +347,7 @@ function walkBlock(
     const text = collectPlainText(node).replace(/\s+/g, " ").trim();
     report.convertedTables += 1;
     if (text.length > 0) {
-      out.push({ type: "paragraph", text: [{ text }] });
+      out.push(escapeLeadingMarker(escapeMarkdownText(text)));
     }
     return;
   }
@@ -412,10 +356,9 @@ function walkBlock(
     const text = collectPlainText(node).trim();
     report.convertedCodeBlocks += 1;
     if (text.length > 0) {
-      out.push({
-        type: "paragraph",
-        text: [{ text: text.replace(/\s+/g, " ") }],
-      });
+      out.push(
+        escapeLeadingMarker(escapeMarkdownText(text.replace(/\s+/g, " "))),
+      );
     }
     return;
   }
@@ -439,7 +382,7 @@ function walkBlock(
 /** Nested <ul>/<ol> inside an <li> are flattened into the SAME items array. */
 function collectListItems(
   listNode: HTMLElement,
-  items: StoryTextRun[][],
+  items: string[],
   report: ImportReport,
 ): void {
   for (const child of listNode.childNodes) {
@@ -447,7 +390,7 @@ function collectListItems(
     const tag = child.rawTagName?.toLowerCase() ?? "";
     if (tag !== "li") continue;
 
-    const builder = newRunBuilder();
+    const parts: string[] = [];
     for (const grandchild of child.childNodes) {
       if (
         grandchild instanceof HTMLElement &&
@@ -456,19 +399,16 @@ function collectListItems(
       ) {
         // Nested list: flush what we have as one item, then recurse to add
         // the nested items as further flat items of the SAME list.
-        flushRun(builder);
-        if (builder.runs.length > 0) {
-          items.push(builder.runs.splice(0, builder.runs.length));
-        }
+        const text = parts.join("").trim();
+        if (text.length > 0) items.push(text.replace(/\n/g, " "));
+        parts.length = 0;
         collectListItems(grandchild, items, report);
         continue;
       }
-      walkInline(grandchild, [], builder, report);
+      parts.push(inlineToMarkdown(grandchild, report));
     }
-    flushRun(builder);
-    if (builder.runs.length > 0) {
-      items.push(builder.runs);
-    }
+    const text = parts.join("").trim();
+    if (text.length > 0) items.push(text.replace(/\n/g, " "));
   }
 }
 
@@ -524,10 +464,10 @@ export function sanitizeHtmlToBlocks(html: string): ImportResult {
   }
 
   const report = emptyReport();
-  const blocks: StoryContentBlock[] = [];
+  const blockLines: string[] = [];
   for (const child of root.childNodes) {
-    walkBlock(child, blocks, report);
+    walkBlock(child, blockLines, report);
   }
 
-  return finalize(blocks, report);
+  return finalize(blockLines, report);
 }

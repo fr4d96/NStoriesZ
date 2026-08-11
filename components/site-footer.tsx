@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 
 export function SiteFooter() {
   return (
@@ -10,17 +11,15 @@ export function SiteFooter() {
               href="/"
               className="flex items-center gap-2.5 text-xl font-black"
             >
-              <span className="grid h-9 w-9 -rotate-12 place-items-center rounded-full border">
-                ↗
-              </span>
-              Journiq
+              <BrandLogo className="border border-white/40" />
+              Kakinotes
             </Link>
             <p className="mt-4 max-w-md text-sm text-white/65">
               A storytelling community for honest working-holiday experiences
               across Aotearoa New Zealand.
             </p>
             <p className="mt-5 max-w-lg text-xs leading-5 text-white/45">
-              Journiq is an independent platform for personal stories and does
+              Kakinotes is an independent platform for personal stories and does
               not provide immigration, legal, employment, tax, or financial
               advice.
             </p>
@@ -52,7 +51,7 @@ export function SiteFooter() {
           </div>
         </div>
         <div className="mt-10 flex flex-col gap-2 border-t border-white/10 pt-5 text-xs text-white/45 sm:flex-row sm:justify-between">
-          <span>© 2026 Journiq</span>
+          <span>© 2026 Kakinotes</span>
           <span>
             Made for working-holiday travellers in Aotearoa New Zealand
           </span>

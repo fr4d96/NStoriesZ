@@ -1,4 +1,4 @@
-# Journiq
+# Kakinotes
 
 A public platform for detailed, written first-person stories from Working Holiday Visa travellers
 in New Zealand. See [docs/product-spec.md](docs/product-spec.md) for what this is and isn't.

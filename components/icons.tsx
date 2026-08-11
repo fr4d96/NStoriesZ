@@ -1,5 +1,5 @@
 /**
- * Journiq icon set.
+ * Kakinotes icon set.
  *
  * Custom line icons (no icon library dependency — see docs/design-brief.md
  * "Technical constraints"). Consistent 24x24 grid, 1.6 stroke, rounded caps,

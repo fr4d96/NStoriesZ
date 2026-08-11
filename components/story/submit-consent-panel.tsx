@@ -55,7 +55,7 @@ export function SubmitConsentPanel({
         />
         <span>
           I confirm I have the right to publish this story and give permission
-          for it to be published on Journiq.
+          for it to be published on Kakinotes.
         </span>
       </label>
 

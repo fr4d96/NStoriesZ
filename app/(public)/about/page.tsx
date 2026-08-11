@@ -7,14 +7,14 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <PlaceholderPage title="About Journiq">
+    <PlaceholderPage title="About Kakinotes">
       <p>
-        Journiq shares detailed, written first-person stories from Working
+        Kakinotes shares detailed, written first-person stories from Working
         Holiday Visa travellers in New Zealand, so future travellers can find
         accounts relevant to their own plans.
       </p>
       <p>
-        Journiq is an independent platform. It is not Immigration New Zealand
+        Kakinotes is an independent platform. It is not Immigration New Zealand
         and does not provide immigration, legal, employment, tax, or financial
         advice — every story is one person&apos;s personal experience.
       </p>

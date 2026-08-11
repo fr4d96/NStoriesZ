@@ -12,7 +12,7 @@ export default function SignUpPage() {
         Create your account
       </h1>
       <p className="mt-2 text-sm text-black/70 dark:text-white/70">
-        Journiq publishes real, personal experiences — not advice. You&apos;ll
+        Kakinotes publishes real, personal experiences — not advice. You&apos;ll
         choose how your name appears before anything you write is public.
       </p>
       <SignUpForm />

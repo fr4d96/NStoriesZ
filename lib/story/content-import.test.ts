@@ -4,16 +4,16 @@ import {
   sanitizeHtmlToBlocks,
   MAX_IMPORT_INPUT_BYTES,
 } from "@/lib/story/content-import";
+import { storyContentText } from "@/lib/validation/story";
 
 describe("plainTextToBlocks", () => {
-  it("splits blank-line-separated paragraphs into separate blocks", () => {
+  it("splits blank-line-separated paragraphs, joined by a blank line", () => {
     const result = plainTextToBlocks("First paragraph.\n\nSecond paragraph.");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toEqual([
-      { type: "paragraph", text: [{ text: "First paragraph." }] },
-      { type: "paragraph", text: [{ text: "Second paragraph." }] },
-    ]);
+    expect(storyContentText(result.blocks)).toBe(
+      "First paragraph.\n\nSecond paragraph.",
+    );
     expect(result.report.blocksProduced).toBe(2);
   });
 
@@ -21,9 +21,16 @@ describe("plainTextToBlocks", () => {
     const result = plainTextToBlocks("Line one\nLine two");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toEqual([
-      { type: "paragraph", text: [{ text: "Line one Line two" }] },
-    ]);
+    expect(storyContentText(result.blocks)).toBe("Line one Line two");
+  });
+
+  it("escapes a leading character that would otherwise look like a heading/list/quote marker", () => {
+    const result = plainTextToBlocks("# Not a heading\n\n- Not a list item");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(storyContentText(result.blocks)).toBe(
+      "\\# Not a heading\n\n\\- Not a list item",
+    );
   });
 
   it("rejects raw input over MAX_IMPORT_INPUT_BYTES without parsing", () => {
@@ -53,73 +60,47 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks[0]).toEqual({
-      type: "heading",
-      level: 2,
-      text: [{ text: "Title" }],
-    });
-    expect(result.blocks[1]).toMatchObject({ type: "paragraph" });
-    const runs =
-      result.blocks[1].type === "paragraph" ? result.blocks[1].text : [];
-    expect(
-      runs.some((r) => r.text === "bold" && r.marks?.includes("bold")),
-    ).toBe(true);
-    expect(
-      runs.some((r) => r.text === "italic" && r.marks?.includes("italic")),
-    ).toBe(true);
+    const text = storyContentText(result.blocks);
+    // h1 collapses to "##" -- a leading "#" is reserved for the story title.
+    expect(text).toContain("## Title");
+    expect(text).toContain("**bold**");
+    expect(text).toContain("*italic*");
   });
 
-  it("maps heading levels 1-6 onto the schema's allowed 2/3", () => {
+  it("maps heading levels 1-6 onto ## through ######", () => {
     for (const [tag, expected] of [
-      ["h1", 2],
-      ["h2", 2],
-      ["h3", 3],
-      ["h4", 3],
-      ["h5", 3],
-      ["h6", 3],
+      ["h1", "##"],
+      ["h2", "##"],
+      ["h3", "###"],
+      ["h4", "####"],
+      ["h5", "#####"],
+      ["h6", "######"],
     ] as const) {
       const result = sanitizeHtmlToBlocks(`<${tag}>Heading</${tag}>`);
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
-      expect(result.blocks[0]).toMatchObject({
-        type: "heading",
-        level: expected,
-      });
+      expect(storyContentText(result.blocks)).toBe(`${expected} Heading`);
     }
   });
 
-  it("converts a safe link into a link mark using the shared isSafeHref matrix", () => {
+  it("converts a safe link into Markdown link syntax using the shared isSafeHref matrix", () => {
     const result = sanitizeHtmlToBlocks(
       '<p>See <a href="https://example.com/path">this link</a>.</p>',
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const runs =
-      result.blocks[0].type === "paragraph" ? result.blocks[0].text : [];
-    const linked = runs.find((r) => r.text === "this link");
-    expect(linked?.marks).toEqual([
-      { type: "link", href: "https://example.com/path" },
-    ]);
+    expect(storyContentText(result.blocks)).toBe(
+      "See [this link](https://example.com/path).",
+    );
   });
 
-  it("drops an unsafe link's mark but keeps its text, and reports it (bounded, not logged)", () => {
+  it("drops an unsafe link but keeps its text, and reports it (bounded, not logged)", () => {
     const result = sanitizeHtmlToBlocks(
       '<p>Click <a href="javascript:alert(1)">here</a>.</p>',
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const runs =
-      result.blocks[0].type === "paragraph" ? result.blocks[0].text : [];
-    // The unsafe link's TEXT survives (merged with its unmarked neighbors,
-    // since it now carries no marks either -- consecutive same-mark runs
-    // are combined) but no run anywhere carries a link mark.
-    expect(runs.map((r) => r.text).join("")).toBe("Click here.");
-    expect(
-      runs.every(
-        (r) =>
-          !r.marks?.some((m) => typeof m === "object" && m.type === "link"),
-      ),
-    ).toBe(true);
+    expect(storyContentText(result.blocks)).toBe("Click here.");
     expect(result.report.unsafeLinksRemovedCount).toBe(1);
     expect(result.report.unsafeLinksRemovedSample).toEqual([
       "javascript:alert(1)",
@@ -132,8 +113,7 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
-    expect(JSON.stringify(result.blocks)).not.toContain("alert");
+    expect(storyContentText(result.blocks)).not.toContain("alert");
     expect(result.report.droppedElements.script).toBe(1);
     expect(result.report.droppedElements.iframe).toBe(1);
   });
@@ -144,8 +124,8 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(JSON.stringify(result.blocks)).not.toContain("evil");
-    expect(JSON.stringify(result.blocks)).not.toContain("color:red");
+    expect(storyContentText(result.blocks)).not.toContain("evil");
+    expect(storyContentText(result.blocks)).not.toContain("color:red");
     expect(result.report.attributesStripped).toBeGreaterThan(0);
   });
 
@@ -155,9 +135,7 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toEqual([
-      { type: "paragraph", text: [{ text: "Nested text." }] },
-    ]);
+    expect(storyContentText(result.blocks)).toBe("Nested text.");
   });
 
   it("flattens a nested list into one flat list block", () => {
@@ -166,17 +144,9 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
-    const list = result.blocks[0];
-    expect(list.type).toBe("list");
-    if (list.type !== "list") return;
-    expect(list.items).toHaveLength(4);
-    expect(list.items.map((item) => item.map((r) => r.text).join(""))).toEqual([
-      "One",
-      "Two",
-      "Two A",
-      "Two B",
-    ]);
+    expect(storyContentText(result.blocks)).toBe(
+      "- One\n- Two\n- Two A\n- Two B",
+    );
   });
 
   it("flattens a nested blockquote into one quote block", () => {
@@ -185,8 +155,7 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
-    expect(result.blocks[0].type).toBe("quote");
+    expect(storyContentText(result.blocks)).toBe("> Outer Inner");
   });
 
   it("converts a table to a single plain-text paragraph and reports it", () => {
@@ -195,8 +164,7 @@ describe("sanitizeHtmlToBlocks", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
-    expect(result.blocks[0].type).toBe("paragraph");
+    expect(storyContentText(result.blocks)).toBe("A B C D");
     expect(result.report.convertedTables).toBe(1);
   });
 
@@ -204,27 +172,24 @@ describe("sanitizeHtmlToBlocks", () => {
     const result = sanitizeHtmlToBlocks("<pre><code>const x = 1;</code></pre>");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
     expect(result.report.convertedCodeBlocks).toBeGreaterThanOrEqual(1);
   });
 
-  it("splits a <br> into two runs within the same block, never two blocks", () => {
+  it("splits a <br> into two lines within the same block, never two blocks", () => {
     const result = sanitizeHtmlToBlocks("<p>Line one<br>Line two</p>");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
-    const runs =
-      result.blocks[0].type === "paragraph" ? result.blocks[0].text : [];
-    expect(runs.map((r) => r.text)).toEqual(["Line one", "Line two"]);
+    expect(storyContentText(result.blocks)).toBe("Line one\nLine two");
+    expect(result.report.blocksProduced).toBe(1);
   });
 
-  it("drops unsupported leaf elements (e.g. img -- no inline image blocks) without crashing", () => {
+  it("drops unsupported leaf elements (e.g. img -- no inline image embeds from import) without crashing", () => {
     const result = sanitizeHtmlToBlocks(
       '<p>Look:</p><img src="photo.jpg" alt="a photo">',
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.blocks).toHaveLength(1);
+    expect(storyContentText(result.blocks)).toBe("Look:");
     expect(result.report.unsupportedElements.img).toBe(1);
   });
 
@@ -257,7 +222,7 @@ describe("sanitizeHtmlToBlocks", () => {
     });
   });
 
-  it("every produced block validates against the canonical schema", () => {
+  it("every produced document validates against the canonical schema", () => {
     const result = sanitizeHtmlToBlocks(
       '<h2>Title</h2><p>Body <a href="/relative">link</a>.</p><ul><li>Item</li></ul><blockquote>Quote</blockquote>',
     );

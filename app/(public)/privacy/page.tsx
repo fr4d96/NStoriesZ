@@ -9,7 +9,7 @@ export default function PrivacyPage() {
   return (
     <PlaceholderPage title="Privacy">
       <p>
-        Our full privacy policy is being finalised. Journiq does not collect
+        Our full privacy policy is being finalised. Kakinotes does not collect
         passport scans, visa or immigration documents, bank credentials, exact
         live locations, or medical records.
       </p>
