@@ -17,6 +17,37 @@ export async function listMyStories() {
   return data ?? [];
 }
 
+export type MyStoryWithCover = Awaited<
+  ReturnType<typeof listMyStories>
+>[number] & {
+  coverMediaId: string | null;
+  coverAltText: string | null;
+};
+
+/**
+ * listMyStories() plus each story's cover image reference (never a storage
+ * path — only media_id, same rule as getStoryPreview below), for the grid
+ * view's thumbnails. list_my_stories() itself has no media join, so this
+ * fans out to get_story_preview() per story via Promise.all -- acceptable
+ * for a single contributor's own story count, and it's the same private,
+ * authorization-checked RPC the edit/preview pages already rely on for
+ * media, not a new access path.
+ */
+export async function listMyStoriesWithCovers(): Promise<MyStoryWithCover[]> {
+  const stories = await listMyStories();
+  const previews = await Promise.all(
+    stories.map((story) => getStoryPreview(story.id)),
+  );
+  return stories.map((story, i) => {
+    const cover = previews[i]?.media.find((m) => m.isCover) ?? null;
+    return {
+      ...story,
+      coverMediaId: cover?.mediaId ?? null,
+      coverAltText: cover?.altText ?? null,
+    };
+  });
+}
+
 /**
  * Wrapped in React's cache() so the edit page's generateMetadata() and the
  * page component itself (both call this for the same storyId within one

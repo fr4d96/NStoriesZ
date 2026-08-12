@@ -14,11 +14,11 @@ describe("defaultPathForRole", () => {
     expect(defaultPathForRole("admin")).toBe("/moderation");
   });
 
-  it("sends an ordinary user to the account page", () => {
-    expect(defaultPathForRole("user")).toBe("/account");
+  it("sends an ordinary user to My Stories", () => {
+    expect(defaultPathForRole("user")).toBe("/my-stories");
   });
 
-  it("sends a signed-out (null role) visitor to the account page", () => {
-    expect(defaultPathForRole(null)).toBe("/account");
+  it("falls back to My Stories for a null role", () => {
+    expect(defaultPathForRole(null)).toBe("/my-stories");
   });
 });

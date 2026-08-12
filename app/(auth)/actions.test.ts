@@ -147,7 +147,7 @@ describe("signInAction", () => {
     expect(result.error).toBe("Incorrect email or password.");
   });
 
-  it("with no explicit next, sends an ordinary user to /account", async () => {
+  it("with no explicit next, sends an ordinary user to My Stories", async () => {
     mockGetCurrentUserRole.mockResolvedValue("user");
 
     await expect(
@@ -155,7 +155,7 @@ describe("signInAction", () => {
         {},
         formData({ email: "a@example.com", password: "password123" }),
       ),
-    ).rejects.toThrow("REDIRECT:/account");
+    ).rejects.toThrow("REDIRECT:/my-stories");
   });
 
   it("with no explicit next, sends a moderator to their own dashboard, not /account", async () => {
