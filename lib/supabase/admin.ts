@@ -1,4 +1,5 @@
 import "server-only";
+import { fetch as undiciFetch } from "undici";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { env, getAdminEnv } from "@/lib/env.server";
 import type { Database } from "@/types/database";
@@ -17,6 +18,16 @@ import type { Database } from "@/types/database";
  *
  * Uses `@supabase/supabase-js` directly (not `@supabase/ssr`) — no cookies,
  * no user session, a fresh client per call.
+ *
+ * `global.fetch` is pinned to undici's fetch, not `globalThis.fetch` (the
+ * implicit default) -- inside a Next.js server, `globalThis.fetch` is
+ * patched for the Data Cache, and that patched fetch does not reliably
+ * preserve a binary request/response body. Verified live: image uploads
+ * were still occasionally corrupted in production (stored bytes provably
+ * wrong even fetched via plain `curl`, independent of any JS HTTP client)
+ * after switching the upload body from a Buffer to a Blob alone -- only
+ * fully stopped once every storage.download()/storage.upload() call in
+ * this pipeline went through undici's fetch directly instead.
  */
 export function createAdminClient() {
   return createSupabaseClient<Database>(
@@ -26,6 +37,9 @@ export function createAdminClient() {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
+      },
+      global: {
+        fetch: undiciFetch as unknown as typeof fetch,
       },
     },
   );

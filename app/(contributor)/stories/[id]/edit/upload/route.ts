@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { fetch as undiciFetch } from "undici";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -128,17 +129,21 @@ export async function POST(
   // independently enforces that this path is one this user actually
   // reserved via begin_story_media_upload above.
   //
-  // Wrapped in a Blob, not passed as a raw Node Buffer -- see the matching
-  // comment on uploadObject() in lib/story/image-pipeline.ts for why: inside
-  // a Next.js server, the global `fetch` is patched for the Data Cache, and
-  // storage-js sends a raw Buffer straight through as the fetch body, which
-  // that patched fetch does not reliably preserve byte-for-byte. A Blob is
-  // sent as multipart/form-data instead, avoiding the corruption.
-  const supabase = await createClient();
-  const blob = new Blob([new Uint8Array(bytes)], { type: sniffed });
+  // Sent as a raw Uint8Array (not wrapped in a Blob), with `fetch` pinned to
+  // undici's instead of the default `globalThis.fetch` -- see the matching
+  // comment on uploadObject() in lib/story/image-pipeline.ts for the full
+  // story: both parts are needed. Next.js's patched global fetch does not
+  // reliably preserve a raw binary body, but wrapping in a Blob instead
+  // hits a second, different failure -- storage-js sends a Blob as an
+  // unnamed multipart/form-data part, and undici's multipart serializer
+  // can't infer a content-type without a filename, so Storage rejects the
+  // upload outright. A raw typed-array body avoids both failure modes.
+  const supabase = await createClient({
+    fetch: undiciFetch as unknown as typeof fetch,
+  });
   const { error: uploadError } = await supabase.storage
     .from("story-images-private")
-    .upload(reservedPath, blob, { contentType: sniffed, upsert: false });
+    .upload(reservedPath, bytes, { contentType: sniffed, upsert: false });
 
   if (uploadError) {
     await cancelPendingStoryMediaUpload(mediaId).catch(() => {});

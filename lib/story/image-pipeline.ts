@@ -57,18 +57,19 @@ async function uploadObject(
   contentType: string,
 ): Promise<void> {
   const admin = createAdminClient();
-  // Wrapped in a Blob, not passed as a raw Node Buffer -- storage-js sends a
-  // Blob as multipart/form-data, while a raw Buffer goes straight through as
-  // the fetch body. Inside a Next.js server (unlike a plain `node script.js`
-  // process), the global `fetch` is patched for the Data Cache, and that
-  // patched fetch does not reliably preserve a raw Buffer body -- verified
-  // live: the exact same upload corrupts binary bytes (uploaded size grows,
-  // sha256 changes) only when run through Next.js/Vercel, never through a
-  // bare Node process using the same supabase-js version. The Blob/FormData
-  // path avoids that fetch-body edge case entirely and is Supabase's own
-  // documented pattern for server-side Buffer uploads.
-  const blob = new Blob([new Uint8Array(bytes)], { type: contentType });
-  const { error } = await admin.storage.from(bucket).upload(path, blob, {
+  // Sent as a raw Uint8Array, NOT wrapped in a Blob. storage-js sends a Blob
+  // body as multipart/form-data with an unnamed part (no filename), which
+  // undici's multipart serializer does not reliably infer a content-type
+  // for -- it falls back to text/plain and Supabase Storage rejects the
+  // upload outright ("mime type text/plain;charset=UTF-8 is not
+  // supported"), verified live. A raw typed-array body instead takes
+  // storage-js's non-multipart path, which sets Content-Type explicitly via
+  // a header and sends the bytes as-is -- no ambiguous part encoding. This
+  // relies on createAdminClient's `fetch` being pinned to undici's, not
+  // `globalThis.fetch` -- see the comment there: Next.js's patched global
+  // fetch does not reliably preserve a raw binary body either, which is a
+  // separate, second failure mode this same combination avoids.
+  const { error } = await admin.storage.from(bucket).upload(path, bytes, {
     contentType,
     upsert: true,
   });
