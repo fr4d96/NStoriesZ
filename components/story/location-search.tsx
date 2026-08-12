@@ -6,55 +6,77 @@ import type {
   ActiveRegion,
 } from "@/lib/story/active-lookups";
 
-// Narrow structural types for just the slice of the Google Maps JS API this
-// component touches -- no @types/google.maps dependency, and this repo never
-// loads the SDK server-side (Engineering Rule 1 doesn't apply here since
-// there's no secret involved, but there's still no reason to pull in a full
-// ambient global type just for four fields).
-type GoogleAddressComponent = {
-  long_name: string;
-  short_name: string;
-  types: string[];
-};
-type GooglePlace = { address_components?: GoogleAddressComponent[] };
-type GoogleAutocomplete = {
-  addListener: (event: "place_changed", handler: () => void) => void;
-  getPlace: () => GooglePlace;
-};
-type GoogleMapsPlacesNamespace = {
-  Autocomplete: new (
-    input: HTMLInputElement,
-    opts?: { types?: string[]; fields?: string[] },
-  ) => GoogleAutocomplete;
-};
-type GoogleMapsGlobal = { maps: { places: GoogleMapsPlacesNamespace } };
+// OpenStreetMap Nominatim: free, no API key, no signup -- unlike Google
+// Places this is a plain debounced fetch to a public search endpoint, not an
+// SDK/widget. Usage policy (https://operations.osmfoundation.org/policies/nominatim/)
+// caps this at ~1 request/second and asks for an identifying User-Agent or
+// Referer; browsers block scripts from setting a custom User-Agent, but the
+// browser's own Referer header (sent automatically, can't be spoofed by us)
+// satisfies the same "identify your app" intent for this low-volume,
+// interactive-typing use case. Debouncing well above 1/sec keeps this
+// comfortably inside the policy even while a contributor is typing fast.
+const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
+const DEBOUNCE_MS = 500;
 
-declare global {
-  interface Window {
-    google?: GoogleMapsGlobal;
-  }
-}
-
-let scriptLoadPromise: Promise<void> | null = null;
-
-function loadGoogleMapsScript(apiKey: string): Promise<void> {
-  if (window.google?.maps?.places) return Promise.resolve();
-  if (scriptLoadPromise) return scriptLoadPromise;
-  scriptLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () =>
-      reject(new Error("Failed to load Google Maps script."));
-    document.head.appendChild(script);
-  });
-  return scriptLoadPromise;
-}
+type NominatimAddress = {
+  city?: string;
+  town?: string;
+  village?: string;
+  suburb?: string;
+  state?: string;
+  county?: string;
+};
+type NominatimResult = {
+  place_id: number;
+  display_name: string;
+  address?: NominatimAddress;
+};
 
 /** Case/whitespace-insensitive equality, for matching a place name against a lookup row's name. */
 function namesMatch(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+async function searchNominatim(
+  query: string,
+  signal: AbortSignal,
+): Promise<NominatimResult[]> {
+  const url = new URL(NOMINATIM_SEARCH_URL);
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("limit", "6");
+  // Scoped to New Zealand -- this platform only covers NZ working-holiday
+  // destinations, and narrowing here also cuts down irrelevant results.
+  url.searchParams.set("countrycodes", "nz");
+  const res = await fetch(url.toString(), { signal });
+  if (!res.ok) throw new Error(`Nominatim search failed: ${res.status}`);
+  return res.json();
+}
+
+function matchLocation(
+  address: NominatimAddress | undefined,
+  regions: ActiveRegion[],
+  destinations: ActiveDestination[],
+): { regionId: string; destinationId: string | null } | null {
+  const localityName =
+    address?.city ?? address?.town ?? address?.village ?? address?.suburb;
+  const regionName = address?.state ?? address?.county;
+
+  const matchedDestination = localityName
+    ? destinations.find((d) => namesMatch(d.name, localityName))
+    : undefined;
+  const matchedRegion = matchedDestination
+    ? regions.find((r) => r.id === matchedDestination.regionId)
+    : regionName
+      ? regions.find((r) => namesMatch(r.name, regionName))
+      : undefined;
+
+  if (!matchedRegion) return null;
+  return {
+    regionId: matchedRegion.id,
+    destinationId: matchedDestination?.id ?? null,
+  };
 }
 
 export type LocationMatch = {
@@ -70,12 +92,13 @@ export type LocationSearchProps = {
 };
 
 /**
- * Google Places autocomplete search bar for picking a story location.
- * Deliberately does not store arbitrary place data (lat/lng/place_id) --
- * story_revision_locations only ever stores FK references into the
- * regions/destinations lookup tables (see supabase/migrations/20260803090300_story_revision_relations.sql),
- * so a selected place is matched back to the closest existing region (by
- * administrative_area) and destination (by locality) row by name. If
+ * Free-text place search for picking a story location, backed by
+ * OpenStreetMap's Nominatim (no API key). Deliberately does not store
+ * arbitrary place data (lat/lng/osm id) -- story_revision_locations only
+ * ever stores FK references into the regions/destinations lookup tables
+ * (see supabase/migrations/20260803090300_story_revision_relations.sql), so
+ * a selected result is matched back to the closest existing region (by
+ * state/county) and destination (by city/town/village) row by name. If
  * nothing matches, onMatch(null, ...) tells the caller to fall back to the
  * manual dropdowns below.
  */
@@ -84,101 +107,109 @@ export function LocationSearch({
   destinations,
   onMatch,
 }: LocationSearchProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const [status, setStatus] = useState<
-    "loading" | "ready" | "unconfigured" | "error"
-  >(apiKey ? "loading" : "unconfigured");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<NominatimResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState<"idle" | "searching" | "error">("idle");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const debounceHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const inputId = useId();
 
   useEffect(() => {
-    if (!apiKey) return;
-    let cancelled = false;
-    let autocomplete: GoogleAutocomplete | null = null;
-
-    loadGoogleMapsScript(apiKey)
-      .then(() => {
-        if (cancelled || !inputRef.current || !window.google) return;
-        autocomplete = new window.google.maps.places.Autocomplete(
-          inputRef.current,
-          {
-            types: ["geocode"],
-            fields: ["address_components"],
-          },
-        );
-        autocomplete.addListener("place_changed", () => {
-          const place = autocomplete!.getPlace();
-          const components = place.address_components ?? [];
-          const textFor = (type: string) =>
-            components.find((c) => c.types.includes(type))?.long_name;
-
-          const localityName =
-            textFor("locality") ??
-            textFor("sublocality") ??
-            textFor("postal_town");
-          const regionName =
-            textFor("administrative_area_level_1") ??
-            textFor("administrative_area_level_2");
-
-          const matchedDestination = localityName
-            ? destinations.find((d) => namesMatch(d.name, localityName))
-            : undefined;
-          const matchedRegion = matchedDestination
-            ? regions.find((r) => r.id === matchedDestination.regionId)
-            : regionName
-              ? regions.find((r) => namesMatch(r.name, regionName))
-              : undefined;
-
-          const searchedLabel =
-            inputRef.current?.value.trim() ?? localityName ?? regionName ?? "";
-
-          if (matchedRegion) {
-            onMatch(
-              {
-                regionId: matchedRegion.id,
-                destinationId: matchedDestination?.id ?? null,
-                label: searchedLabel,
-              },
-              searchedLabel,
-            );
-          } else {
-            onMatch(null, searchedLabel);
-          }
-        });
-        setStatus("ready");
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- regions/destinations are stable server-fetched props for the lifetime of this form
+    function onClickOutside(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    if (debounceHandle.current) clearTimeout(debounceHandle.current);
+    abortRef.current?.abort();
+
+    const trimmed = value.trim();
+    if (trimmed.length < 3) {
+      setResults([]);
+      setStatus("idle");
+      setOpen(false);
+      return;
+    }
+
+    debounceHandle.current = setTimeout(() => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setStatus("searching");
+      searchNominatim(trimmed, controller.signal)
+        .then((data) => {
+          setResults(data);
+          setStatus("idle");
+          setOpen(true);
+        })
+        .catch((err) => {
+          if (err.name === "AbortError") return;
+          setStatus("error");
+          setResults([]);
+        });
+    }, DEBOUNCE_MS);
+  }
+
+  function handleSelect(result: NominatimResult) {
+    const label = result.display_name.split(",")[0]?.trim() ?? query.trim();
+    setQuery(label);
+    setOpen(false);
+    const match = matchLocation(result.address, regions, destinations);
+    onMatch(match ? { ...match, label } : null, label);
+  }
+
   return (
-    <div>
+    <div ref={containerRef} className="relative">
       <label htmlFor={inputId} className="sr-only">
         Search for a place
       </label>
       <input
-        ref={inputRef}
         id={inputId}
         type="text"
-        placeholder={
-          status === "unconfigured"
-            ? "Place search isn't configured — use the dropdowns below"
-            : "Search for a city, town, or region…"
-        }
-        disabled={status === "unconfigured" || status === "error"}
-        className="w-full rounded-md border border-black/15 px-3 py-2 text-sm disabled:opacity-60 dark:border-white/15 dark:bg-transparent"
+        value={query}
+        onChange={(e) => handleQueryChange(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        placeholder="Search for a city, town, or region…"
+        autoComplete="off"
+        className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
       />
+      {open && results.length > 0 && (
+        <ul className="absolute z-10 mt-1 w-full rounded-md border border-black/15 bg-white text-sm shadow-lg dark:border-white/15 dark:bg-neutral-900">
+          {results.map((result) => (
+            <li key={result.place_id}>
+              <button
+                type="button"
+                onClick={() => handleSelect(result)}
+                className="block w-full px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                {result.display_name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {status === "error" && (
         <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-          Couldn&apos;t load place search — use the dropdowns below instead.
+          Place search failed — use the dropdowns below instead.
         </p>
       )}
+      <p className="mt-1 text-xs text-black/40 dark:text-white/40">
+        Search by{" "}
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2"
+        >
+          OpenStreetMap
+        </a>{" "}
+        contributors
+      </p>
     </div>
   );
 }
