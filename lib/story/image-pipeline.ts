@@ -57,7 +57,18 @@ async function uploadObject(
   contentType: string,
 ): Promise<void> {
   const admin = createAdminClient();
-  const { error } = await admin.storage.from(bucket).upload(path, bytes, {
+  // Wrapped in a Blob, not passed as a raw Node Buffer -- storage-js sends a
+  // Blob as multipart/form-data, while a raw Buffer goes straight through as
+  // the fetch body. Inside a Next.js server (unlike a plain `node script.js`
+  // process), the global `fetch` is patched for the Data Cache, and that
+  // patched fetch does not reliably preserve a raw Buffer body -- verified
+  // live: the exact same upload corrupts binary bytes (uploaded size grows,
+  // sha256 changes) only when run through Next.js/Vercel, never through a
+  // bare Node process using the same supabase-js version. The Blob/FormData
+  // path avoids that fetch-body edge case entirely and is Supabase's own
+  // documented pattern for server-side Buffer uploads.
+  const blob = new Blob([new Uint8Array(bytes)], { type: contentType });
+  const { error } = await admin.storage.from(bucket).upload(path, blob, {
     contentType,
     upsert: true,
   });

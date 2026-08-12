@@ -52,8 +52,15 @@ const fakeAdmin = {
           error: null,
         };
       },
-      upload: async (path: string, bytes: Buffer) => {
-        objects.set(key(bucket, path), Buffer.from(bytes));
+      upload: async (path: string, body: Buffer | Blob) => {
+        // The real code uploads a Blob (see the comment on uploadObject() in
+        // lib/story/image-pipeline.ts for why), not a raw Buffer -- mirror
+        // that here rather than assuming the arg shape.
+        const bytes =
+          body instanceof Blob
+            ? Buffer.from(await body.arrayBuffer())
+            : Buffer.from(body);
+        objects.set(key(bucket, path), bytes);
         return { error: null };
       },
       list: async () => ({ data: [] }),

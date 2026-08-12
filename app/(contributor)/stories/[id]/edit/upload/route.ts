@@ -127,10 +127,18 @@ export async function POST(
   // private bucket's own INSERT policy (_can_write_reserved_media_path)
   // independently enforces that this path is one this user actually
   // reserved via begin_story_media_upload above.
+  //
+  // Wrapped in a Blob, not passed as a raw Node Buffer -- see the matching
+  // comment on uploadObject() in lib/story/image-pipeline.ts for why: inside
+  // a Next.js server, the global `fetch` is patched for the Data Cache, and
+  // storage-js sends a raw Buffer straight through as the fetch body, which
+  // that patched fetch does not reliably preserve byte-for-byte. A Blob is
+  // sent as multipart/form-data instead, avoiding the corruption.
   const supabase = await createClient();
+  const blob = new Blob([new Uint8Array(bytes)], { type: sniffed });
   const { error: uploadError } = await supabase.storage
     .from("story-images-private")
-    .upload(reservedPath, bytes, { contentType: sniffed, upsert: false });
+    .upload(reservedPath, blob, { contentType: sniffed, upsert: false });
 
   if (uploadError) {
     await cancelPendingStoryMediaUpload(mediaId).catch(() => {});
