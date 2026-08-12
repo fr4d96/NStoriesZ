@@ -224,7 +224,7 @@ export async function setRevisionLocations(
   expectedVersion: number,
   locations: Array<{
     regionId: string;
-    destinationId?: string;
+    destinationId?: string | null;
     sortOrder?: number;
   }>,
 ) {
@@ -245,14 +245,17 @@ export async function setRevisionLocations(
 export async function setRevisionWorkTypes(
   revisionId: string,
   expectedVersion: number,
-  workTypeIds: string[],
+  workTypes: Array<{ id?: string; customLabel?: string }>,
 ) {
   await requireUser();
   const supabase = await createClient();
   const { error } = await supabase.rpc("set_revision_work_types", {
     p_revision_id: revisionId,
     p_expected_version: expectedVersion,
-    p_work_type_ids: workTypeIds,
+    p_work_types: workTypes.map((w) => ({
+      work_type_id: w.id ?? null,
+      custom_label: w.customLabel ?? null,
+    })),
   });
   if (error) throw error;
 }
@@ -260,14 +263,17 @@ export async function setRevisionWorkTypes(
 export async function setRevisionTags(
   revisionId: string,
   expectedVersion: number,
-  tagIds: string[],
+  tags: Array<{ id?: string; customLabel?: string }>,
 ) {
   await requireUser();
   const supabase = await createClient();
   const { error } = await supabase.rpc("set_revision_tags", {
     p_revision_id: revisionId,
     p_expected_version: expectedVersion,
-    p_tag_ids: tagIds,
+    p_tags: tags.map((t) => ({
+      tag_id: t.id ?? null,
+      custom_label: t.customLabel ?? null,
+    })),
   });
   if (error) throw error;
 }

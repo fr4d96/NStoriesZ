@@ -14,6 +14,10 @@ import {
 } from "@/components/story/story-content-editor";
 import { ImageUploadManager } from "@/components/story/image-upload-manager";
 import { ContentImportPanel } from "@/components/story/content-import-panel";
+import {
+  LocationSearch,
+  type LocationMatch,
+} from "@/components/story/location-search";
 import { MutationQueue } from "@/lib/story/mutation-queue";
 import { getErrorMessage } from "@/lib/errors";
 import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
@@ -49,7 +53,9 @@ export type StoryEditFormProps = {
     sortOrder: number;
   }>;
   initialWorkTypeIds: string[];
+  initialCustomWorkType: string;
   initialTagIds: string[];
+  initialCustomTag: string;
   initialMedia: RevisionMediaItem[];
   regions: ActiveRegion[];
   destinations: ActiveDestination[];
@@ -80,6 +86,12 @@ export type StoryEditFormProps = {
 
 const FIELDS_SAVE_DEBOUNCE_MS = 600;
 
+/** "midRange" -> "Mid range" -- for displaying camelCase enum values. */
+function formatCamelCaseLabel(value: string): string {
+  const spaced = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 export function StoryEditForm({
   storyId,
   revisionId,
@@ -95,7 +107,9 @@ export function StoryEditForm({
   initialContributorNote,
   initialLocations,
   initialWorkTypeIds,
+  initialCustomWorkType,
   initialTagIds,
+  initialCustomTag,
   initialMedia,
   regions,
   destinations,
@@ -160,8 +174,19 @@ export function StoryEditForm({
     initialContributorNote,
   );
   const [locations, setLocations] = useState(initialLocations);
+  const [locationSearchNotice, setLocationSearchNotice] = useState<
+    string | null
+  >(null);
   const [workTypeIds, setWorkTypeIds] = useState<string[]>(initialWorkTypeIds);
+  const [customWorkType, setCustomWorkType] = useState(initialCustomWorkType);
+  const [otherWorkTypeEnabled, setOtherWorkTypeEnabled] = useState(
+    initialCustomWorkType !== "",
+  );
   const [tagIds, setTagIds] = useState<string[]>(initialTagIds);
+  const [customTag, setCustomTag] = useState(initialCustomTag);
+  const [otherTagEnabled, setOtherTagEnabled] = useState(
+    initialCustomTag !== "",
+  );
 
   const debounceHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Synchronous ref, not just React state -- checked from inside the
@@ -361,17 +386,22 @@ export function StoryEditForm({
     }
   }
 
-  function toggleWorkType(id: string) {
-    const next = workTypeIds.includes(id)
-      ? workTypeIds.filter((w) => w !== id)
-      : [...workTypeIds, id];
-    setWorkTypeIds(next);
+  function buildSelections(ids: string[], customLabel: string) {
+    const selections: Array<{ id?: string; customLabel?: string }> = ids.map(
+      (id) => ({ id }),
+    );
+    const trimmed = customLabel.trim();
+    if (trimmed) selections.push({ customLabel: trimmed });
+    return selections;
+  }
+
+  function saveWorkTypes(ids: string[], customLabel: string) {
     setSaving(true);
     queue.enqueue("workTypes", async () => {
       const result = await setWorkTypesAction(
         revisionId,
         versionRef.current,
-        next,
+        buildSelections(ids, customLabel),
       );
       if (result.ok) {
         versionRef.current += 1;
@@ -382,14 +412,14 @@ export function StoryEditForm({
     });
   }
 
-  function toggleTag(id: string) {
-    const next = tagIds.includes(id)
-      ? tagIds.filter((t) => t !== id)
-      : [...tagIds, id];
-    setTagIds(next);
+  function saveTags(ids: string[], customLabel: string) {
     setSaving(true);
     queue.enqueue("tags", async () => {
-      const result = await setTagsAction(revisionId, versionRef.current, next);
+      const result = await setTagsAction(
+        revisionId,
+        versionRef.current,
+        buildSelections(ids, customLabel),
+      );
       if (result.ok) {
         versionRef.current += 1;
         bumpVersion();
@@ -397,6 +427,57 @@ export function StoryEditForm({
         throw new Error(result.error);
       }
     });
+  }
+
+  function toggleWorkType(id: string) {
+    const next = workTypeIds.includes(id)
+      ? workTypeIds.filter((w) => w !== id)
+      : [...workTypeIds, id];
+    setWorkTypeIds(next);
+    saveWorkTypes(next, customWorkType);
+  }
+
+  function toggleTag(id: string) {
+    const next = tagIds.includes(id)
+      ? tagIds.filter((t) => t !== id)
+      : [...tagIds, id];
+    setTagIds(next);
+    saveTags(next, customTag);
+  }
+
+  const customWorkTypeDebounce = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  function onCustomWorkTypeChange(value: string) {
+    setCustomWorkType(value);
+    if (customWorkTypeDebounce.current)
+      clearTimeout(customWorkTypeDebounce.current);
+    setSaving(true);
+    customWorkTypeDebounce.current = setTimeout(() => {
+      saveWorkTypes(workTypeIds, value);
+    }, FIELDS_SAVE_DEBOUNCE_MS);
+  }
+
+  function toggleOtherWorkType() {
+    const next = !otherWorkTypeEnabled;
+    setOtherWorkTypeEnabled(next);
+    if (!next) onCustomWorkTypeChange("");
+  }
+
+  const customTagDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function onCustomTagChange(value: string) {
+    setCustomTag(value);
+    if (customTagDebounce.current) clearTimeout(customTagDebounce.current);
+    setSaving(true);
+    customTagDebounce.current = setTimeout(() => {
+      saveTags(tagIds, value);
+    }, FIELDS_SAVE_DEBOUNCE_MS);
+  }
+
+  function toggleOtherTag() {
+    const next = !otherTagEnabled;
+    setOtherTagEnabled(next);
+    if (!next) onCustomTagChange("");
   }
 
   function addLocation() {
@@ -451,6 +532,28 @@ export function StoryEditForm({
 
   const destinationsForRegion = (regionId: string) =>
     destinations.filter((d) => d.regionId === regionId);
+
+  function handleLocationMatch(match: LocationMatch | null, label: string) {
+    if (!match) {
+      setLocationSearchNotice(
+        label
+          ? `No matching region found for "${label}" — pick manually below.`
+          : "No matching region found — pick manually below.",
+      );
+      return;
+    }
+    setLocationSearchNotice(null);
+    const next = [
+      ...locations,
+      {
+        regionId: match.regionId,
+        destinationId: match.destinationId,
+        sortOrder: locations.length,
+      },
+    ];
+    setLocations(next);
+    saveLocations(next);
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
@@ -514,7 +617,7 @@ export function StoryEditForm({
 
         <div>
           <label htmlFor="edit-excerpt" className="block text-sm font-medium">
-            Excerpt
+            Sub-Title
           </label>
           <textarea
             id="edit-excerpt"
@@ -584,26 +687,32 @@ export function StoryEditForm({
           </div>
           {dateMode === "range" ? (
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <input
-                type="date"
-                value={tripStartDate}
-                onChange={(e) => {
-                  setTripStartDate(e.target.value);
-                  scheduleSave({ tripStartDate: e.target.value });
-                }}
-                className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
-                aria-label="Trip start date"
-              />
-              <input
-                type="date"
-                value={tripEndDate}
-                onChange={(e) => {
-                  setTripEndDate(e.target.value);
-                  scheduleSave({ tripEndDate: e.target.value });
-                }}
-                className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
-                aria-label="Trip end date"
-              />
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-black/60 dark:text-white/60">From</span>
+                <input
+                  type="date"
+                  value={tripStartDate}
+                  onChange={(e) => {
+                    setTripStartDate(e.target.value);
+                    scheduleSave({ tripStartDate: e.target.value });
+                  }}
+                  className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+                  aria-label="Trip start date"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-black/60 dark:text-white/60">To</span>
+                <input
+                  type="date"
+                  value={tripEndDate}
+                  onChange={(e) => {
+                    setTripEndDate(e.target.value);
+                    scheduleSave({ tripEndDate: e.target.value });
+                  }}
+                  className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+                  aria-label="Trip end date"
+                />
+              </label>
             </div>
           ) : (
             <input
@@ -640,7 +749,7 @@ export function StoryEditForm({
             <option value="">Not specified</option>
             {travelStyles.map((style) => (
               <option key={style} value={style}>
-                {style.replace("_", " ")}
+                {formatCamelCaseLabel(style)}
               </option>
             ))}
           </select>
@@ -666,7 +775,19 @@ export function StoryEditForm({
 
         <fieldset>
           <legend className="text-sm font-medium">Locations</legend>
-          <div className="mt-1 space-y-2">
+          <div className="mt-1">
+            <LocationSearch
+              regions={regions}
+              destinations={destinations}
+              onMatch={handleLocationMatch}
+            />
+            {locationSearchNotice && (
+              <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                {locationSearchNotice}
+              </p>
+            )}
+          </div>
+          <div className="mt-2 space-y-2">
             {locations.map((loc, i) => (
               <div key={i} className="flex flex-wrap items-center gap-2">
                 <select
@@ -720,7 +841,7 @@ export function StoryEditForm({
 
         <fieldset>
           <legend className="text-sm font-medium">Work types</legend>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             {workTypes.map((wt) => (
               <label key={wt.id} className="flex items-center gap-1.5">
                 <input
@@ -731,12 +852,31 @@ export function StoryEditForm({
                 {wt.name}
               </label>
             ))}
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={otherWorkTypeEnabled}
+                onChange={toggleOtherWorkType}
+              />
+              Other (type your own)
+            </label>
+            {otherWorkTypeEnabled && (
+              <input
+                type="text"
+                value={customWorkType}
+                maxLength={100}
+                placeholder="Describe your work type"
+                onChange={(e) => onCustomWorkTypeChange(e.target.value)}
+                className="rounded-md border border-black/15 px-2 py-1.5 text-sm dark:border-white/15 dark:bg-transparent"
+                aria-label="Other work type (type your own)"
+              />
+            )}
           </div>
         </fieldset>
 
         <fieldset>
           <legend className="text-sm font-medium">Tags</legend>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             {tags.map((tag) => (
               <label key={tag.id} className="flex items-center gap-1.5">
                 <input
@@ -747,6 +887,25 @@ export function StoryEditForm({
                 {tag.name}
               </label>
             ))}
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={otherTagEnabled}
+                onChange={toggleOtherTag}
+              />
+              Other (type your own)
+            </label>
+            {otherTagEnabled && (
+              <input
+                type="text"
+                value={customTag}
+                maxLength={100}
+                placeholder="Add a tag"
+                onChange={(e) => onCustomTagChange(e.target.value)}
+                className="rounded-md border border-black/15 px-2 py-1.5 text-sm dark:border-white/15 dark:bg-transparent"
+                aria-label="Other tag (type your own)"
+              />
+            )}
           </div>
         </fieldset>
 

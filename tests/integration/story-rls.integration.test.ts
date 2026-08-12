@@ -1289,7 +1289,10 @@ describe("Prompt 5: list_published_stories never duplicates a story row across m
       {
         p_revision_id: revisionId,
         p_expected_version: 1,
-        p_work_type_ids: [workTypeA!.id, workTypeB!.id],
+        p_work_types: [
+          { work_type_id: workTypeA!.id },
+          { work_type_id: workTypeB!.id },
+        ],
       },
     );
     expect(wtSetError).toBeNull();
@@ -1304,7 +1307,7 @@ describe("Prompt 5: list_published_stories never duplicates a story row across m
     const { error: tagSetError } = await owner.client.rpc("set_revision_tags", {
       p_revision_id: revisionId,
       p_expected_version: afterWorkTypes![0].version,
-      p_tag_ids: [tagA!.id, tagB!.id],
+      p_tags: [{ tag_id: tagA!.id }, { tag_id: tagB!.id }],
     });
     expect(tagSetError).toBeNull();
 

@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import {
   revisionInputSchema,
   revisionLocationsSchema,
-  revisionIdsSchema,
+  revisionSelectionsSchema,
   type RevisionInput,
 } from "@/lib/validation/story";
 import { getErrorMessage } from "@/lib/errors";
@@ -121,12 +121,12 @@ export async function setLocationsAction(
 export async function setWorkTypesAction(
   revisionId: string,
   expectedVersion: number,
-  workTypeIds: unknown,
+  workTypes: unknown,
 ): Promise<MutationResult> {
   const authError = await requireSignedIn();
   if (authError) return authError;
 
-  const parsed = revisionIdsSchema.safeParse(workTypeIds);
+  const parsed = revisionSelectionsSchema.safeParse(workTypes);
   if (!parsed.success) {
     return {
       ok: false,
@@ -144,12 +144,12 @@ export async function setWorkTypesAction(
 export async function setTagsAction(
   revisionId: string,
   expectedVersion: number,
-  tagIds: unknown,
+  tags: unknown,
 ): Promise<MutationResult> {
   const authError = await requireSignedIn();
   if (authError) return authError;
 
-  const parsed = revisionIdsSchema.safeParse(tagIds);
+  const parsed = revisionSelectionsSchema.safeParse(tags);
   if (!parsed.success) {
     return {
       ok: false,

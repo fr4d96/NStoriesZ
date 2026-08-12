@@ -127,7 +127,9 @@ export type RevisionSelections = {
     sortOrder: number;
   }>;
   workTypeIds: string[];
+  customWorkType: string;
   tagIds: string[];
+  customTag: string;
 };
 
 /**
@@ -153,9 +155,31 @@ export async function getRevisionSelections(
       destinationId: string | null;
       sortOrder: number;
     }> | null) ?? [];
+  const workTypes =
+    (row?.work_types as Array<{
+      workTypeId: string | null;
+      customLabel: string | null;
+    }> | null) ?? [];
+  const tags =
+    (row?.tags as Array<{
+      tagId: string | null;
+      customLabel: string | null;
+    }> | null) ?? [];
   return {
     locations,
-    workTypeIds: row?.work_type_ids ?? [],
-    tagIds: row?.tag_ids ?? [],
+    workTypeIds: workTypes
+      .map((w) => w.workTypeId)
+      .filter((id): id is string => id != null),
+    // The edit form only ever writes at most one custom entry per field —
+    // joining is just a safety net for data written some other way.
+    customWorkType: workTypes
+      .map((w) => w.customLabel)
+      .filter((label): label is string => label != null)
+      .join(", "),
+    tagIds: tags.map((t) => t.tagId).filter((id): id is string => id != null),
+    customTag: tags
+      .map((t) => t.customLabel)
+      .filter((label): label is string => label != null)
+      .join(", "),
   };
 }

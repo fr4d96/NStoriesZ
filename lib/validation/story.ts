@@ -150,7 +150,7 @@ export const storyContentSchema = z.array(storyContentBlockSchema).length(1);
 // constraints — duplicated deliberately for fast/friendly form errors; the
 // DB constraints (and the immutability trigger) are the non-bypassable
 // source of truth per Engineering Rule 3.
-export const travelStyles = ["budget", "mid_range", "comfort"] as const;
+export const travelStyles = ["budget", "midRange", "comfort"] as const;
 
 export const revisionInputSchema = z
   .object({
@@ -193,12 +193,28 @@ export type CreateDraftInput = z.infer<typeof createDraftSchema>;
 // before every call (Rule: validate at every trust boundary).
 export const revisionLocationSchema = z.object({
   regionId: z.uuid(),
-  destinationId: z.uuid().optional(),
+  destinationId: z.uuid().nullable().optional(),
   sortOrder: z.number().int().min(0).optional(),
 });
 
 export const revisionLocationsSchema = z.array(revisionLocationSchema).max(20);
-export const revisionIdsSchema = z.array(z.uuid()).max(20);
+
+// Work types/tags: each selection is either a reference to an existing
+// lookup row, or a contributor-authored "Other" value -- never both/neither
+// (mirrors the DB CHECK constraint added alongside custom_label in
+// supabase/migrations/20260812110000_work_type_tag_custom_labels.sql).
+export const revisionSelectionSchema = z
+  .object({
+    id: z.uuid().optional(),
+    customLabel: z.string().trim().min(1).max(100).optional(),
+  })
+  .refine((v) => Boolean(v.id) !== Boolean(v.customLabel), {
+    message: "Provide either a selection or a custom label, not both.",
+  });
+
+export const revisionSelectionsSchema = z
+  .array(revisionSelectionSchema)
+  .max(20);
 
 export const confirmationMethods = [
   "account",

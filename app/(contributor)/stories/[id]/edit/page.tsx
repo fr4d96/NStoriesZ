@@ -90,7 +90,9 @@ export default async function EditStoryPage({
       initialContributorNote={draft.contributor_note ?? ""}
       initialLocations={selections.locations}
       initialWorkTypeIds={selections.workTypeIds}
+      initialCustomWorkType={selections.customWorkType}
       initialTagIds={selections.tagIds}
+      initialCustomTag={selections.customTag}
       initialMedia={preview?.media ?? []}
       regions={regions}
       destinations={destinations}
