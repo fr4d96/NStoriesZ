@@ -1,5 +1,6 @@
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { PageTransition } from "@/components/page-transition";
 
 /**
  * Sign-in is an anonymous route, so it reuses the same static header/footer
@@ -12,7 +13,7 @@ export default function AuthLayout({
     <>
       <SiteHeader />
       <main id="main-content" className="flex-1">
-        {children}
+        <PageTransition>{children}</PageTransition>
       </main>
       <SiteFooter />
     </>

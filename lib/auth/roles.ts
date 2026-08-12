@@ -32,3 +32,29 @@ export const getCurrentUserRole = cache(async (): Promise<AppRole | null> => {
 
   return data.role;
 });
+
+/**
+ * The caller's own chosen avatar emoji (profiles.avatar_emoji), or null if
+ * signed out / unset — feeds UserAvatarMenu everywhere it's rendered
+ * server-side (ContributorNav, ModerationNav, EditorialNav, ReadinessNav).
+ * RLS already scopes this to auth.uid() (see profiles' own "owner reads own
+ * profile" policy), never a client-supplied id. Wrapped in cache() for the
+ * same reason as getCurrentUserRole.
+ */
+export const getCurrentUserAvatarEmoji = cache(
+  async (): Promise<string | null> => {
+    const user = await getCurrentUser();
+    if (!user) {
+      return null;
+    }
+
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("profiles")
+      .select("avatar_emoji")
+      .eq("id", user.id)
+      .single();
+
+    return data?.avatar_emoji ?? null;
+  },
+);

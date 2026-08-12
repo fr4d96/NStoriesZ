@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { resolveContributorAccess } from "@/lib/auth/contributor-guard";
 import { ContributorNav } from "@/components/contributor-nav";
 import { SiteFooter } from "@/components/site-footer";
+import { PageTransition } from "@/components/page-transition";
 
 /**
  * The only place in the app that calls getCurrentUser(). Public layouts
@@ -22,7 +23,7 @@ export default async function ContributorLayout({
     <>
       <ContributorNav />
       <main id="main-content" className="flex-1">
-        {children}
+        <PageTransition>{children}</PageTransition>
       </main>
       <SiteFooter />
     </>

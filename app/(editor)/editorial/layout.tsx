@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCurrentUserRole, resolveStaffAccess } from "@/lib/auth/roles";
 import { SiteFooter } from "@/components/site-footer";
+import { PageTransition } from "@/components/page-transition";
 import { EditorialNav } from "./editorial-nav";
 
 /**
@@ -39,7 +40,7 @@ export default async function EditorialLayout({
     <>
       <EditorialNav />
       <main id="main-content" className="flex-1">
-        {children}
+        <PageTransition>{children}</PageTransition>
       </main>
       <SiteFooter />
     </>

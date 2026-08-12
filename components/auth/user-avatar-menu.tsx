@@ -8,23 +8,26 @@ import { controlToneClasses } from "@/components/ui-tone";
 
 const menuItems = [
   { href: "/my-stories", label: "My Stories" },
-  { href: "/account", label: "Account" },
   { href: "/stories/new", label: "New Story" },
+  { href: "/account", label: "Account" },
 ];
 
 /**
- * Replaces the signed-in "My Stories / Account / New Story / Sign out"
- * button row with a single avatar that opens a dropdown holding those same
- * four actions -- the avatar itself is the emoji chosen on /account
+ * The single, always-present profile icon: every signed-in header
+ * (SiteHeader, ContributorNav, ModerationNav, EditorialNav, ReadinessNav)
+ * renders this instead of its own ad hoc sign-out/account links, so the
+ * same actions are reachable the same way regardless of which screen is
+ * showing. Opens a dropdown with, in order: My Stories, New Story, Account,
+ * Sign out -- the avatar itself is the emoji chosen on /account
  * (lib/avatar.ts's pre-loaded set), falling back to a generic person icon
  * for accounts that haven't picked one yet.
  *
- * `extraItems` is only passed by the mobile placement in
- * components/site-header.tsx -- on mobile, this avatar replaces the
- * hamburger menu entirely rather than sitting next to it, so it also has
- * to carry the primary nav links (Stories/Destinations/Work Guides/About)
- * that the hamburger used to hold. The desktop placement leaves it unset
- * since those links already have their own always-visible nav bar there.
+ * `extraItems` is for a header's own role-specific links that don't belong
+ * in the shared menu (e.g. SiteHeader's mobile placement, where this avatar
+ * replaces the hamburger entirely and so also has to carry the public
+ * primary nav; a staff header could similarly pass its own dashboard links
+ * on narrow viewports). Omitted wherever a header already has its own
+ * always-visible nav bar for those links.
  */
 export function UserAvatarMenu({
   emoji,

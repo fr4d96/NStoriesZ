@@ -1,28 +1,24 @@
-"use client";
-
-import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
-import { MobileNavToggle } from "@/components/mobile-nav-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { SignOutIconButton } from "@/app/(contributor)/account/sign-out-button";
-
-const contributorNav = [
-  { href: "/my-stories", label: "My Stories" },
-  { href: "/stories/new", label: "New Story" },
-  { href: "/account", label: "Account" },
-];
+import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
 
 /**
  * Rendered only inside the (contributor) layout, after the real session
  * check passes — deliberately separate from the public SiteHeader (never a
  * contradictory "Sign in" link for a signed-in user), but styled to match
- * it: same solid-header treatment, logo mark, and underline-on-hover nav
- * links (see app/globals.css .journiq-header-solid/.journiq-nav-link),
- * since this is the same site, just past the sign-in wall.
+ * it: same solid-header treatment and logo mark (see app/globals.css
+ * .journiq-header-solid), since this is the same site, just past the
+ * sign-in wall. The profile icon (UserAvatarMenu) is the one place My
+ * Stories/New Story/Account/Sign out live -- same menu, same order, on
+ * every signed-in header in the app, not just this one. A Server Component
+ * (like ModerationNav/EditorialNav/ReadinessNav) so it can read the
+ * caller's own avatar directly, rather than needing every layout above it
+ * to fetch and pass it down.
  */
-export function ContributorNav() {
-  const pathname = usePathname();
+export async function ContributorNav() {
+  const avatarEmoji = await getCurrentUserAvatarEmoji();
 
   return (
     <header className="journiq-header-solid sticky top-0 z-40 border-b border-border-subtle text-foreground">
@@ -35,33 +31,9 @@ export function ContributorNav() {
           Kakinotes
         </Link>
 
-        <nav
-          aria-label="Contributor"
-          className="ml-auto hidden items-center gap-6 text-sm font-bold md:flex"
-        >
-          {contributorNav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={pathname === item.href ? "page" : undefined}
-              className={`journiq-nav-link ${
-                pathname === item.href ? "text-accent" : ""
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />
-          <SignOutIconButton />
-        </div>
-
-        <div className="ml-auto flex items-center gap-2 md:hidden">
-          <ThemeToggle />
-          <SignOutIconButton />
-          <MobileNavToggle navItems={contributorNav} />
+          <UserAvatarMenu emoji={avatarEmoji} />
         </div>
       </div>
     </header>

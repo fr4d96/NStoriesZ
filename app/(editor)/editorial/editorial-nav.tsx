@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
 
 const editorialNav = [
   { href: "/editorial", label: "Dashboard" },
@@ -10,22 +12,35 @@ const editorialNav = [
 /**
  * Rendered only inside app/(editor)/editorial/layout.tsx, after the real
  * editor/admin role check passes -- same "own nav, no contradictions"
- * reasoning as components/contributor-nav.tsx.
+ * reasoning as components/contributor-nav.tsx. The profile icon
+ * (UserAvatarMenu) is the same one every other signed-in header renders.
  */
-export function EditorialNav() {
+export async function EditorialNav() {
+  const avatarEmoji = await getCurrentUserAvatarEmoji();
+
   return (
     <header className="border-b border-black/10 dark:border-white/10">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           Kakinotes — Editorial
         </Link>
-        <nav aria-label="Editorial" className="flex items-center gap-6 text-sm">
-          {editorialNav.map((item) => (
-            <Link key={item.href} href={item.href} className="hover:underline">
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <div className="flex items-center gap-6">
+          <nav
+            aria-label="Editorial"
+            className="flex items-center gap-6 text-sm"
+          >
+            {editorialNav.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="hover:underline"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <UserAvatarMenu emoji={avatarEmoji} />
+        </div>
       </div>
     </header>
   );

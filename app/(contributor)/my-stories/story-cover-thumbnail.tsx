@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { mintPreviewUrlAction } from "@/app/(contributor)/stories/[id]/media-actions";
+import { Spinner } from "@/components/ui/spinner";
 
 /**
  * Lazily mints a short-lived signed preview URL for a story's cover image,
@@ -34,32 +36,23 @@ export function StoryCoverThumbnail({
 
   if (!mediaId) {
     return (
-      <div
-        aria-hidden="true"
-        className="flex h-full w-full items-center justify-center bg-surface-muted text-foreground/30"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          className="h-8 w-8"
-        >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <circle cx="8.5" cy="8.5" r="1.5" />
-          <path d="M21 15l-5-5L5 21" />
-        </svg>
+      <div className="relative h-full w-full bg-surface-muted">
+        <Image
+          src="/NoImage.png"
+          alt=""
+          fill
+          sizes="(min-width: 640px) 33vw, 50vw"
+          className="object-cover"
+        />
       </div>
     );
   }
 
   if (!url) {
     return (
-      <div
-        aria-hidden="true"
-        className="h-full w-full animate-pulse bg-surface-muted"
-      />
+      <div className="flex h-full w-full items-center justify-center bg-surface-muted text-foreground/40">
+        <Spinner className="h-6 w-6" />
+      </div>
     );
   }
 

@@ -9,6 +9,7 @@ import {
 } from "@/lib/story/image-validation";
 import { getErrorMessage } from "@/lib/errors";
 import { useToast } from "@/components/ui/toast";
+import { Spinner } from "@/components/ui/spinner";
 import {
   reorderMediaAction,
   setCoverAction,
@@ -343,18 +344,21 @@ export function ImageUploadManager({
           {uploading.map((u) => (
             <li
               key={u.key}
-              className={
+              className={`flex items-center gap-1.5 ${
                 u.progress === "error"
                   ? "text-red-600 dark:text-red-400"
                   : "text-black/70 dark:text-white/70"
-              }
+              }`}
             >
-              {u.fileName} —{" "}
-              {u.progress === "error"
-                ? u.error
-                : u.progress === "uploading"
-                  ? "Uploading…"
-                  : "Processing…"}
+              {u.progress !== "error" && <Spinner className="h-3.5 w-3.5" />}
+              <span>
+                {u.fileName} —{" "}
+                {u.progress === "error"
+                  ? u.error
+                  : u.progress === "uploading"
+                    ? "Uploading…"
+                    : "Processing…"}
+              </span>
             </li>
           ))}
         </ul>
@@ -392,10 +396,19 @@ export function ImageUploadManager({
                       alt={item.altText ?? ""}
                       className="h-full w-full object-cover"
                     />
+                  ) : item.processingState === "failed" ? (
+                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-black/50 dark:text-white/50">
+                      {PROCESSING_LABELS[item.processingState]}
+                    </div>
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-black/50 dark:text-white/50">
-                      {PROCESSING_LABELS[item.processingState] ??
-                        item.processingState}
+                    <div
+                      className="flex h-full w-full items-center justify-center text-black/40 dark:text-white/40"
+                      aria-label={
+                        PROCESSING_LABELS[item.processingState] ??
+                        item.processingState
+                      }
+                    >
+                      <Spinner className="h-6 w-6" />
                     </div>
                   )}
                   {item.isCover && (
