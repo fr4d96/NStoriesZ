@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getStoryPreview } from "@/lib/story/contributor-queries";
 import { imageBlockMediaIds, storyContentSchema } from "@/lib/validation/story";
@@ -70,9 +71,41 @@ export default async function StoryPreviewPage({
     (preview.lifecycleStatus === "draft" ||
       preview.lifecycleStatus === "published");
 
+  // Mirrors _revision_is_editable() (supabase/migrations/20260803090250_story_internal_helpers.sql):
+  // the previewed revision is the story's editable draft only when its own
+  // status is still "draft" and the story is in ordinary or replacement
+  // authoring -- not frozen for contributor review or any other lifecycle
+  // state. get_story_preview() always resolves revisionId to
+  // coalesce(current_draft_revision_id, published_revision_id), so a
+  // "draft" revisionStatus here can only mean that resolved to the current
+  // draft.
+  const canEdit =
+    preview.revisionStatus === "draft" &&
+    (preview.lifecycleStatus === "draft" ||
+      preview.lifecycleStatus === "published");
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
-      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+      <div className="flex items-center justify-between gap-4 text-sm font-bold">
+        {canEdit ? (
+          <Link
+            href={`/stories/${preview.storyId}/edit`}
+            className="text-accent underline underline-offset-2"
+          >
+            Back to editing
+          </Link>
+        ) : (
+          <span />
+        )}
+        <Link
+          href="/my-stories"
+          className="text-foreground/70 underline underline-offset-2"
+        >
+          ← Back to My Stories
+        </Link>
+      </div>
+
+      <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
         Private preview — this is exactly what your story looks like right now.
         This page is never public, and isn&apos;t indexed by search engines.
       </div>

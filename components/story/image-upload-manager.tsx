@@ -70,6 +70,7 @@ export function ImageUploadManager({
   const visibleMedia = media.filter((m) => !inlineMediaIds.has(m.mediaId));
   const [uploading, setUploading] = useState<UploadingItem[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Mint (or re-mint) a signed thumbnail URL for every processed image not
@@ -292,9 +293,31 @@ export function ImageUploadManager({
       <div>
         <label
           htmlFor="story-image-upload"
-          className="inline-flex cursor-pointer items-center rounded-md border border-black/15 px-3 py-2 text-sm font-medium hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            void handleFiles(e.dataTransfer.files);
+          }}
+          className={`flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors ${
+            isDragging
+              ? "border-accent bg-accent/5"
+              : "border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+          }`}
         >
-          Add images
+          <span className="text-sm font-medium">
+            Drag and drop images here, or click to browse
+          </span>
+          <span className="text-sm text-black/60 dark:text-white/60">
+            Up to {MAX_IMAGES_PER_REVISION} images, JPEG/PNG/WebP, 15 MB each.
+          </span>
         </label>
         <input
           ref={fileInputRef}
@@ -308,9 +331,6 @@ export function ImageUploadManager({
             e.target.value = "";
           }}
         />
-        <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-          Up to {MAX_IMAGES_PER_REVISION} images, JPEG/PNG/WebP, 15 MB each.
-        </p>
       </div>
 
       {uploading.length > 0 && (

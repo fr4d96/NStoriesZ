@@ -1792,6 +1792,7 @@ export type Database = {
           archived_at: string
           created_at: string
           current_draft_revision_id: string
+          excerpt: string
           id: string
           lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"]
           published_at: string
@@ -1799,6 +1800,7 @@ export type Database = {
           slug: string
           source_kind: Database["public"]["Enums"]["story_source_kind"]
           submitted_at: string
+          title: string
           updated_at: string
           version: number
           visibility: Database["public"]["Enums"]["story_visibility"]

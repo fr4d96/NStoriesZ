@@ -59,9 +59,16 @@ export default async function MyStoriesPage() {
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{story.slug}</span>
+                    <span className="font-medium">
+                      {story.title ?? "Untitled story"}
+                    </span>
                     <StatusBadge status={story.lifecycle_status} />
                   </div>
+                  {story.excerpt && (
+                    <p className="mt-1 text-sm text-foreground/70">
+                      {story.excerpt}
+                    </p>
+                  )}
                   {updated && (
                     <p className="mt-1 text-sm text-foreground/55">
                       Updated {updated}
