@@ -2,6 +2,11 @@ import "server-only";
 import { createHash } from "node:crypto";
 import sharp, { type Sharp, type Metadata, type OutputInfo } from "sharp";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { env, getAdminEnv } from "@/lib/env.server";
+import {
+  rawStorageDownload,
+  rawStorageUpload,
+} from "@/lib/story/raw-storage-http";
 import {
   extensionForMimeType,
   MAX_INPUT_PIXELS,
@@ -39,15 +44,32 @@ function sha256Hex(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+// Both storage transfers below go over raw `node:https`
+// (lib/story/raw-storage-http.ts), not the supabase-js client's
+// storage.download()/storage.upload() -- see that module's doc comment for
+// why: two earlier fixes (Blob body, then pinning `fetch` to undici's
+// directly) both still corrupted binary bytes intermittently in production,
+// confirmed live by re-downloading the actually-stored object via plain
+// `curl`. This is the third, maximally direct fix -- no fetch/undici
+// abstraction left for anything to patch.
+function adminStorageAuth() {
+  const key = getAdminEnv().SUPABASE_SERVICE_ROLE_KEY;
+  return { apikey: key, bearerToken: key };
+}
+
 async function downloadObject(bucket: string, path: string): Promise<Buffer> {
-  const admin = createAdminClient();
-  const { data, error } = await admin.storage.from(bucket).download(path);
-  if (error || !data) {
+  try {
+    return await rawStorageDownload(
+      env.NEXT_PUBLIC_SUPABASE_URL,
+      adminStorageAuth(),
+      bucket,
+      path,
+    );
+  } catch (err) {
     throw new Error(
-      `Failed to download ${bucket}/${path}: ${error?.message ?? "no data"}`,
+      `Failed to download ${bucket}/${path}: ${err instanceof Error ? err.message : "unknown error"}`,
     );
   }
-  return Buffer.from(await data.arrayBuffer());
 }
 
 async function uploadObject(
@@ -56,25 +78,20 @@ async function uploadObject(
   bytes: Buffer,
   contentType: string,
 ): Promise<void> {
-  const admin = createAdminClient();
-  // Sent as a raw Uint8Array, NOT wrapped in a Blob. storage-js sends a Blob
-  // body as multipart/form-data with an unnamed part (no filename), which
-  // undici's multipart serializer does not reliably infer a content-type
-  // for -- it falls back to text/plain and Supabase Storage rejects the
-  // upload outright ("mime type text/plain;charset=UTF-8 is not
-  // supported"), verified live. A raw typed-array body instead takes
-  // storage-js's non-multipart path, which sets Content-Type explicitly via
-  // a header and sends the bytes as-is -- no ambiguous part encoding. This
-  // relies on createAdminClient's `fetch` being pinned to undici's, not
-  // `globalThis.fetch` -- see the comment there: Next.js's patched global
-  // fetch does not reliably preserve a raw binary body either, which is a
-  // separate, second failure mode this same combination avoids.
-  const { error } = await admin.storage.from(bucket).upload(path, bytes, {
-    contentType,
-    upsert: true,
-  });
-  if (error) {
-    throw new Error(`Failed to upload ${bucket}/${path}: ${error.message}`);
+  try {
+    await rawStorageUpload(
+      env.NEXT_PUBLIC_SUPABASE_URL,
+      adminStorageAuth(),
+      bucket,
+      path,
+      bytes,
+      contentType,
+      true,
+    );
+  } catch (err) {
+    throw new Error(
+      `Failed to upload ${bucket}/${path}: ${err instanceof Error ? err.message : "unknown error"}`,
+    );
   }
 }
 

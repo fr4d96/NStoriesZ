@@ -39,23 +39,12 @@ const fakeAdmin = {
       }),
     }),
   }),
+  // download()/upload() live on the raw-storage-http mock below now, not
+  // here -- these two are the ones still called through the admin client
+  // directly (by copyStoryMediaToPublic/mintMediaPreviewSignedUrl, neither
+  // exercised by this file's tests, kept for shape-completeness).
   storage: {
-    from: (bucket: string) => ({
-      download: async (path: string) => {
-        const buf = objects.get(key(bucket, path));
-        if (!buf) return { data: null, error: new Error("not found") };
-        return {
-          data: {
-            arrayBuffer: async () =>
-              buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
-          },
-          error: null,
-        };
-      },
-      upload: async (path: string, body: Buffer) => {
-        objects.set(key(bucket, path), Buffer.from(body));
-        return { error: null };
-      },
+    from: () => ({
       list: async () => ({ data: [] }),
       createSignedUrl: async () => ({
         data: { signedUrl: "https://example.com/signed" },
@@ -71,6 +60,44 @@ const fakeAdmin = {
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => fakeAdmin,
+}));
+
+// image-pipeline.ts reads these directly (not just via the mocked admin
+// client above) for the raw-https storage calls below.
+vi.mock("@/lib/env.server", () => ({
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: "https://test.supabase.co",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+  },
+  getAdminEnv: () => ({ SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key" }),
+}));
+
+// downloadObject()/uploadObject() go over raw node:https (see
+// lib/story/raw-storage-http.ts's doc comment for why), not
+// supabase-js's storage.download()/storage.upload() -- mocked here against
+// the same in-memory `objects` map as fakeAdmin.storage above so
+// copyStoryMediaToPublic (which still goes through fakeAdmin.storage.list()
+// for its "is it already there" check) keeps seeing consistent state.
+vi.mock("@/lib/story/raw-storage-http", () => ({
+  rawStorageDownload: async (
+    _url: string,
+    _auth: unknown,
+    bucket: string,
+    path: string,
+  ) => {
+    const buf = objects.get(key(bucket, path));
+    if (!buf) throw new Error("not found");
+    return buf;
+  },
+  rawStorageUpload: async (
+    _url: string,
+    _auth: unknown,
+    bucket: string,
+    path: string,
+    bytes: Buffer,
+  ) => {
+    objects.set(key(bucket, path), Buffer.from(bytes));
+  },
 }));
 
 const { processStoryMedia } = await import("./image-pipeline");

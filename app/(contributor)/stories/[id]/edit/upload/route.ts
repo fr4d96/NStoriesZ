@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { fetch as undiciFetch } from "undici";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { createClient } from "@/lib/supabase/server";
+import { env } from "@/lib/env.server";
+import { rawStorageUpload } from "@/lib/story/raw-storage-http";
 import {
   beginStoryMediaUpload,
   cancelPendingStoryMediaUpload,
@@ -128,24 +129,39 @@ export async function POST(
   // private bucket's own INSERT policy (_can_write_reserved_media_path)
   // independently enforces that this path is one this user actually
   // reserved via begin_story_media_upload above.
-  //
-  // Sent as a raw Uint8Array (not wrapped in a Blob), with `fetch` pinned to
-  // undici's instead of the default `globalThis.fetch` -- see the matching
-  // comment on uploadObject() in lib/story/image-pipeline.ts for the full
-  // story: both parts are needed. Next.js's patched global fetch does not
-  // reliably preserve a raw binary body, but wrapping in a Blob instead
-  // hits a second, different failure -- storage-js sends a Blob as an
-  // unnamed multipart/form-data part, and undici's multipart serializer
-  // can't infer a content-type without a filename, so Storage rejects the
-  // upload outright. A raw typed-array body avoids both failure modes.
-  const supabase = await createClient({
-    fetch: undiciFetch as unknown as typeof fetch,
-  });
-  const { error: uploadError } = await supabase.storage
-    .from("story-images-private")
-    .upload(reservedPath, bytes, { contentType: sniffed, upsert: false });
+  const supabase = await createClient();
 
-  if (uploadError) {
+  // Uploaded over raw `node:https` (lib/story/raw-storage-http.ts), not
+  // supabase-js's storage.upload() -- see that module's doc comment for
+  // why: two earlier fixes (a Blob body, then pinning `fetch` to undici's
+  // directly) both still corrupted binary bytes intermittently in
+  // production. The user's own access token (not the admin client) is used
+  // as the bearer token, so this is still exactly as RLS-scoped as the
+  // supabase-js call it replaces -- _can_write_reserved_media_path still
+  // enforces that reservedPath is one this user actually reserved.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json(
+      { error: "You must be signed in." },
+      { status: 401 },
+    );
+  }
+  try {
+    await rawStorageUpload(
+      env.NEXT_PUBLIC_SUPABASE_URL,
+      {
+        apikey: env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+        bearerToken: session.access_token,
+      },
+      "story-images-private",
+      reservedPath,
+      bytes,
+      sniffed,
+      false,
+    );
+  } catch {
     await cancelPendingStoryMediaUpload(mediaId).catch(() => {});
     return NextResponse.json(
       { error: "Upload failed. Please try again." },
