@@ -8,6 +8,7 @@ import {
   MAX_UPLOAD_BYTES,
 } from "@/lib/story/image-validation";
 import { getErrorMessage } from "@/lib/errors";
+import { useToast } from "@/components/ui/toast";
 import {
   reorderMediaAction,
   setCoverAction,
@@ -72,6 +73,7 @@ export function ImageUploadManager({
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
 
   // Mint (or re-mint) a signed thumbnail URL for every processed image not
   // already showing one. Signed URLs expire after 120 seconds
@@ -179,18 +181,21 @@ export function ImageUploadManager({
         onVersionBumped();
         setUploading((prev) => prev.filter((u) => u.key !== key));
         await refresh();
+        showToast(`${file.name} uploaded.`);
       } catch (error) {
+        const message = getErrorMessage(error, "Upload failed.");
         setUploading((prev) =>
           prev.map((u) =>
             u.key === key
               ? {
                   ...u,
                   progress: "error",
-                  error: getErrorMessage(error, "Upload failed."),
+                  error: message,
                 }
               : u,
           ),
         );
+        showToast(`${file.name} failed to upload.`, "error");
       }
     }
   }

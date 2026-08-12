@@ -49,8 +49,11 @@ export default async function MyStoriesPage() {
             // story list, not only by knowing the preview URL.
             const awaitingApproval =
               story.lifecycle_status === "awaiting_contributor_approval";
+            const inReview = story.lifecycle_status === "pending_review";
             const editable =
-              Boolean(story.current_draft_revision_id) && !awaitingApproval;
+              Boolean(story.current_draft_revision_id) &&
+              !awaitingApproval &&
+              !inReview;
             const updated = formatDate(story.updated_at);
             return (
               <li

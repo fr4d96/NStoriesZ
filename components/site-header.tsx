@@ -200,7 +200,13 @@ export function SiteHeader() {
         onClose={() => setAuthModal(null)}
         title="Sign in"
       >
-        <SignInForm next="/account" />
+        {/* Deliberately no "/account" default here -- an empty next tells
+            signInAction "nothing specific was requested," so it can land
+            staff roles on their own dashboard instead (see
+            lib/auth/post-login-redirect.ts). This modal is only ever opened
+            from a public page with no protected-route redirect pending, so
+            there's never a real next to preserve. */}
+        <SignInForm next="" />
       </AuthModal>
       <AuthModal
         open={authModal === "sign-up"}

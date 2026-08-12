@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 // The app's default (sans) typeface is Avenir Next, declared globally via
@@ -68,7 +69,7 @@ export default function RootLayout({
         >
           Skip to main content
         </a>
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

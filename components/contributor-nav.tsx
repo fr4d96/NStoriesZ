@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 import { MobileNavToggle } from "@/components/mobile-nav-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SignOutIconButton } from "@/app/(contributor)/account/sign-out-button";
 
 const contributorNav = [
   { href: "/my-stories", label: "My Stories" },
@@ -54,10 +55,12 @@ export function ContributorNav() {
 
         <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle />
+          <SignOutIconButton />
         </div>
 
         <div className="ml-auto flex items-center gap-2 md:hidden">
           <ThemeToggle />
+          <SignOutIconButton />
           <MobileNavToggle navItems={contributorNav} />
         </div>
       </div>

@@ -29,6 +29,11 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+const mockGetCurrentUserRole = vi.fn();
+vi.mock("@/lib/auth/roles", () => ({
+  getCurrentUserRole: () => mockGetCurrentUserRole(),
+}));
+
 import {
   signUpAction,
   signInAction,
@@ -53,6 +58,7 @@ beforeEach(() => {
   mockResetPasswordForEmail.mockReset().mockResolvedValue({ error: null });
   mockGetUser.mockReset();
   mockUpdateUser.mockReset();
+  mockGetCurrentUserRole.mockReset().mockResolvedValue(null);
 });
 
 describe("signUpAction", () => {
@@ -139,6 +145,55 @@ describe("signInAction", () => {
     );
 
     expect(result.error).toBe("Incorrect email or password.");
+  });
+
+  it("with no explicit next, sends an ordinary user to /account", async () => {
+    mockGetCurrentUserRole.mockResolvedValue("user");
+
+    await expect(
+      signInAction(
+        {},
+        formData({ email: "a@example.com", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/account");
+  });
+
+  it("with no explicit next, sends a moderator to their own dashboard, not /account", async () => {
+    mockGetCurrentUserRole.mockResolvedValue("moderator");
+
+    await expect(
+      signInAction(
+        {},
+        formData({ email: "a@example.com", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/moderation");
+  });
+
+  it("with no explicit next, sends an editor to /editorial", async () => {
+    mockGetCurrentUserRole.mockResolvedValue("editor");
+
+    await expect(
+      signInAction(
+        {},
+        formData({ email: "a@example.com", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/editorial");
+  });
+
+  it("an explicit next still wins over the role-based default", async () => {
+    mockGetCurrentUserRole.mockResolvedValue("moderator");
+
+    await expect(
+      signInAction(
+        {},
+        formData({
+          email: "a@example.com",
+          password: "password123",
+          next: "/my-stories",
+        }),
+      ),
+    ).rejects.toThrow("REDIRECT:/my-stories");
+    expect(mockGetCurrentUserRole).not.toHaveBeenCalled();
   });
 });
 

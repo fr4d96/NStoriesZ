@@ -20,6 +20,7 @@ import {
 } from "@/components/story/location-search";
 import { MutationQueue } from "@/lib/story/mutation-queue";
 import { getErrorMessage } from "@/lib/errors";
+import { useToast } from "@/components/ui/toast";
 import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
 import type {
   ActiveRegion,
@@ -118,6 +119,7 @@ export function StoryEditForm({
   showContentImport,
   isNewStory = false,
 }: StoryEditFormProps) {
+  const { showToast } = useToast();
   const versionRef = useRef(initialVersion);
   const [conflict, setConflict] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -259,13 +261,14 @@ export function StoryEditForm({
             // that remains correct, not a bug.
             versionRef.current = result.version;
             bumpVersion();
+            showToast("Draft saved.");
           } else {
             throw new Error(result.error);
           }
         });
       }, FIELDS_SAVE_DEBOUNCE_MS);
     },
-    [queue, revisionId],
+    [queue, revisionId, showToast],
   );
 
   // Every field-backed value schedules its own save directly from the event
@@ -926,9 +929,11 @@ export function StoryEditForm({
           />
         </div>
 
-        <div>
-          <span className="block text-sm font-medium">Images</span>
-          <div className="mt-1">
+        <details className="rounded-md border border-black/10 dark:border-white/10">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+            Images{initialMedia.length > 0 ? ` (${initialMedia.length})` : ""}
+          </summary>
+          <div className="border-t border-black/10 p-3 dark:border-white/10">
             <ImageUploadManager
               storyId={storyId}
               revisionId={revisionId}
@@ -939,6 +944,15 @@ export function StoryEditForm({
               inlineMediaIds={inlineMediaIds}
             />
           </div>
+        </details>
+
+        <div className="flex justify-end border-t border-black/10 pt-6 dark:border-white/10">
+          <Link
+            href={`/stories/${storyId}/preview`}
+            className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+          >
+            Preview
+          </Link>
         </div>
       </div>
     </div>

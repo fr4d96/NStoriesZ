@@ -12,7 +12,12 @@ export default async function SignInPage({
   searchParams: Promise<{ next?: string; error?: string }>;
 }) {
   const params = await searchParams;
-  const next = resolveSafeReturnTo(params.next, "/account");
+  // Deliberately no fallback baked in here: an empty `next` tells
+  // signInAction/the OAuth callback "nothing specific was requested," so
+  // they can land staff roles on their own dashboard instead of always
+  // defaulting to /account (see lib/auth/post-login-redirect.ts). A real
+  // `?next=` (e.g. bounced here from a protected page) still always wins.
+  const next = params.next ? resolveSafeReturnTo(params.next, "") : "";
 
   return (
     <div className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
