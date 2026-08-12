@@ -154,6 +154,18 @@ delete from public.story_publication_state_actions where story_id in (
 
 delete from public.stories where slug like 'rls-test-%';
 
+-- Lookup-table fixtures (regions/destinations/work_types/tags): the same
+-- slug() helper (tests/integration/story-rls.integration.test.ts:140) also
+-- names these `rls-test-<runId>-<label>`, but nothing deleted them before
+-- this addition -- every run left its fixture rows behind permanently
+-- (found 46 duplicate "RLS Test Region A" rows accumulated on the hosted
+-- dev project). destinations first: region_id references regions
+-- on delete restrict, same reasoning as the story-domain deletes above.
+delete from public.destinations where slug like 'rls-test-%';
+delete from public.regions where slug like 'rls-test-%';
+delete from public.work_types where slug like 'rls-test-%';
+delete from public.tags where slug like 'rls-test-%';
+
 set session_replication_role = default;
 
 -- ---------------------------------------------------------------------
