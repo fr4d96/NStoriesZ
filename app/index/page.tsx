@@ -222,7 +222,7 @@ export default async function QaIndexPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 className="journiq-heading text-[2.4rem]">QA Index</h1>
       <p className="mt-2 text-foreground/65">
         Every route in the app, grouped by who can reach it. Locked sections

@@ -174,7 +174,7 @@ export default async function StoryDetailPage({
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
       {/* Controlled JSON-LD only, see jsonLdScript() above -- never user content. */}
       <script
         type="application/ld+json"

@@ -43,7 +43,7 @@ export default async function EditStoryPage({
 
   if (draft.revision_status !== "draft") {
     return (
-      <div className="mx-auto max-w-xl px-4 py-12 sm:px-6 sm:py-16">
+      <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Not editable right now
         </h1>

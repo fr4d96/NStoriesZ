@@ -4,7 +4,7 @@ import { BrandLogo } from "@/components/brand-logo";
 export function SiteFooter() {
   return (
     <footer id="about" className="bg-[#0e211b] text-white">
-      <div className="mx-auto max-w-[1160px] px-4 py-16 sm:px-6">
+      <div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6">
         <div className="grid gap-10 md:grid-cols-[1.4fr_.7fr_.7fr_.7fr]">
           <div>
             <Link

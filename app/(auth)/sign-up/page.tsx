@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 
 export default function SignUpPage() {
   return (
-    <div className="mx-auto max-w-sm px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Create your account
       </h1>

@@ -6,7 +6,7 @@ export default function NotFound() {
   return (
     <main
       id="main-content"
-      className="mx-auto max-w-3xl px-4 py-16 text-center"
+      className="mx-auto max-w-5xl px-4 py-16 text-center"
     >
       <h1 className="text-2xl font-semibold tracking-tight">Page not found</h1>
       <p className="mt-4 text-black/70 dark:text-white/70">

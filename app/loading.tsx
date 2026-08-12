@@ -3,7 +3,7 @@ export default function Loading() {
     <div
       role="status"
       aria-live="polite"
-      className="mx-auto max-w-5xl px-4 py-16 text-center"
+      className="mx-auto max-w-7xl px-4 py-16 text-center"
     >
       Loading…
     </div>

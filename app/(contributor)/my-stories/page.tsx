@@ -20,7 +20,7 @@ export default async function MyStoriesPage() {
   const stories = await listMyStories();
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="journiq-heading text-[2.4rem]">My Stories</h1>
         <Link href="/stories/new" className="journiq-button bg-accent text-accent-foreground">

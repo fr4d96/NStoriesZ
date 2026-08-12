@@ -80,7 +80,7 @@ export default async function HomePage() {
           site-wide layout change. */}
       <section className="relative isolate -mt-[76px] min-h-[720px] overflow-hidden bg-[#0b251e] text-white">
         <HeroSlideshow />
-        <div className="relative mx-auto flex min-h-[720px] max-w-[1160px] items-end px-4 pt-40 pb-16 sm:px-6 sm:pb-20">
+        <div className="relative mx-auto flex min-h-[720px] max-w-[1440px] items-end px-4 pt-40 pb-16 sm:px-6 sm:pb-20">
           <div className="max-w-4xl">
             <div className="hero-fade-item">
               <Eyebrow tone="onPhoto">Working holidays, told honestly</Eyebrow>
@@ -133,7 +133,7 @@ export default async function HomePage() {
             id="stories"
             className="bg-[#edf3ef] py-24 dark:bg-surface-muted"
           >
-            <div className="mx-auto max-w-[1160px] px-4 sm:px-6">
+            <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
               <SectionHeader
                 eyebrow="Featured journals"
                 title="Stories from the road"
@@ -146,7 +146,7 @@ export default async function HomePage() {
           </section>
 
           <section id="match" className="py-24">
-            <div className="mx-auto grid max-w-[1160px] gap-12 px-4 sm:px-6 lg:grid-cols-[.85fr_1.15fr]">
+            <div className="mx-auto grid max-w-[1440px] gap-12 px-4 sm:px-6 lg:grid-cols-[.85fr_1.15fr]">
               <Reveal className="lg:sticky lg:top-28 lg:self-start">
                 <Eyebrow>Find your match</Eyebrow>
                 <h2 className="journiq-heading mt-3">
@@ -167,7 +167,7 @@ export default async function HomePage() {
           </section>
 
           <section id="discover" className="py-24">
-            <div className="mx-auto max-w-[1160px] px-4 sm:px-6">
+            <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
               <SectionHeader
                 eyebrow="Browse by interest"
                 title="Find a story that matches your journey"
@@ -180,7 +180,7 @@ export default async function HomePage() {
           </section>
 
           <section id="regions" className="bg-forest py-24 text-white">
-            <div className="mx-auto max-w-[1160px] px-4 sm:px-6">
+            <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
               <SectionHeader
                 eyebrow="Across the motu"
                 eyebrowTone="onDark"
@@ -203,7 +203,7 @@ export default async function HomePage() {
       ) : null}
 
       <section id="how" className="py-24">
-        <div className="mx-auto max-w-[1160px] px-4 sm:px-6">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
           <Reveal>
             <Eyebrow>How Kakinotes helps</Eyebrow>
             <h2 className="journiq-heading mt-3 max-w-4xl">
@@ -229,7 +229,7 @@ export default async function HomePage() {
       </section>
 
       <section className="py-20">
-        <div className="mx-auto grid max-w-[1160px] overflow-hidden rounded-[28px] bg-surface-muted md:grid-cols-[.9fr_1.1fr]">
+        <div className="mx-auto grid max-w-[1440px] overflow-hidden rounded-[28px] bg-surface-muted md:grid-cols-[.9fr_1.1fr]">
           <div className="min-h-[360px] bg-[url('https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=85')] bg-cover bg-center" />
           <Reveal className="flex flex-col justify-center p-8 sm:p-14">
             <Eyebrow>Community note</Eyebrow>
@@ -246,7 +246,7 @@ export default async function HomePage() {
       </section>
 
       <section id="share" className="journiq-share py-24 text-white">
-        <div className="mx-auto max-w-[1160px] px-4 sm:px-6">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
           <Reveal>
             <Eyebrow tone="onDark">Pass it forward</Eyebrow>
             <h2 className="journiq-heading mt-3 max-w-4xl text-white">

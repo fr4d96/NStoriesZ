@@ -85,7 +85,7 @@ export default async function StoryPreviewPage({
       preview.lifecycleStatus === "published");
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
       <div className="flex items-center justify-between gap-4 text-sm font-bold">
         {canEdit ? (
           <Link

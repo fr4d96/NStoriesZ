@@ -124,7 +124,7 @@ export function SiteHeader() {
     <header
       className={`sticky top-0 z-40 transition-colors ${headerToneClasses}`}
     >
-      <div className="mx-auto flex min-h-[76px] max-w-[1160px] items-center gap-5 px-4 sm:px-6">
+      <div className="mx-auto flex min-h-[76px] max-w-[1440px] items-center gap-5 px-4 sm:px-6">
         <Link
           href="/"
           className="flex items-center gap-2.5 text-xl font-black tracking-tight"

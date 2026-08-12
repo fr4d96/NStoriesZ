@@ -18,7 +18,7 @@ export default async function ResetPasswordPage() {
 
   if (error || !data.user) {
     return (
-      <div className="mx-auto max-w-sm px-4 py-12 sm:px-6 sm:py-16">
+      <div className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Link expired
         </h1>
@@ -35,7 +35,7 @@ export default async function ResetPasswordPage() {
   }
 
   return (
-    <div className="mx-auto max-w-sm px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Choose a new password
       </h1>

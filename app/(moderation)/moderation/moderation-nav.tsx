@@ -15,7 +15,7 @@ const moderationNav = [
 export function ModerationNav() {
   return (
     <header className="border-b border-black/10 dark:border-white/10">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           Kakinotes — Moderation
         </Link>

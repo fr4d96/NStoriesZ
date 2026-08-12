@@ -46,7 +46,7 @@ export function EditorialControls({
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 px-4 pt-8 sm:px-6">
+    <div className="mx-auto max-w-5xl space-y-4 px-4 pt-8 sm:px-6">
       <div className="flex flex-wrap items-center gap-3">
         {showMarkReady && lifecycleStatus === "draft" && (
           <button

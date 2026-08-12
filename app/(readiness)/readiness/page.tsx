@@ -101,7 +101,7 @@ export default async function ReadinessDashboardPage({
   const hasPrevPage = filters.page > 1;
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Content readiness
       </h1>

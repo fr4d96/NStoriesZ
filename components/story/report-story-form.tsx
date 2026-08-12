@@ -71,7 +71,7 @@ export function ReportStoryForm({ storyId }: { storyId: string }) {
     state.status === "validation-error" ? state.fieldErrors : undefined;
 
   return (
-    <form action={formAction} className="max-w-sm space-y-3" noValidate>
+    <form action={formAction} className="max-w-md space-y-3" noValidate>
       <input type="hidden" name="storyId" value={storyId} />
       <div>
         <label htmlFor="report-category" className="block text-sm font-medium">

@@ -57,7 +57,7 @@ export default async function ReportDetailPage({
 
   if (!storyId) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16">
+      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Report detail</h1>
         <p className="mt-4 text-sm text-black/70 dark:text-white/70">
           This page needs to be reached from the reports queue, which supplies
@@ -82,7 +82,7 @@ export default async function ReportDetailPage({
   const notes = await getReportNotes(reportId).catch(() => []);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
       <Link
         href="/moderation/reports"
         className="text-sm underline underline-offset-2"
