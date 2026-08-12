@@ -10,7 +10,7 @@ import {
 } from "@/lib/validation/auth";
 import { resolveSafeReturnTo } from "@/lib/validation/safe-redirect";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
 export type AuthFormState = {
   error?: string;
