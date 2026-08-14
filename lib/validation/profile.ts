@@ -36,7 +36,9 @@ export const profileUpdateSchema = z.object({
     .optional()
     .or(z.literal("")),
   avatarEmoji: z
-    .enum(AVATAR_EMOJI_OPTIONS, { message: "Choose one of the provided avatars." })
+    .enum(AVATAR_EMOJI_OPTIONS, {
+      message: "Choose one of the provided avatars.",
+    })
     .optional()
     .or(z.literal("")),
 });

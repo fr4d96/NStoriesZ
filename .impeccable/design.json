@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-13T23:11:29.294096Z",
+  "title": "Design System: Kakinotes",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Void",
+        "canonical": "#05070a",
+        "tonalRamp": [
+          "#05070a",
+          "#0d1218",
+          "#10161d",
+          "#1b242c",
+          "#2b3740",
+          "#4a5658",
+          "#98a6a5",
+          "#f4f6f5"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#f4f6f5",
+        "tonalRamp": [
+          "#0b1013",
+          "#1b242c",
+          "#2b3740",
+          "#4a5658",
+          "#98a6a5",
+          "#c7d0cf",
+          "#e3e8e7",
+          "#f4f6f5"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Signal Cyan",
+        "canonical": "#35d0c4",
+        "tonalRamp": [
+          "#04211f",
+          "#073b37",
+          "#0a5f59",
+          "#0d7d74",
+          "#149c91",
+          "#35d0c4",
+          "#8fe6da",
+          "#d6f7f3"
+        ]
+      },
+      "light-accent": {
+        "role": "primary",
+        "displayName": "Signal Cyan (light rendition)",
+        "canonical": "#0d7d74",
+        "tonalRamp": [
+          "#04211f",
+          "#073b37",
+          "#0a5f59",
+          "#0d7d74",
+          "#149c91",
+          "#35d0c4",
+          "#8fe6da",
+          "#d6f7f3"
+        ]
+      },
+      "destructive": {
+        "role": "tertiary",
+        "displayName": "Alarm",
+        "canonical": "#ff6b6b",
+        "tonalRamp": [
+          "#2b0808",
+          "#4d1010",
+          "#7a1c1c",
+          "#a32626",
+          "#c0392b",
+          "#ff6b6b",
+          "#ff9d9d",
+          "#ffd6d6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display Serif",
+        "purpose": "Hero and section headlines only, via .journiq-heading."
+      },
+      "body": {
+        "displayName": "Body Sans",
+        "purpose": "All running copy and UI text (Avenir Next stack)."
+      },
+      "label": {
+        "displayName": "Label Sans",
+        "purpose": "Nav links, button labels, chip text — bold-to-black weight signals interactivity."
+      }
+    },
+    "shadows": [
+      {
+        "name": "hover-lift",
+        "value": "0 10px 24px rgba(0, 0, 0, 0.13)",
+        "purpose": "Field Journal primary button hover state only."
+      },
+      {
+        "name": "stack-depth",
+        "value": "0 28px 78px rgba(23, 63, 53, 0.22)",
+        "purpose": "Featured story-card-stack on Field Journal routes - brand-tinted photo-depth effect."
+      },
+      {
+        "name": "stack-depth-night",
+        "value": "0 28px 78px rgba(0, 0, 0, 0.55)",
+        "purpose": "Same stack inside .night-field - neutral-dark ink, since a forest-tinted shadow is invisible on the near-black ground."
+      },
+      {
+        "name": "panel-night",
+        "value": "0 22px 70px rgba(0, 0, 0, 0.4)",
+        "purpose": "Raised panel on the Night Field home page (the destination-quiz card) - the only resting shadow in that world."
+      }
+    ],
+    "motion": [
+      {
+        "name": "focus-pull",
+        "value": "@keyframes nf-pull (blur(12px) + translateY(20px) + scale(.99) -> resolved)",
+        "purpose": "Night Field's one authored motion idea, for section heads and large blocks. Scroll-driven via animation-timeline: view()."
+      },
+      {
+        "name": "focus-pull-lift",
+        "value": "@keyframes nf-lift (translateY(16px) -> 0)",
+        "purpose": "Same idea, shorter throw and no blur, for repeated rows (index entries, trust cards)."
+      },
+      {
+        "name": "hero-pull",
+        "value": "nf-pull 1.1s cubic-bezier(0.16, 0.84, 0.28, 1)",
+        "purpose": "The load-time expression of the focus pull, staggered across hero headline, standfirst and CTAs."
+      },
+      {
+        "name": "read-progress",
+        "value": "@keyframes nf-progress (scaleX 0 -> 1) on animation-timeline: scroll(root block)",
+        "purpose": "Reading hairline under the sticky header on the Night Field home page."
+      },
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.16, 0.84, 0.28, 1)",
+        "purpose": "Exponential ease-out; the default for Night Field state and entrance transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "container",
+        "value": "1440px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled pill CTA — 'Share your story', form submits.",
+      "html": "<button class=\"ds-btn-primary\">Share your story</button>",
+      "css": ".ds-btn-primary { background: #e8794a; color: #24130e; min-height: 46px; padding: 11px 18px; border: none; border-radius: 999px; font-weight: 900; font-size: 0.875rem; transition: transform 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease; } .ds-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,0.13); } .ds-btn-primary:focus-visible { outline: 3px solid #e8794a; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined pill button — 'Sign in', ghost actions.",
+      "html": "<button class=\"ds-btn-secondary\">Sign in</button>",
+      "css": ".ds-btn-secondary { background: transparent; color: #1f2926; min-height: 46px; padding: 11px 18px; border: 1px solid rgba(111,125,119,0.22); border-radius: 999px; font-weight: 700; font-size: 0.875rem; transition: transform 0.25s ease, box-shadow 0.25s ease; } .ds-btn-secondary:hover { transform: translateY(-2px); } .ds-btn-secondary:focus-visible { outline: 3px solid #e8794a; outline-offset: 3px; }"
+    },
+    {
+      "name": "Tag Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Work-type / topic badge on story cards.",
+      "html": "<span class=\"ds-chip\">Farm Work</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; background: #dde8df; color: #2f6b57; border-radius: 999px; padding: 2px 8px; font-size: 0.75rem; }"
+    },
+    {
+      "name": "Attribution Chip",
+      "kind": "custom",
+      "refersTo": "attribution-chip",
+      "description": "Contributor identity unit — initial avatar, name, trip metadata.",
+      "html": "<div class=\"ds-attribution\"><span class=\"ds-attribution-avatar\">M</span><span class=\"ds-attribution-body\"><span class=\"ds-attribution-name\">Mei L.</span><span class=\"ds-attribution-meta\">Queenstown · 2025</span></span></div>",
+      "css": ".ds-attribution { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; } .ds-attribution-avatar { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: #f5efe4; color: rgba(31,41,38,0.7); font-size: 0.75rem; font-weight: 600; flex-shrink: 0; } .ds-attribution-body { display: flex; flex-direction: column; } .ds-attribution-name { font-weight: 500; } .ds-attribution-meta { font-size: 0.75rem; color: rgba(31,41,38,0.6); display: flex; gap: 10px; }"
+    },
+    {
+      "name": "Primary Navigation",
+      "kind": "nav",
+      "refersTo": "nav-primary",
+      "description": "Solid-state header nav with underline-on-hover links.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link\" href=\"#\">Stories</a><a class=\"ds-nav-link\" href=\"#\">Destinations</a><a class=\"ds-nav-link\" href=\"#\">About</a></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; gap: 24px; font-size: 0.875rem; font-weight: 700; } .ds-nav-link { position: relative; color: #1f2926; text-decoration: none; } .ds-nav-link::after { content: ''; position: absolute; left: 0; right: 100%; bottom: -7px; height: 2px; background: #e8794a; transition: right 0.25s ease; } .ds-nav-link:hover::after { right: 0; }"
+    },
+    {
+      "name": "Index Entry",
+      "kind": "custom",
+      "refersTo": "nf-entry",
+      "description": "One record in the archive index: numeral, thumbnail, title, and the fields the story actually carries.",
+      "html": "<li class=\"ds-nf-entry\"><a href=\"#\"><span class=\"ds-nf-num\">04</span><span class=\"ds-nf-body\"><span class=\"ds-nf-title\">Raven — Dairy Farm in Oamaru</span><span class=\"ds-nf-meta\">Oamaru, Otago  ·  Agriculture  ·  2026</span></span></a></li>",
+      "css": ".ds-nf-entry { list-style: none; border-top: 1px solid var(--border-subtle); transition: background-color .3s ease, padding-left .3s cubic-bezier(.16,.84,.28,1); } .ds-nf-entry:hover { background-color: color-mix(in srgb, var(--accent) 7%, transparent); padding-left: .75rem; } .ds-nf-entry a { display: grid; grid-template-columns: 3rem minmax(0,1fr); align-items: center; gap: 0 1.5rem; padding: 1.5rem 0; text-decoration: none; } .ds-nf-num { font-family: ui-monospace, monospace; font-size: .875rem; color: color-mix(in srgb, var(--foreground) 40%, transparent); font-variant-numeric: tabular-nums; } .ds-nf-entry:hover .ds-nf-num { color: var(--accent); } .ds-nf-title { display: block; font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; color: var(--foreground); } .ds-nf-entry:hover .ds-nf-title { color: var(--accent); } .ds-nf-meta { display: block; margin-top: .5rem; font-family: ui-monospace, monospace; font-size: .75rem; color: color-mix(in srgb, var(--foreground) 45%, transparent); }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "nf-filter-chip",
+      "description": "One value on an index filter axis. Pressed state fills with the accent.",
+      "html": "<div><button class=\"ds-nf-chip is-on\">All</button><button class=\"ds-nf-chip\">Agriculture</button></div>",
+      "css": ".ds-nf-chip { border-radius: 999px; border: 1px solid var(--border-subtle); background: transparent; padding: .375rem .875rem; font-size: .875rem; font-weight: 500; white-space: nowrap; color: color-mix(in srgb, var(--foreground) 80%, transparent); transition: color .2s, border-color .2s, background-color .2s; } .ds-nf-chip:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); color: var(--foreground); } .ds-nf-chip.is-on { border-color: var(--accent); background: var(--accent); color: var(--accent-foreground); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Night Field",
+    "overview": "Kakinotes reads as a documentary archive shown in a darkened room. A near-black ground lets photography carry the light; one saturated cyan is the only voice raised above the neutrals, spent on state and emphasis rather than decoration. Structure is carried by hairline rules and mono numerals -- the vocabulary of a catalogue, not a marketing page. Both themes speak the same language: dark is the signature rendition, light its counterpart on a cool near-white ground.",
+    "keyCharacteristics": [
+      "Near-black ground with cool off-white ink, and one cyan accent used sparingly",
+      "Heavy sans throughout -- no serif anywhere; Geist Mono carries every numeral and column label",
+      "Flat, hairline-ruled surfaces at rest; shadow and lift only as a response to interaction",
+      "Full-pill buttons and chips; the primary button is ghost-outline first, filling on hover",
+      "Motion is one authored idea (a lens focus pull) in CSS scroll timelines, never JS observers"
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Signal Cyan is the only colour for CTAs and emphasis. Semantic status colours are permitted only in the staff moderation tools, where they carry meaning rather than brand.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Renditions Rule",
+        "body": "Every colour decision is made for both themes at once, and neither is an inversion of the other. A colour that only works on one ground needs a token with two values, not a dark: override.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Switch Rule",
+        "body": "data-theme is the single theming signal; Tailwind's dark: variant is bound to it via @custom-variant. Never introduce a second signal.",
+        "section": "colors"
+      },
+      {
+        "name": "The No-Serif Rule",
+        "body": "There is no serif in this system. The Georgia display face belonged to the retired Field Journal palette.",
+        "section": "typography"
+      },
+      {
+        "name": "The Display-Clamp Rule",
+        "body": ".journiq-heading and .night-heading carry font-size clamps and are defined after Tailwind's utilities, so they win over a text-xl override at equal specificity. Use them for page and section headings only.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono-Means-Record Rule",
+        "body": "Geist Mono marks data the reader can verify -- a position, a year, a place, a count. Never use it to make prose look technical.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Shapes Rule",
+        "body": "A row that becomes columns uses one grid, not two layouts: display:contents promotes the inner wrapper's children into the parent grid from md up. Never duplicate markup per breakpoint.",
+        "section": "layout"
+      },
+      {
+        "name": "The Rest-Is-Flat Rule",
+        "body": "Nothing carries a shadow at rest except the story-card-stack and the quiz panel.",
+        "section": "elevation"
+      },
+      {
+        "name": "The CSS-Timeline Rule",
+        "body": "Scroll-linked motion uses CSS animation-timeline, never a JS observer, gated behind @supports and prefers-reduced-motion so content is visible by default. Never reintroduce a reveal whose resting state is invisible.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Real Fields Rule",
+        "body": "Every index column is a field the record actually holds. A missing field is omitted, never a placeholder dash. Filter axes are built only from values present in the batch, and an axis renders only when it can split that batch.",
+        "section": "components"
+      },
+      {
+        "name": "The Separate Axes Rule",
+        "body": "Place, Work and Topic are distinct filter axes. Never merge tags into the Work axis: it files 'South Island' as a kind of job.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do reserve Signal Cyan for CTAs, focus states, active filter chips, and the active-nav underline.",
+      "Do decide every colour for both themes at once, with a two-value token rather than a dark: override.",
+      "Do keep surfaces flat at rest; shadow is for hover response, the story-card-stack, or the quiz panel.",
+      "Do use full-pill shape for any new interactive control at button/chip scale.",
+      "Do set numerals, counts, and record fields in Geist Mono.",
+      "Do gate new motion behind prefers-reduced-motion AND @supports (animation-timeline: view())."
+    ],
+    "donts": [
+      "Don't add star ratings, review scores, purchase-style CTAs, traveller-count badges, or avatar-stack social proof.",
+      "Don't introduce a second accent colour competing with Signal Cyan.",
+      "Don't reintroduce a serif anywhere.",
+      "Don't style a control with a hardcoded bg-black / dark:bg-white inversion; primary actions take bg-accent.",
+      "Don't reach for a raw text-red-* for errors; use text-destructive.",
+      "Don't add a persistent shadow to a surface at rest outside the two documented exceptions.",
+      "Don't reintroduce a scroll reveal that defaults to opacity: 0.",
+      "Don't use emoji or Unicode glyphs as an icon system.",
+      "Don't render a placeholder dash for a field a story does not carry."
+    ]
+  }
+}

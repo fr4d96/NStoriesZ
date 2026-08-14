@@ -4,3 +4,8 @@ coverage/
 playwright-report/
 test-results/
 package-lock.json
+
+# Vendored third-party skill package (installed via `npx impeccable install`)
+# and its generated design sidecar/cache -- not this project's source to format.
+.claude/skills/
+.impeccable/

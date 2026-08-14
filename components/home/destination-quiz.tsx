@@ -14,15 +14,15 @@ const QUESTIONS: Question[] = [
   {
     prompt: "Where would you feel most at home?",
     answers: [
-      { label: "🏙️ A lively city", scores: { Auckland: 3, Wellington: 3 } },
-      { label: "🌊 A relaxed coastal town", scores: { "Bay of Plenty": 4 } },
+      { label: "A lively city", scores: { Auckland: 3, Wellington: 3 } },
+      { label: "A relaxed coastal town", scores: { "Bay of Plenty": 4 } },
       {
-        label: "🏔️ Mountains and alpine scenery",
+        label: "Mountains and alpine scenery",
         scores: { "Queenstown Lakes": 5, "Central Otago": 2 },
       },
-      { label: "🌾 Open countryside", scores: { Canterbury: 5 } },
+      { label: "Open countryside", scores: { Canterbury: 5 } },
       {
-        label: "🧺 A seasonal-work community",
+        label: "A seasonal-work community",
         scores: { "Bay of Plenty": 3, "Central Otago": 3 },
       },
     ],
@@ -31,36 +31,36 @@ const QUESTIONS: Question[] = [
     prompt: "What kind of job would you try?",
     answers: [
       {
-        label: "☕ Hospitality or café work",
+        label: "Hospitality or café work",
         scores: { Wellington: 4, Auckland: 3 },
       },
-      { label: "🥝 Fruit picking", scores: { "Bay of Plenty": 5 } },
-      { label: "🐑 Farm work", scores: { Canterbury: 5 } },
-      { label: "🎿 Ski-field work", scores: { "Queenstown Lakes": 6 } },
-      { label: "🍇 Vineyard work", scores: { "Central Otago": 6 } },
+      { label: "Fruit picking", scores: { "Bay of Plenty": 5 } },
+      { label: "Farm work", scores: { Canterbury: 5 } },
+      { label: "Ski-field work", scores: { "Queenstown Lakes": 6 } },
+      { label: "Vineyard work", scores: { "Central Otago": 6 } },
     ],
   },
   {
     prompt: "What matters most?",
     answers: [
       {
-        label: "💰 Saving money",
+        label: "Saving money",
         scores: { "Bay of Plenty": 4, Canterbury: 2 },
       },
       {
-        label: "🤝 Meeting people",
+        label: "Meeting people",
         scores: { Auckland: 3, "Queenstown Lakes": 3 },
       },
       {
-        label: "🥾 Time outdoors",
+        label: "Time outdoors",
         scores: { Canterbury: 3, "Queenstown Lakes": 4 },
       },
       {
-        label: "🧰 Useful experience",
+        label: "Useful experience",
         scores: { Auckland: 3, Wellington: 3 },
       },
       {
-        label: "🗺️ Work and travel balance",
+        label: "Work and travel balance",
         scores: { Wellington: 3, "Central Otago": 3 },
       },
     ],
@@ -69,19 +69,19 @@ const QUESTIONS: Question[] = [
     prompt: "Choose your ideal pace.",
     answers: [
       {
-        label: "✨ Busy and social",
+        label: "Busy and social",
         scores: { Auckland: 4, "Queenstown Lakes": 3 },
       },
       {
-        label: "🌅 Relaxed and scenic",
+        label: "Relaxed and scenic",
         scores: { "Bay of Plenty": 3, "Central Otago": 4 },
       },
       {
-        label: "🚴 Active and physical",
+        label: "Active and physical",
         scores: { Canterbury: 3, "Queenstown Lakes": 4 },
       },
       {
-        label: "🚐 Independent and flexible",
+        label: "Independent and flexible",
         scores: { Canterbury: 2, "Central Otago": 3 },
       },
     ],
@@ -89,15 +89,15 @@ const QUESTIONS: Question[] = [
   {
     prompt: "Which season sounds best?",
     answers: [
-      { label: "☀️ Summer", scores: { Auckland: 2, "Bay of Plenty": 3 } },
+      { label: "Summer", scores: { Auckland: 2, "Bay of Plenty": 3 } },
       {
-        label: "🍂 Autumn",
+        label: "Autumn",
         scores: { "Central Otago": 5, "Bay of Plenty": 3 },
       },
-      { label: "❄️ Winter", scores: { "Queenstown Lakes": 6 } },
-      { label: "🌱 Spring", scores: { Canterbury: 4, Wellington: 2 } },
+      { label: "Winter", scores: { "Queenstown Lakes": 6 } },
+      { label: "Spring", scores: { Canterbury: 4, Wellington: 2 } },
       {
-        label: "🧭 Flexible",
+        label: "Flexible",
         scores: {
           Auckland: 1,
           Wellington: 1,
@@ -258,7 +258,7 @@ export function DestinationQuiz() {
           ) : null}
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
-              href="#discover"
+              href="#index"
               className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90"
             >
               Explore stories

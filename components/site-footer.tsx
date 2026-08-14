@@ -3,7 +3,11 @@ import { BrandLogo } from "@/components/brand-logo";
 
 export function SiteFooter() {
   return (
-    <footer id="about" className="bg-[#0e211b] text-white">
+    // --forest is deliberately dark in both themes ("Deep Ink Band" in
+    // DESIGN.md) -- the footer stays an always-dark band regardless of the
+    // site's light/dark toggle, but reads as Night Field's ink rather than
+    // the retired Field Journal's forest-green.
+    <footer id="about" className="bg-forest text-white">
       <div className="mx-auto max-w-[1440px] px-4 py-16 sm:px-6">
         <div className="grid gap-10 md:grid-cols-[1.4fr_.7fr_.7fr_.7fr]">
           <div>
@@ -28,8 +32,10 @@ export function SiteFooter() {
             <strong>Explore</strong>
             <div className="mt-3 grid gap-2 text-sm text-white/70">
               <Link href="/stories">Stories</Link>
-              <Link href="/#regions">Destinations</Link>
-              <Link href="/#how">Work Guides</Link>
+              {/* The landing page's region tiles were folded into the index's
+                  Place filter axis; "Destinations" now opens the match quiz,
+                  which is what still asks the reader about place. */}
+              <Link href="/#match">Destinations</Link>
             </div>
           </div>
           <div>

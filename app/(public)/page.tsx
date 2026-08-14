@@ -1,17 +1,43 @@
+/**
+ * DIRECTION CONTRACT -- "Night Field" (landing page)
+ * World seed da6ac2c2 (user-pinned; supersedes that roll's assignment).
+ * Structure seed 494761b9 (--scope surface --mode persuade), assigned
+ * candidate 7 of the grounded list: the archive index.
+ *
+ * THESIS: a documentary archive's front door, not a travel product's --
+ *   the page's spine is a real catalogue index whose columns are fields the
+ *   stories actually carry, so the record itself is the proof. It refuses
+ *   the category default of three photo-card grids showing the same stories
+ *   three different ways.
+ * OWN-WORLD: near-black ground (#05070a), raised dark surfaces (#0d1218),
+ *   one cyan accent (#35d0c4) held for state and emphasis; heavy sans for
+ *   display, Geist Mono for every numeral, column label, and index field.
+ *   No serif, no terracotta, no kicker labels, no glyph icons.
+ * STORY: cinematic first viewport establishes the place, a short featured
+ *   lead shows what a story looks like, the index proves there is a real
+ *   body of them and lets the reader narrow by place and work, the model is
+ *   explained, and the page closes on one contribute CTA.
+ * FIRST VIEWPORT: full-bleed slideshow, heavy scrim, bottom-left headline
+ *   with one cyan word, ghost-outline primary CTA plus a quiet text link,
+ *   and a live numbered slide index tracking the actual active photo.
+ * FORM: archive index. The Night Field palette this page introduced is now
+ *   the app-wide token set (app/globals.css), so this page no longer scopes
+ *   its own. Motion is one authored idea (a lens focus pull) expressed in
+ *   CSS scroll timelines, never JS observers; see app/globals.css.
+ * FINISH: unreviewed and undocumented is unfinished; this build ends with
+ *   the finish review, the verdict, and DESIGN.md.
+ *
+ * (Recorded as a source comment, not an HTML comment in the rendered page,
+ * since this is a multi-route Next.js app rather than a single static
+ * artifact -- grep this file, not the built output.)
+ */
 import Link from "next/link";
 import type { Metadata } from "next";
-import {
-  listPublishedStories,
-  listPublicRegions,
-  listPublicDestinations,
-} from "@/lib/story/public-queries";
+import { listPublishedStories } from "@/lib/story/public-queries";
 import { HeroSlideshow } from "@/components/home/hero-slideshow";
 import { FeaturedStoryStack } from "@/components/home/featured-story-stack";
-import { StoryFilterGrid } from "@/components/home/story-filter-grid";
-import { RegionExplorer } from "@/components/home/region-explorer";
+import { StoryIndex } from "@/components/home/story-index";
 import { DestinationQuiz } from "@/components/home/destination-quiz";
-import { Eyebrow } from "@/components/home/eyebrow";
-import { Reveal } from "@/components/home/reveal";
 import { ArrowRightIcon } from "@/components/icons";
 
 export const revalidate = 60;
@@ -22,255 +48,197 @@ export const metadata: Metadata = {
 
 const steps = [
   [
-    "01",
-    "Discover real experiences",
-    "Read honest stories from people who have already taken a working holiday.",
+    "Written by the person who lived it",
+    "Every account is first-person, submitted under a name or pseudonym the writer chose themselves.",
   ],
   [
-    "02",
-    "Learn what to expect",
-    "Understand jobs, locations, costs, accommodation, and everyday challenges.",
+    "Checked before it is published",
+    "Each story is reviewed against our publication rules, and its images are processed and rights-checked, before it appears here.",
   ],
   [
-    "03",
-    "Create your own journey",
-    "Save useful stories and share your experience with the next traveller.",
+    "Kept as a record, not a feed",
+    "Stories stay searchable by place, work, and year — there is nothing to scroll past and nothing to miss.",
   ],
 ] as const;
 
-function SectionHeader({
-  eyebrow,
-  eyebrowTone,
+function SectionHead({
   title,
-  titleClassName = "",
   description,
-  descriptionClassName = "text-foreground/65",
+  className = "",
 }: {
-  eyebrow: string;
-  eyebrowTone?: "default" | "onDark" | "onPhoto";
   title: string;
-  titleClassName?: string;
-  description: string;
-  descriptionClassName?: string;
+  description?: string;
+  className?: string;
 }) {
   return (
-    <Reveal className="grid gap-5 md:grid-cols-[1fr_420px] md:items-end">
-      <div>
-        <Eyebrow tone={eyebrowTone}>{eyebrow}</Eyebrow>
-        <h2 className={`journiq-heading mt-3 ${titleClassName}`}>{title}</h2>
-      </div>
-      <p className={descriptionClassName}>{description}</p>
-    </Reveal>
+    <div
+      className={`nf-pull grid gap-4 md:grid-cols-[1fr_420px] md:items-end md:gap-8 ${className}`}
+    >
+      <h2 className="night-heading">{title}</h2>
+      {description ? (
+        <p className="text-base text-foreground/65 sm:text-lg">{description}</p>
+      ) : null}
+    </div>
   );
 }
 
 export default async function HomePage() {
-  const [stories, regions, destinations] = await Promise.all([
-    listPublishedStories({ limit: 24 }).catch(() => []),
-    listPublicRegions(),
-    listPublicDestinations(),
-  ]);
+  const stories = await listPublishedStories({ limit: 24 }).catch(() => []);
+  const hasStories = stories.length > 0;
 
   return (
-    <div className="overflow-hidden">
-      {/* -mt-[76px] tucks the hero in behind the sticky header (which stays
-          a normal 76px-tall box, see components/site-header.tsx) so the
-          photo runs full-bleed under the transparent header instead of
-          leaving a gap -- this is scoped to just this section, not a
-          site-wide layout change. */}
-      <section className="relative isolate -mt-[76px] min-h-[720px] overflow-hidden bg-[#0b251e] text-white">
+    <div className="bg-background text-foreground">
+      {/* Reading progress. Pure CSS scroll timeline -- no listener, no
+          re-render. Sits directly under the sticky 76px header. */}
+      <div
+        aria-hidden="true"
+        className="nf-progress pointer-events-none fixed inset-x-0 top-[76px] z-40 h-px"
+      >
+        <span className="block h-full w-full bg-accent" />
+      </div>
+
+      {/* -mt-[76px] tucks the hero behind the sticky header (which keeps its
+          normal 76px box -- see components/site-header.tsx) so the photo runs
+          full-bleed. svh rather than vh so a mobile URL bar collapsing does
+          not resize the hero mid-scroll; clamped so it stays cinematic on a
+          short phone and does not become a canyon on a tall desktop. */}
+      <section className="relative isolate -mt-[76px] flex h-[92svh] max-h-[900px] min-h-[560px] overflow-hidden bg-[#05070a] text-white">
         <HeroSlideshow />
-        <div className="relative mx-auto flex min-h-[720px] max-w-[1440px] items-end px-4 pt-40 pb-16 sm:px-6 sm:pb-20">
-          <div className="max-w-4xl">
-            <div className="hero-fade-item">
-              <Eyebrow tone="onPhoto">Working holidays, told honestly</Eyebrow>
-            </div>
-            <h1
-              className="hero-fade-item mt-5 max-w-[920px] font-[Georgia,'Times_New_Roman',serif] text-[clamp(3.5rem,8vw,7.7rem)] leading-[.93] tracking-[-.055em] text-white"
-              style={{ animationDelay: "120ms" }}
-            >
-              Real stories from across Aotearoa.
+        <div className="relative mx-auto flex w-full max-w-[1440px] items-end px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
+          <div className="max-w-3xl">
+            <h1 className="nf-hero-pull font-sans text-[clamp(2.5rem,8vw,6.8rem)] leading-[0.95] font-extrabold tracking-[-.03em] text-balance text-white">
+              Real stories from across{" "}
+              <span className="text-accent">Aotearoa</span>.
             </h1>
             <p
-              className="hero-fade-item mt-6 max-w-2xl text-lg text-white/80"
-              style={{ animationDelay: "240ms" }}
+              className="nf-hero-pull mt-5 max-w-lg text-base text-white/80 sm:mt-6 sm:text-lg"
+              style={{ animationDelay: "140ms" }}
             >
-              Discover the jobs, places, challenges, friendships, and
-              unforgettable moments shared by travellers who have lived the
-              working-holiday experience.
+              First-person accounts of the jobs, places, and moments from
+              travellers who have lived the working-holiday experience.
             </p>
             <div
-              className="hero-fade-item mt-7 flex flex-wrap gap-3"
-              style={{ animationDelay: "360ms" }}
+              className="nf-hero-pull mt-7 flex flex-wrap items-center gap-x-6 gap-y-4 sm:mt-8"
+              style={{ animationDelay: "260ms" }}
             >
-              <Link
-                href="#stories"
-                className="journiq-button gap-1.5 bg-accent text-accent-foreground"
-              >
-                Explore stories <ArrowRightIcon className="h-4 w-4" />
+              <Link href="#index" className="night-button-primary">
+                Read the stories <ArrowRightIcon className="h-4 w-4" />
               </Link>
-              <Link
-                href="#match"
-                className="journiq-button border border-white/60 text-white"
-              >
-                Plan your journey
+              <Link href="#how" className="night-button-ghost">
+                or see how this works
               </Link>
             </div>
-            <p
-              className="hero-fade-item mt-7 text-sm text-white/65"
-              style={{ animationDelay: "480ms" }}
-            >
-              Stories from backpackers, seasonal workers, and travellers across
-              Aotearoa.
-            </p>
           </div>
         </div>
       </section>
 
-      {stories.length > 0 ? (
+      {hasStories ? (
         <>
+          {/* The featured lead: a publication's front-page story, ahead of
+              the full record below it. */}
+          <section className="py-16 sm:py-24 lg:py-28">
+            <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+              <SectionHead
+                title="Featured"
+                description="Drag a card aside, or step through with the arrows."
+              />
+              <div className="nf-pull mt-8 sm:mt-10">
+                <FeaturedStoryStack stories={stories.slice(0, 5)} />
+              </div>
+            </div>
+          </section>
+
+          {/* The index: the page's spine and its only browse surface. */}
           <section
-            id="stories"
-            className="bg-[#edf3ef] py-24 dark:bg-surface-muted"
+            id="index"
+            className="scroll-mt-24 border-t border-border-subtle bg-surface py-16 sm:py-24 lg:py-28"
           >
-            <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
-              <SectionHeader
-                eyebrow="Featured journals"
-                title="Stories from the road"
-                description="Honest experiences from people working, travelling, and building a life in New Zealand."
+            <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+              <SectionHead
+                title="Storiesss"
+                description="Every published account, narrowed by where it happened and the work it describes."
               />
-              <div className="mt-10">
-                <FeaturedStoryStack stories={stories.slice(0, 9)} />
-              </div>
-            </div>
-          </section>
-
-          <section id="match" className="py-24">
-            <div className="mx-auto grid max-w-[1440px] gap-12 px-4 sm:px-6 lg:grid-cols-[.85fr_1.15fr]">
-              <Reveal className="lg:sticky lg:top-28 lg:self-start">
-                <Eyebrow>Find your match</Eyebrow>
-                <h2 className="journiq-heading mt-3">
-                  Where should your working holiday take you?
-                </h2>
-                <p className="mt-5 max-w-xl text-foreground/65">
-                  Choose the setting, work, pace, and season that feel right. We
-                  will match you with a region and relevant traveller stories.
-                </p>
-              </Reveal>
-              <Reveal
-                delayMs={120}
-                className="rounded-[28px] border border-border-subtle bg-gradient-to-br from-surface to-surface-muted p-6 shadow-[0_22px_70px_rgba(23,63,53,.13)] sm:p-10"
-              >
-                <DestinationQuiz />
-              </Reveal>
-            </div>
-          </section>
-
-          <section id="discover" className="py-24">
-            <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
-              <SectionHeader
-                eyebrow="Browse by interest"
-                title="Find a story that matches your journey"
-                description="Filter first-hand accounts by work, lifestyle, or the challenge you want to understand before you arrive."
-              />
-              <div className="mt-8">
-                <StoryFilterGrid stories={stories} />
-              </div>
-            </div>
-          </section>
-
-          <section id="regions" className="bg-forest py-24 text-white">
-            <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
-              <SectionHeader
-                eyebrow="Across the motu"
-                eyebrowTone="onDark"
-                title="Explore New Zealand by region"
-                titleClassName="text-white"
-                description="Each place offers a different rhythm of work and travel."
-                descriptionClassName="text-white/65"
-              />
-              <div className="mt-10">
-                <RegionExplorer
-                  regions={regions}
-                  destinations={destinations}
-                  stories={stories}
-                  tone="onForest"
-                />
+              <div className="mt-8 sm:mt-12">
+                <StoryIndex stories={stories} />
               </div>
             </div>
           </section>
         </>
       ) : null}
 
-      <section id="how" className="py-24">
-        <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
-          <Reveal>
-            <Eyebrow>How Kakinotes helps</Eyebrow>
-            <h2 className="journiq-heading mt-3 max-w-4xl">
-              Practical insight, without losing the story
-            </h2>
-          </Reveal>
-          <div className="mt-12 grid gap-5 md:grid-cols-3">
-            {steps.map(([number, title, body], index) => (
-              <Reveal key={number} delayMs={index * 85}>
-                <article className="h-full rounded-b-2xl border-t-2 border-accent bg-surface p-7 transition hover:-translate-y-2 hover:shadow-xl">
-                  <b className="font-[Georgia,'Times_New_Roman',serif] text-4xl text-accent">
-                    {number}
-                  </b>
-                  <h3 className="mt-8 font-[Georgia,'Times_New_Roman',serif] text-2xl tracking-tight">
-                    {title}
-                  </h3>
-                  <p className="mt-3 text-foreground/65">{body}</p>
-                </article>
-              </Reveal>
+      <section id="how" className="scroll-mt-24 py-16 sm:py-24 lg:py-28">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+          <SectionHead
+            title="Why you can trust what you read here"
+            description="Kakinotes is a record of personal experience — not advice, and not a marketplace."
+          />
+          <div className="mt-10 grid gap-4 sm:gap-5 md:mt-14 md:grid-cols-3">
+            {steps.map(([title, body], index) => (
+              <article
+                key={title}
+                className="nf-lift h-full rounded-2xl bg-surface p-6 transition-transform duration-300 hover:-translate-y-1.5 sm:p-7"
+                style={{ animationDelay: `${index * 60}ms` }}
+              >
+                {/* Deliberately not `.night-heading`: that class carries the
+                    display clamp and, being defined after Tailwind's
+                    utilities, wins over a `text-xl` override at equal
+                    specificity. Card headings take the world's character
+                    (heavy sans, tight tracking) at card scale instead. */}
+                <h3 className="text-xl leading-snug font-extrabold tracking-[-.02em] text-balance sm:text-2xl">
+                  {title}
+                </h3>
+                <p className="mt-3 text-foreground/65">{body}</p>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="py-20">
-        <div className="mx-auto grid max-w-[1440px] overflow-hidden rounded-[28px] bg-surface-muted md:grid-cols-[.9fr_1.1fr]">
-          <div className="min-h-[360px] bg-[url('https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=85')] bg-cover bg-center" />
-          <Reveal className="flex flex-col justify-center p-8 sm:p-14">
-            <Eyebrow>Community note</Eyebrow>
-            <blockquote className="mt-5 font-[Georgia,'Times_New_Roman',serif] text-[clamp(2rem,4vw,3.8rem)] leading-[1.08] tracking-[-.04em]">
-              &ldquo;A real vineyard story helped me understand the job before I
-              arrived.&rdquo;
-            </blockquote>
-            <strong className="mt-6">Amélie R. · France</strong>
-            <span className="text-foreground/55">
-              Now living in Central Otago
-            </span>
-          </Reveal>
-        </div>
-      </section>
+      {hasStories ? (
+        <section
+          id="match"
+          className="scroll-mt-24 border-t border-border-subtle py-16 sm:py-24 lg:py-28"
+        >
+          <div className="mx-auto grid max-w-[1440px] gap-10 px-4 sm:px-6 lg:grid-cols-[.8fr_1.2fr] lg:gap-16 lg:px-8">
+            <div className="nf-pull lg:sticky lg:top-28 lg:self-start">
+              <h2 className="night-heading">
+                Not sure where to start reading?
+              </h2>
+              <p className="mt-5 max-w-xl text-foreground/65">
+                Answer five quick questions and we will point you at a region
+                and the stories from travellers who went there. It is a starting
+                point for browsing, not a recommendation.
+              </p>
+            </div>
+            <div className="nf-pull rounded-[28px] border border-border-subtle bg-surface p-4 shadow-[0_22px_70px_rgba(0,0,0,.4)] sm:p-8 lg:p-10">
+              <DestinationQuiz />
+            </div>
+          </div>
+        </section>
+      ) : null}
 
-      <section id="share" className="journiq-share py-24 text-white">
-        <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
-          <Reveal>
-            <Eyebrow tone="onDark">Pass it forward</Eyebrow>
-            <h2 className="journiq-heading mt-3 max-w-4xl text-white">
+      <section
+        id="share"
+        className="journiq-share scroll-mt-24 py-16 text-white sm:py-24 lg:py-28"
+      >
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+          <div className="nf-pull max-w-3xl">
+            <h2 className="night-heading text-white">
               Your experience could help someone take their first step
             </h2>
             <p className="mt-5 max-w-2xl text-white/75">
-              Share the honest version of your working holiday—the wins,
+              Share the honest version of your working holiday — the wins,
               mistakes, practical lessons, and moments you will always remember.
             </p>
-            <div className="mt-7 flex gap-3">
-              <Link
-                href="/sign-up"
-                className="journiq-button bg-accent text-accent-foreground"
-              >
-                Share your story
+            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
+              <Link href="/sign-up" className="night-button-primary">
+                Share your story <ArrowRightIcon className="h-4 w-4" />
               </Link>
-              <Link
-                href="/about"
-                className="journiq-button border border-white/60 text-white"
-              >
+              <Link href="/about" className="night-button-ghost text-white/75">
                 See writing tips
               </Link>
             </div>
-          </Reveal>
+          </div>
         </div>
       </section>
     </div>

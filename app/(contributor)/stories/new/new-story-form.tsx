@@ -40,7 +40,7 @@ export function NewStoryForm() {
       <button
         type="submit"
         disabled={pending}
-        className="w-full rounded-md bg-black px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50 sm:w-auto dark:bg-white dark:text-black"
+        className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity disabled:opacity-50 sm:w-auto"
       >
         {pending ? "Starting…" : "Start writing"}
       </button>

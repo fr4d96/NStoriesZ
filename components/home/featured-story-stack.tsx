@@ -73,11 +73,6 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
     id: string;
     direction: "left" | "right";
   } | null>(null);
-  const [dragState, setDragState] = useState<{
-    id: string;
-    x: number;
-    rotate: number;
-  } | null>(null);
   const animatingRef = useRef(false);
   const reduced = usePrefersReducedMotion();
   const dragRef = useRef<{
@@ -87,6 +82,10 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
     lastX: number;
     startedAt: number;
   } | null>(null);
+  // Set once a press travels far enough to count as a drag rather than a tap,
+  // so the click fired on release does not follow a link the finger happens
+  // to be over.
+  const didDragRef = useRef(false);
 
   function moveStack(direction: 1 | -1, targetIndex?: number) {
     if (animatingRef.current || count < 2) return;
@@ -137,7 +136,11 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     const card = event.currentTarget;
     if (card.dataset.active !== "true" || event.button !== 0) return;
+    // Only real controls opt out of dragging: the story title and the
+    // "Read story" button. Everything else on the card -- photo, excerpt,
+    // attribution, empty space -- is drag surface.
     if ((event.target as HTMLElement).closest("a,button")) return;
+    didDragRef.current = false;
     dragRef.current = {
       id: card.dataset.storyId ?? "",
       pointerId: event.pointerId,
@@ -145,6 +148,7 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
       lastX: event.clientX,
       startedAt: event.timeStamp,
     };
+    card.classList.add("is-dragging");
     try {
       card.setPointerCapture(event.pointerId);
     } catch {
@@ -152,12 +156,37 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
     }
   }
 
+  // The drag offset is written straight to the card's CSS custom properties
+  // rather than held in React state. A pointermove fires on every frame (and
+  // faster on high-rate pointers); routing each one through setState
+  // re-rendered all five stacked cards per frame, which is what made the
+  // drag feel like it was catching rather than tracking the cursor. Writing
+  // the two custom properties touches one element and stays on the
+  // compositor, since `.story-stack-card` composes them into its transform.
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     drag.lastX = event.clientX;
-    const distance = Math.max(-320, Math.min(320, event.clientX - drag.startX));
-    setDragState({ id: drag.id, x: distance, rotate: distance / 24 });
+    const travel = event.clientX - drag.startX;
+    const distance = Math.max(-320, Math.min(320, travel));
+    // Past a few pixels this is a drag, not a tap.
+    if (Math.abs(travel) > 6) didDragRef.current = true;
+    const card = event.currentTarget;
+    card.style.setProperty("--drag-x", `${distance}px`);
+    card.style.setProperty("--drag-rotate", `${distance / 24}deg`);
+  }
+
+  function clearDragTransform(card: HTMLDivElement) {
+    card.classList.remove("is-dragging");
+    card.style.removeProperty("--drag-x");
+    card.style.removeProperty("--drag-rotate");
+  }
+
+  function handleClickCapture(event: React.MouseEvent<HTMLDivElement>) {
+    if (!didDragRef.current) return;
+    didDragRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   function releaseCapture(event: React.PointerEvent<HTMLDivElement>) {
@@ -176,7 +205,7 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
     const elapsed = Math.max(1, event.timeStamp - drag.startedAt);
     const velocity = distance / elapsed;
     releaseCapture(event);
-    setDragState(null);
+    clearDragTransform(event.currentTarget);
     // The velocity check also requires a minimum distance -- otherwise a
     // sub-pixel jitter paired with a near-zero elapsed time (two pointer
     // events firing on the same frame) computes as an enormous velocity and
@@ -193,7 +222,7 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
     if (!drag || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
     releaseCapture(event);
-    setDragState(null);
+    clearDragTransform(event.currentTarget);
   }
 
   if (count === 0) return null;
@@ -216,14 +245,13 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
           const depth = mod(index - slide, count);
           const isActive = depth === 0;
           const isThrowing = throwState?.id === story.story_id;
-          const isDragging = dragState?.id === story.story_id;
+          // --drag-x / --drag-rotate are written imperatively during a drag
+          // (see handlePointerMove) so a pointermove never re-renders this
+          // list; they fall back to the resting values declared on
+          // `.story-stack-card` as soon as they are removed.
           const style: StackVars = {
             ...(depth <= 3 ? DEPTH_STYLE[depth] : HIDDEN_STYLE),
           };
-          if (isDragging && dragState) {
-            style["--drag-x"] = `${dragState.x}px`;
-            style["--drag-rotate"] = `${dragState.rotate}deg`;
-          }
           const throwClass = isThrowing
             ? throwState?.direction === "left"
               ? "is-throwing-left"
@@ -236,7 +264,7 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
               data-testid="stack-card"
               data-active={isActive}
               data-story-id={story.story_id}
-              className={`story-stack-card absolute inset-0 ${isActive ? "cursor-grab" : ""} ${isDragging ? "is-dragging cursor-grabbing" : ""} ${throwClass}`}
+              className={`story-stack-card absolute inset-0 ${isActive ? "cursor-grab" : ""} ${throwClass}`}
               style={style}
               aria-hidden={!isActive}
               inert={!isActive}
@@ -244,6 +272,7 @@ export function FeaturedStoryStack({ stories }: { stories: StoryCardData[] }) {
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerCancel}
+              onClickCapture={handleClickCapture}
             >
               <FeaturedStorySlide story={story} priority={index === 0} />
             </div>

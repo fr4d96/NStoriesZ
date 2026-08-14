@@ -129,7 +129,7 @@ export function NewImportForm({
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex items-center justify-center rounded-md bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-black"
+        className="inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-60"
       >
         {pending ? "Creating…" : "Create Import Draft"}
       </button>

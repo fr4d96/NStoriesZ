@@ -63,7 +63,7 @@ export function HeroSlideshow() {
           covers it for hit-testing even where that wrapper is visually
           transparent, so clicks never reached the button. */}
       <div
-        className={`hero-slideshow absolute inset-0 -z-10 overflow-hidden bg-[#0b251e] ${paused ? "is-paused" : ""}`}
+        className={`hero-slideshow absolute inset-0 -z-10 overflow-hidden bg-[#05070a] ${paused ? "is-paused" : ""}`}
       >
         {SLIDES.map((url, slideIndex) => (
           <div
@@ -74,6 +74,24 @@ export function HeroSlideshow() {
           />
         ))}
         <div className="hero-overlay" aria-hidden="true" />
+      </div>
+      {/* Real position indicator, not decoration -- ticks the same `index`
+          state that drives which slide is showing, so it's wrong the
+          instant it drifts from the photo instead of being safely inert. */}
+      <div
+        className="absolute top-24 right-4 z-10 flex flex-col items-end gap-1.5 sm:right-6"
+        aria-hidden="true"
+      >
+        {SLIDES.map((url, slideIndex) => (
+          <span
+            key={url}
+            className={`font-mono text-xs tabular-nums transition-colors ${
+              slideIndex === index ? "font-bold text-accent" : "text-white/35"
+            }`}
+          >
+            0{slideIndex + 1}
+          </span>
+        ))}
       </div>
       {!reduced ? (
         <button

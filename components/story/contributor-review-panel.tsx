@@ -59,7 +59,7 @@ export function ContributorReviewPanel({
         <button
           type="button"
           onClick={() => setMode(mode === "approve" ? null : "approve")}
-          className="rounded-md bg-black px-3 py-1.5 text-sm font-semibold text-white dark:bg-white dark:text-black"
+          className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground"
         >
           Approve
         </button>

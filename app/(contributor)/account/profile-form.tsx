@@ -47,9 +47,7 @@ export function ProfileForm({
               key={emoji}
               type="button"
               onClick={() =>
-                setSelectedEmoji((current) =>
-                  current === emoji ? "" : emoji,
-                )
+                setSelectedEmoji((current) => (current === emoji ? "" : emoji))
               }
               aria-pressed={selectedEmoji === emoji}
               aria-label={`Use ${emoji} as your avatar`}
@@ -98,7 +96,9 @@ export function ProfileForm({
           defaultValue={homeCountryCode}
           className="mt-1 w-24 rounded-xl border border-border-subtle bg-surface px-3 py-2 uppercase focus:border-accent focus:outline-none"
         />
-        <p className="mt-1 text-xs text-foreground/55">2-letter code, e.g. MY.</p>
+        <p className="mt-1 text-xs text-foreground/55">
+          2-letter code, e.g. MY.
+        </p>
       </div>
 
       <div>

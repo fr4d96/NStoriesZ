@@ -180,7 +180,7 @@ export default async function ModerationStoriesQueuePage({
         <div className="flex items-end">
           <button
             type="submit"
-            className="rounded-md bg-black px-3 py-1.5 font-medium text-white dark:bg-white dark:text-black"
+            className="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-foreground"
           >
             Apply filters
           </button>

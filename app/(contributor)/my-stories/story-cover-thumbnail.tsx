@@ -58,10 +58,6 @@ export function StoryCoverThumbnail({
 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
-    <img
-      src={url}
-      alt={altText ?? ""}
-      className="h-full w-full object-cover"
-    />
+    <img src={url} alt={altText ?? ""} className="h-full w-full object-cover" />
   );
 }

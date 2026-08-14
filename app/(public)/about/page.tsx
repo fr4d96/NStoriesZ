@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BrandLogo } from "@/components/brand-logo";
 import { PlaceholderPage } from "@/components/placeholder-page";
 
 export const metadata: Metadata = {
@@ -7,7 +8,10 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <PlaceholderPage title="About Kakinotes">
+    <PlaceholderPage
+      title="About Kakinotes"
+      icon={<BrandLogo className="h-14 w-14 border border-border-subtle" />}
+    >
       <p>
         Kakinotes shares detailed, written first-person stories from Working
         Holiday Visa travellers in New Zealand, so future travellers can find

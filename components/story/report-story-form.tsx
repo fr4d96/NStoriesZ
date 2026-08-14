@@ -94,7 +94,9 @@ export function ReportStoryForm({ storyId }: { storyId: string }) {
           ))}
         </select>
         {fieldErrors?.category ? (
-          <p className="mt-1 text-xs text-red-600">{fieldErrors.category[0]}</p>
+          <p className="mt-1 text-xs text-destructive">
+            {fieldErrors.category[0]}
+          </p>
         ) : null}
       </div>
 
@@ -110,12 +112,14 @@ export function ReportStoryForm({ storyId }: { storyId: string }) {
           className="mt-1 w-full rounded-md border border-border-subtle bg-surface px-3 py-2 text-sm"
         />
         {fieldErrors?.details ? (
-          <p className="mt-1 text-xs text-red-600">{fieldErrors.details[0]}</p>
+          <p className="mt-1 text-xs text-destructive">
+            {fieldErrors.details[0]}
+          </p>
         ) : null}
       </div>
 
       {state.status === "error" ? (
-        <p className="text-sm text-red-600">{state.message}</p>
+        <p className="text-sm text-destructive">{state.message}</p>
       ) : null}
 
       <div className="flex gap-3">

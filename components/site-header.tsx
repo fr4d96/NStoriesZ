@@ -13,10 +13,10 @@ import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
 import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
 import { createClient } from "@/lib/supabase/client";
 
+// Home-page anchors must match the section ids in app/(public)/page.tsx.
 const primaryNav = [
-  { href: "/#stories", label: "Stories" },
-  { href: "/#regions", label: "Destinations" },
-  { href: "/#how", label: "Work Guides" },
+  { href: "/#index", label: "Storiesss" },
+  { href: "/#match", label: "Destinations" },
   { href: "/about", label: "About" },
 ];
 
@@ -71,7 +71,12 @@ export function SiteHeader() {
     },
     () => window.scrollY > SCROLL_THRESHOLD,
   );
+  // Only the home page has a photo hero for the header to sit over. Once
+  // scrolled (and on every other route) the header is a normal themed
+  // surface -- `--header-solid` and `text-foreground` already resolve per
+  // theme, so no route needs a special case.
   const transparent = pathname === "/" && !scrolled;
+  const inverted = transparent;
   const [authModal, setAuthModal] = useState<AuthModalKind>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [avatarEmoji, setAvatarEmoji] = useState<string | null>(null);
@@ -116,7 +121,7 @@ export function SiteHeader() {
   const headerToneClasses = transparent
     ? "journiq-header text-white"
     : "journiq-header-solid border-b border-border-subtle text-foreground";
-  const signInToneClasses = transparent
+  const signInToneClasses = inverted
     ? "border-white/60"
     : "border-border-subtle";
 
@@ -145,9 +150,9 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-2 md:flex">
-          <ThemeToggle inverted={transparent} />
+          <ThemeToggle inverted={inverted} />
           {signedIn ? (
-            <UserAvatarMenu emoji={avatarEmoji} inverted={transparent} />
+            <UserAvatarMenu emoji={avatarEmoji} inverted={inverted} />
           ) : (
             <>
               <button
@@ -169,19 +174,19 @@ export function SiteHeader() {
         </div>
 
         <div className="ml-auto flex items-center gap-2 md:hidden">
-          <ThemeToggle inverted={transparent} />
+          <ThemeToggle inverted={inverted} />
           {signedIn ? (
             // Replaces the hamburger entirely on mobile once signed in --
             // its dropdown carries the primary nav links too (extraItems),
             // so nothing from the old hamburger menu is lost.
             <UserAvatarMenu
               emoji={avatarEmoji}
-              inverted={transparent}
+              inverted={inverted}
               extraItems={primaryNav}
             />
           ) : (
             <MobileNavToggle
-              inverted={transparent}
+              inverted={inverted}
               navItems={[
                 ...primaryNav,
                 { label: "Sign in", onClick: () => setAuthModal("sign-in") },

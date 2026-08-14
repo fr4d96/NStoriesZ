@@ -230,7 +230,7 @@ export default async function StoryDetailPage({
             media={contentMedia}
           />
         ) : (
-          <p className="text-red-600">
+          <p className="text-destructive">
             This story&apos;s content couldn&apos;t be rendered.
           </p>
         )}

@@ -73,7 +73,7 @@ export default async function EditorialDashboardPage({
         </h1>
         <Link
           href="/editorial/new"
-          className="inline-flex items-center justify-center rounded-md bg-black px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-black"
+          className="inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
         >
           New Import
         </Link>
@@ -114,7 +114,7 @@ export default async function EditorialDashboardPage({
         </label>
         <button
           type="submit"
-          className="rounded-md bg-black px-3 py-1.5 font-medium text-white dark:bg-white dark:text-black"
+          className="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-foreground"
         >
           Apply
         </button>

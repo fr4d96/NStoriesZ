@@ -87,7 +87,10 @@ describe("DestinationQuiz", () => {
     expect(screen.getByText("1 / 5")).toBeInTheDocument();
   });
 
-  it("links the result's 'Explore stories' CTA to the in-page discover anchor", () => {
+  it("links the result's 'Explore stories' CTA to the in-page index anchor", () => {
+    // The landing page's separate "discover" filter-grid section was folded
+    // into the catalogue index (#index), which is now the page's only browse
+    // surface -- see app/(public)/page.tsx.
     render(<DestinationQuiz />);
     answerAll([
       /Open countryside/,
@@ -99,7 +102,7 @@ describe("DestinationQuiz", () => {
 
     expect(
       screen.getByRole("link", { name: "Explore stories" }),
-    ).toHaveAttribute("href", "#discover");
+    ).toHaveAttribute("href", "#index");
   });
 
   it("restarts the quiz from the result screen", () => {

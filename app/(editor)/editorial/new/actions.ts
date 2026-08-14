@@ -69,7 +69,10 @@ export async function createEditorialImportAction(
       contributorId = created.id;
     } catch (error) {
       return {
-        error: getErrorMessage(error, "Could not create the contributor record."),
+        error: getErrorMessage(
+          error,
+          "Could not create the contributor record.",
+        ),
       };
     }
   } else {

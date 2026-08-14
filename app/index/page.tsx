@@ -3,9 +3,16 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { getCurrentUserRole } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
-import { listPublishedStories, listPublicContributors } from "@/lib/story/public-queries";
+import {
+  listPublishedStories,
+  listPublicContributors,
+} from "@/lib/story/public-queries";
 import { listMyStories } from "@/lib/story/contributor-queries";
-import { listEditorialQueue, getModerationQueue, listReportsForStaff } from "@/lib/story/moderation";
+import {
+  listEditorialQueue,
+  getModerationQueue,
+  listReportsForStaff,
+} from "@/lib/story/moderation";
 import type { AppRole } from "@/lib/auth/staff-guard";
 
 export const metadata: Metadata = {
@@ -57,8 +64,7 @@ export default async function QaIndexPage() {
 
   const exampleStorySlug = publishedStories[0]?.slug as string | undefined;
   const exampleContributorSlug = publicContributors[0]?.public_slug as
-    | string
-    | undefined;
+    string | undefined;
 
   const myStories = user ? await safe(() => listMyStories()) : [];
   const myStoryId = myStories[0]?.id as string | undefined;
@@ -74,16 +80,14 @@ export default async function QaIndexPage() {
       ? await safe(() => getModerationQueue({ limit: 1 }))
       : [];
   const moderationRevisionId = moderationQueue[0]?.revision_id as
-    | string
-    | undefined;
+    string | undefined;
 
   const reports =
     role === "moderator" || role === "admin"
       ? await safe(() => listReportsForStaff({ limit: 1 }))
       : [];
   const exampleReport = reports[0] as
-    | { id?: string; story_id?: string }
-    | undefined;
+    { id?: string; story_id?: string } | undefined;
 
   const hasRole = (allowed: AppRole[]) => !!role && allowed.includes(role);
 
@@ -98,7 +102,9 @@ export default async function QaIndexPage() {
         {
           label: "Story detail",
           href: exampleStorySlug ? `/stories/${exampleStorySlug}` : null,
-          note: exampleStorySlug ? undefined : "No published story to link to yet",
+          note: exampleStorySlug
+            ? undefined
+            : "No published story to link to yet",
         },
         { label: "Browse contributors", href: "/contributors" },
         {
@@ -161,9 +167,18 @@ export default async function QaIndexPage() {
       requirement: "editor or admin",
       unlocked: hasRole(["editor", "admin"]),
       links: [
-        { label: "Editorial dashboard", href: hasRole(["editor", "admin"]) ? "/editorial" : null },
-        { label: "Prepare a new story", href: hasRole(["editor", "admin"]) ? "/editorial/new" : null },
-        { label: "Contributor prep", href: hasRole(["editor", "admin"]) ? "/editorial/contributors" : null },
+        {
+          label: "Editorial dashboard",
+          href: hasRole(["editor", "admin"]) ? "/editorial" : null,
+        },
+        {
+          label: "Prepare a new story",
+          href: hasRole(["editor", "admin"]) ? "/editorial/new" : null,
+        },
+        {
+          label: "Contributor prep",
+          href: hasRole(["editor", "admin"]) ? "/editorial/contributors" : null,
+        },
         {
           label: "Edit an assigned story",
           href: editorialStoryId ? `/editorial/${editorialStoryId}/edit` : null,
@@ -180,8 +195,14 @@ export default async function QaIndexPage() {
       requirement: "moderator or admin",
       unlocked: hasRole(["moderator", "admin"]),
       links: [
-        { label: "Moderation queue", href: hasRole(["moderator", "admin"]) ? "/moderation" : null },
-        { label: "Stories queue", href: hasRole(["moderator", "admin"]) ? "/moderation/stories" : null },
+        {
+          label: "Moderation queue",
+          href: hasRole(["moderator", "admin"]) ? "/moderation" : null,
+        },
+        {
+          label: "Stories queue",
+          href: hasRole(["moderator", "admin"]) ? "/moderation/stories" : null,
+        },
         {
           label: "Review a story",
           href: moderationRevisionId
@@ -193,7 +214,10 @@ export default async function QaIndexPage() {
               ? undefined
               : "Nothing in the moderation queue right now",
         },
-        { label: "Reports triage", href: hasRole(["moderator", "admin"]) ? "/moderation/reports" : null },
+        {
+          label: "Reports triage",
+          href: hasRole(["moderator", "admin"]) ? "/moderation/reports" : null,
+        },
         {
           label: "Report detail",
           href:
@@ -226,8 +250,8 @@ export default async function QaIndexPage() {
       <h1 className="journiq-heading text-[2.4rem]">QA Index</h1>
       <p className="mt-2 text-foreground/65">
         Every route in the app, grouped by who can reach it. Locked sections
-        show why they&apos;re locked for the current session instead of a
-        link. Sign in as a different account and reload to test another role.
+        show why they&apos;re locked for the current session instead of a link.
+        Sign in as a different account and reload to test another role.
       </p>
 
       <div className="mt-6 rounded-md border border-border-subtle bg-surface-muted p-4 text-sm">
@@ -240,18 +264,18 @@ export default async function QaIndexPage() {
           <p>Signed out.</p>
         )}
         <p className="mt-2 text-foreground/65">
-          Dev accounts:{" "}
-          <code>dev-user@example.com</code> /{" "}
+          Dev accounts: <code>dev-user@example.com</code> /{" "}
           <code>dev-moderator@example.com</code> /{" "}
           <code>dev-admin@example.com</code> &mdash; use the password you were
           given when they were created.{" "}
-          <Link href="/sign-in" className="text-accent underline underline-offset-2">
+          <Link
+            href="/sign-in"
+            className="text-accent underline underline-offset-2"
+          >
             Sign in
           </Link>
           {user ? (
-            <>
-              {" "}or use the account menu in the site header to sign out.
-            </>
+            <> or use the account menu in the site header to sign out.</>
           ) : null}
         </p>
       </div>

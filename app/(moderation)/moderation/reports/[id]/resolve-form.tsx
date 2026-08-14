@@ -114,7 +114,7 @@ export function ResolveReportForm({
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-black px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-black"
+        className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground disabled:opacity-60"
       >
         {pending ? "Saving…" : "Save"}
       </button>

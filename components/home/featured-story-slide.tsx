@@ -8,10 +8,15 @@ import { ArrowRightIcon } from "@/components/icons";
 /**
  * Two-pane (cover photo + copy) card face for the depth-stacked carousel in
  * components/home/featured-story-stack.tsx. Presentational only -- no client
- * state -- so it renders on the server inside the client stack. Uses the
- * same stretched-link pattern as StoryCard (title link + absolute-inset
- * span) so the whole card is one real <a>, and omits contributorSlug on
- * AttributionChip for the same nested-<a> reason documented there.
+ * state -- so it renders on the server inside the client stack.
+ *
+ * Deliberately NOT the stretched-link pattern StoryCard uses. This card is
+ * draggable, and a full-card link fights that gesture: it made the whole
+ * surface an <a>, which the stack's pointer-down guard rejected, so the card
+ * could not be dragged at all. Here only the title and the explicit
+ * "Read story" button navigate; every other part of the card is drag
+ * surface. `contributorSlug` is still omitted on AttributionChip so it never
+ * renders a link nested inside the title link.
  */
 export function FeaturedStorySlide({
   story,
@@ -28,7 +33,7 @@ export function FeaturedStorySlide({
   ].slice(0, 3);
 
   return (
-    <article className="group relative grid h-full grid-rows-[minmax(0,45%)_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-border-subtle bg-surface shadow-lg sm:grid-cols-[minmax(0,1.45fr)_minmax(0,.8fr)] sm:grid-rows-1">
+    <article className="group relative grid h-full grid-rows-[minmax(0,34%)_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-border-subtle bg-surface shadow-lg sm:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] sm:grid-rows-1">
       <div className="relative min-h-0 overflow-hidden bg-surface-muted">
         {coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- public bucket URLs are content-addressed, not a Next.js image-optimizable source list
@@ -64,8 +69,16 @@ export function FeaturedStorySlide({
             ))}
           </div>
         ) : null}
-        <h3 className="font-[Georgia,'Times_New_Roman',serif] text-3xl leading-[1.02] font-semibold tracking-[-.04em] text-foreground sm:text-5xl">
-          {story.title}
+        {/* Sans, not the Field Journal serif: this card only ever renders
+            inside the home page's Night Field world, whose contract is
+            "no serif" -- see the direction contract in app/(public)/page.tsx. */}
+        <h3 className="line-clamp-3 text-3xl leading-[1.05] font-extrabold tracking-[-.03em] text-balance text-foreground sm:text-4xl lg:text-5xl">
+          <Link
+            href={`/stories/${story.slug}`}
+            className="transition-colors hover:text-accent focus-visible:text-accent"
+          >
+            {story.title}
+          </Link>
         </h3>
         {story.excerpt ? (
           <p className="line-clamp-3 text-sm text-foreground/70">
@@ -81,9 +94,8 @@ export function FeaturedStorySlide({
         </div>
         <Link
           href={`/stories/${story.slug}`}
-          className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-forest px-5 py-3 text-sm font-medium text-white hover:opacity-90"
+          className="night-button-primary mt-2 w-fit text-sm"
         >
-          <span className="absolute inset-0" aria-hidden="true" />
           Read story <ArrowRightIcon className="h-4 w-4" />
         </Link>
       </div>

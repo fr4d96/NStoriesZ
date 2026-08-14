@@ -339,7 +339,7 @@ convention.
   independent, directly-entered column (not derived from `trip_start_date`), so a year-only story
   with no exact dates is representable. `content_json` is a controlled block array
   (`paragraph`/`heading`/`quote`/`list`/`table`/`image`, see `lib/validation/story.ts`). An
-  `image` block is a *reference* (`mediaId`) to an already-uploaded, already rights-confirmed
+  `image` block is a _reference_ (`mediaId`) to an already-uploaded, already rights-confirmed
   `story_revision_media` row, positioning it within the text — never a raw URL, and never a
   duplicate of that row's `alt_text`/`caption`/`decorative` (kept structurally separate to avoid
   duplicate captioned-image state; `save_revision_draft` rejects any `mediaId` not attached to the
