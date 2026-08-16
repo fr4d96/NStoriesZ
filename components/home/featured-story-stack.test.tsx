@@ -17,8 +17,7 @@ function makeStory(overrides: Partial<StoryCardData> = {}): StoryCardData {
     contributor_slug: "m-lindqvist",
     cover_image_path: "stories/story-1/cover.jpg",
     regions: [{ region_name: "Marlborough", destination_name: "Blenheim" }],
-    work_types: ["Viticulture"],
-    tags: ["Seasonal work"],
+    tags: ["Viticulture", "Seasonal work"],
     ...overrides,
   };
 }
@@ -65,14 +64,13 @@ describe("FeaturedStoryStack", () => {
     expect(screen.getByText("No photo")).toBeInTheDocument();
   });
 
-  it("handles malformed regions/work_types/tags without throwing", () => {
+  it("handles malformed regions/tags without throwing", () => {
     expect(() =>
       render(
         <FeaturedStoryStack
           stories={[
             makeStory({
               regions: "not-an-array",
-              work_types: { nope: true },
               tags: null,
             }),
           ]}

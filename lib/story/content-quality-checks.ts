@@ -31,7 +31,7 @@ export type QualityCheckInput = {
   tripEndDate?: string | null;
   tripYear?: number | null;
   hasRegion: boolean;
-  hasWorkType: boolean;
+  hasTag: boolean;
   media?: QualityCheckMediaInput[];
 };
 
@@ -119,11 +119,12 @@ export function runContentQualityChecks(
     });
   }
 
-  if (!input.hasWorkType) {
+  if (!input.hasTag) {
     findings.push({
-      code: "unclear_work_type",
+      code: "missing_tags",
       severity: "info",
-      message: "No work type is selected for this story.",
+      message:
+        "No tags are selected for this story -- tags are how readers find it.",
     });
   }
 

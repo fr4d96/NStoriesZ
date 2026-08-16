@@ -12,6 +12,7 @@ import {
 } from "@/lib/story/image-validation";
 import { getErrorMessage } from "@/lib/errors";
 import { mediaEmbedToken } from "@/lib/story/markdown-media";
+import { useToast } from "@/components/ui/toast";
 import { createMarkdownLiveExtensions } from "./markdown-live-decorations";
 
 export type ImageUploadContext = {
@@ -176,6 +177,7 @@ function ImageButton({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const { showToast } = useToast();
 
   async function handleFile(file: File) {
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
@@ -189,6 +191,15 @@ function ImageButton({
 
     setError(null);
     setUploading(true);
+    // Only feedback for this button before now was the toolbar icon
+    // switching to "…" -- easy to miss, and gave no signal at all once the
+    // upload finished (the inserted image widget itself starts as a
+    // spinner too, see markdown-live-decorations.ts, so nothing visibly
+    // changed at the moment of completion either). The toast is the
+    // unmissable signal for both ends of the same operation
+    // image-upload-manager.tsx already gives its own (separate) upload
+    // surface.
+    showToast(`Uploading ${file.name}…`);
     const formData = new FormData();
     formData.set("file", file);
     formData.set("revisionId", revisionId);
@@ -213,8 +224,11 @@ function ImageButton({
       onVersionBumped();
       const view = getView();
       if (view) insertMediaToken(view, body.mediaId);
+      showToast(`${file.name} uploaded.`);
     } catch (err) {
-      setError(getErrorMessage(err, "Upload failed."));
+      const message = getErrorMessage(err, "Upload failed.");
+      setError(message);
+      showToast(`${file.name} failed to upload.`, "error");
     } finally {
       setUploading(false);
     }

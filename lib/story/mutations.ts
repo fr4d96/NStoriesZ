@@ -242,24 +242,18 @@ export async function setRevisionLocations(
   if (error) throw error;
 }
 
-export async function setRevisionWorkTypes(
-  revisionId: string,
-  expectedVersion: number,
-  workTypes: Array<{ id?: string; customLabel?: string }>,
-) {
-  await requireUser();
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("set_revision_work_types", {
-    p_revision_id: revisionId,
-    p_expected_version: expectedVersion,
-    p_work_types: workTypes.map((w) => ({
-      work_type_id: w.id ?? null,
-      custom_label: w.customLabel ?? null,
-    })),
-  });
-  if (error) throw error;
-}
+// No setRevisionWorkTypes wrapper: work types are retired from authoring
+// (2026-08-16) and nothing in the app writes them any more. The RPC itself,
+// set_revision_work_types(), is deliberately left in place -- published
+// revisions still carry work-type rows and the live RLS suite still
+// exercises it.
 
+/**
+ * Replaces a revision's tags. The RPC deduplicates case-insensitively, folds
+ * a typed label naming an existing lookup tag into a reference to that tag,
+ * and caps a revision at MAX_TAGS_PER_REVISION -- so this wrapper passes the
+ * contributor's list through as-is rather than pre-trimming it.
+ */
 export async function setRevisionTags(
   revisionId: string,
   expectedVersion: number,

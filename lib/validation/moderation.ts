@@ -11,7 +11,6 @@ const moderationQueueFieldSchemas = {
   status: z.enum(["submitted", "recently_reviewed"]),
   sourceKind: z.enum(["self_service", "editorial_import"]),
   regionId: z.uuid(),
-  workTypeId: z.uuid(),
   consentMethod: z.enum([
     "account",
     "email",
@@ -28,7 +27,6 @@ export type ModerationQueueSearchFilters = {
   status?: "submitted" | "recently_reviewed";
   sourceKind?: string;
   regionId?: string;
-  workTypeId?: string;
   consentMethod?: string;
   dateFrom?: string;
   dateTo?: string;

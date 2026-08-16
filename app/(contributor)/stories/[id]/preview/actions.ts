@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
@@ -71,7 +72,13 @@ export async function submitOwnConsentAction(
 
   revalidatePath(`/stories/${formData.get("storyId")}/preview`);
   revalidatePath("/my-stories");
-  return { success: "Submitted for review." };
+  // A submitted (or contributor-approved) story is no longer something to
+  // keep looking at on this page -- it's back in the queue. Land the
+  // contributor where they can see it move: My Stories, which already shows
+  // a status badge for `pending_review`/`awaiting_contributor_approval`
+  // (components/story/status-badge.tsx). redirect() throws internally, so
+  // this never returns a state the form could render.
+  redirect("/my-stories");
 }
 
 export async function requestEditorialChangesAction(

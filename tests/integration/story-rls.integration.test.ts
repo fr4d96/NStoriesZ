@@ -644,15 +644,37 @@ describe("destination/region and cross-story media integrity", () => {
   it("rejects a destination that does not belong to the given region", async () => {
     // Lookup tables have real RLS grants; seed two disjoint region/destination
     // pairs via the admin account rather than assuming any exist already.
+    //
+    // active: false on every lookup fixture this suite creates (here and the
+    // work-type/tag fixtures further down). scripts/rls-test-cleanup.sql does
+    // delete these by slug prefix, but it is a deliberately manual,
+    // never-automatic script -- so between runs the rows accumulate, and
+    // every UI dropdown that lists lookup values (lib/story/active-lookups.ts,
+    // lib/story/public-queries.ts) filters on `active = true`, which meant a
+    // real contributor saw "RLS Test Tag A" five times in the story editor's
+    // tag suggestions and the public /stories filter. Nothing this suite
+    // asserts depends on them being active: list_published_stories does not
+    // filter attached tags/work types by `active`, and set_revision_tags
+    // deliberately still matches an inactive lookup row (an existing story may
+    // already reference one). Inactive fixtures therefore stay invisible to
+    // the app while remaining fully exercisable by these tests.
     const { data: regionA, error: regionAError } = await admin.client
       .from("regions")
-      .insert({ slug: slug("region-a"), name: "RLS Test Region A" })
+      .insert({
+        slug: slug("region-a"),
+        name: "RLS Test Region A",
+        active: false,
+      })
       .select("id")
       .single();
     expect(regionAError).toBeNull();
     const { data: regionB, error: regionBError } = await admin.client
       .from("regions")
-      .insert({ slug: slug("region-b"), name: "RLS Test Region B" })
+      .insert({
+        slug: slug("region-b"),
+        name: "RLS Test Region B",
+        active: false,
+      })
       .select("id")
       .single();
     expect(regionBError).toBeNull();
@@ -662,6 +684,7 @@ describe("destination/region and cross-story media integrity", () => {
         region_id: regionB!.id,
         slug: slug("dest-b"),
         name: "RLS Test Destination B",
+        active: false,
       })
       .select("id")
       .single();
@@ -1123,10 +1146,20 @@ describe("Prompt 5: list_published_stories cost-band, expense-availability, sear
   // against the live database before writing these titles this way. Real
   // search queries are space-separated words, which AND-match regardless
   // of order -- this is what the marker below exercises.
+  //
+  // Titled "RLS Test ..." so the slug the DB derives from the title starts
+  // with `rls-test-` and is therefore matched by scripts/rls-test-cleanup.sql,
+  // which scopes every delete to that prefix. These three were the ONE place
+  // the suite created stories outside the slug() helper, so cleanup never
+  // removed them and they accumulated in the public listing forever (21 had
+  // piled up before this was caught, 3 per run). Adding leading words is safe
+  // for the search assertions below: they query space-separated words
+  // (`CostBand <marker> Searchable`), and websearch_to_tsquery AND-matches
+  // those regardless of order or of other words being present.
   const marker = runId;
-  const under5kTitle = `Prompt5 CostBand ${marker} Searchable Under5k`;
-  const at5kTitle = `Prompt5 CostBand ${marker} Searchable At5k`;
-  const noExpenseTitle = `Prompt5 CostBand ${marker} Searchable NoExpense`;
+  const under5kTitle = `RLS Test Prompt5 CostBand ${marker} Searchable Under5k`;
+  const at5kTitle = `RLS Test Prompt5 CostBand ${marker} Searchable At5k`;
+  const noExpenseTitle = `RLS Test Prompt5 CostBand ${marker} Searchable NoExpense`;
 
   beforeAll(async () => {
     under5k = await publishOwnerStory({
@@ -1247,25 +1280,41 @@ describe("Prompt 5: list_published_stories never duplicates a story row across m
   it("returns exactly one row for a story with two work types and two tags", async () => {
     const { data: workTypeA, error: wtAError } = await admin.client
       .from("work_types")
-      .insert({ slug: slug("wt-a"), name: "RLS Test Work Type A" })
+      .insert({
+        slug: slug("wt-a"),
+        name: "RLS Test Work Type A",
+        active: false,
+      })
       .select("id")
       .single();
     expect(wtAError).toBeNull();
     const { data: workTypeB, error: wtBError } = await admin.client
       .from("work_types")
-      .insert({ slug: slug("wt-b"), name: "RLS Test Work Type B" })
+      .insert({
+        slug: slug("wt-b"),
+        name: "RLS Test Work Type B",
+        active: false,
+      })
       .select("id")
       .single();
     expect(wtBError).toBeNull();
     const { data: tagA, error: tagAError } = await admin.client
       .from("tags")
-      .insert({ slug: slug("tag-a"), name: "RLS Test Tag A" })
+      .insert({
+        slug: slug("tag-a"),
+        name: "RLS Test Tag A",
+        active: false,
+      })
       .select("id")
       .single();
     expect(tagAError).toBeNull();
     const { data: tagB, error: tagBError } = await admin.client
       .from("tags")
-      .insert({ slug: slug("tag-b"), name: "RLS Test Tag B" })
+      .insert({
+        slug: slug("tag-b"),
+        name: "RLS Test Tag B",
+        active: false,
+      })
       .select("id")
       .single();
     expect(tagBError).toBeNull();

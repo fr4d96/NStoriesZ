@@ -208,3 +208,34 @@ export function ArrowRightIcon(props: IconProps) {
     </svg>
   );
 }
+
+/** Success confirmation — the toast system's "done" state. */
+export function CheckCircleIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="8.25" />
+      <path d="M8.5 12.25l2.5 2.5 4.5-5" />
+    </svg>
+  );
+}
+
+/** Error/warning confirmation — the toast system's "failed" state. */
+export function AlertCircleIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="8.25" />
+      <path d="M12 7.75v5" />
+      <path d="M12 16.25h.01" />
+    </svg>
+  );
+}
+
+/** Dismiss — closes a toast or other transient panel. */
+export function CloseIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </svg>
+  );
+}

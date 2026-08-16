@@ -8,11 +8,10 @@ import {
 import {
   listActiveRegions,
   listActiveDestinations,
-  listActiveWorkTypes,
   listActiveTags,
 } from "@/lib/story/active-lookups";
 import { StoryEditForm } from "@/components/story/story-edit-form";
-import { storyContentSchema } from "@/lib/validation/story";
+import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
 import { getStoryEditorialHistory } from "@/lib/story/moderation";
 import { EditorialControls } from "../editorial-controls";
 import { EditorialHistoryPanel } from "../../editorial-history-panel";
@@ -79,25 +78,17 @@ export default async function EditorialEditPage({
     );
   }
 
-  const [
-    selections,
-    preview,
-    regions,
-    destinations,
-    workTypes,
-    tags,
-    editorialHistory,
-  ] = await Promise.all([
-    getRevisionSelections(draft.revision_id),
-    getStoryPreview(id),
-    listActiveRegions(),
-    listActiveDestinations(),
-    listActiveWorkTypes(),
-    listActiveTags(),
-    getStoryEditorialHistory(id),
-  ]);
+  const [selections, preview, regions, destinations, tags, editorialHistory] =
+    await Promise.all([
+      getRevisionSelections(draft.revision_id),
+      getStoryPreview(id),
+      listActiveRegions(),
+      listActiveDestinations(),
+      listActiveTags(),
+      getStoryEditorialHistory(id),
+    ]);
 
-  const parsedContent = storyContentSchema.safeParse(draft.content_json);
+  const parsedContent = normalizeStoryContentJson(draft.content_json);
 
   return (
     <div>
@@ -114,7 +105,7 @@ export default async function EditorialEditPage({
         initialVersion={draft.version}
         initialTitle={draft.title}
         initialExcerpt={draft.excerpt ?? ""}
-        initialContentJson={parsedContent.success ? parsedContent.data : []}
+        initialContentJson={parsedContent ?? []}
         initialTripStartDate={draft.trip_start_date}
         initialTripEndDate={draft.trip_end_date}
         initialTripYear={draft.trip_year}
@@ -122,14 +113,10 @@ export default async function EditorialEditPage({
         initialTotalExpenseNzdCents={draft.total_expense_nzd_cents}
         initialContributorNote={draft.contributor_note ?? ""}
         initialLocations={selections.locations}
-        initialWorkTypeIds={selections.workTypeIds}
-        initialCustomWorkType={selections.customWorkType}
-        initialTagIds={selections.tagIds}
-        initialCustomTag={selections.customTag}
+        initialTags={selections.tags}
         initialMedia={preview?.media ?? []}
         regions={regions}
         destinations={destinations}
-        workTypes={workTypes}
         tags={tags}
         showContentImport
       />

@@ -22,7 +22,6 @@ export type StoryCardData = {
   contributor_slug: string | null;
   cover_image_path: string | null;
   regions: unknown;
-  work_types: unknown;
   tags: unknown;
 };
 
@@ -36,10 +35,7 @@ export type StoryCardData = {
 export function StoryCard({ story }: { story: StoryCardData }) {
   const coverUrl = getPublicImageUrl(story.cover_image_path);
   const regionLabel = firstRegionLabel(story.regions);
-  const badges = [
-    ...stringList(story.work_types),
-    ...stringList(story.tags),
-  ].slice(0, 3);
+  const badges = stringList(story.tags).slice(0, 3);
 
   return (
     <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface transition-[transform,box-shadow] hover:-translate-y-1 hover:shadow-md">

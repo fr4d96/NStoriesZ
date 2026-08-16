@@ -38,11 +38,10 @@ const fixtureStory = {
   contributor_slug: "aiman-r",
   cover_image_path: null,
   regions: [{ region_name: "Otago", destination_name: "Queenstown" }],
-  work_types: ["Fruit picking"],
-  tags: [],
+  tags: ["Fruit picking"],
 };
 
-// A second, materially different record -- different region, different work
+// A second, materially different record -- different region, different tags
 // -- so the index's filter axes have something real to split on.
 const otherStory = {
   ...fixtureStory,
@@ -54,8 +53,7 @@ const otherStory = {
   attribution_value: "Mei L.",
   contributor_slug: "mei-l",
   regions: [{ region_name: "Canterbury", destination_name: "Ashburton" }],
-  work_types: ["Farm work"],
-  tags: [],
+  tags: ["Farm work"],
 };
 
 function mockStories(...batch: unknown[]) {
@@ -163,20 +161,24 @@ describe("HomePage", () => {
       within(placeFilters).getByRole("button", { name: "Canterbury" }),
     ).toBeInTheDocument();
 
-    const workFilters = within(index).getByRole("group", {
-      name: "Filter stories by work",
+    const topicFilters = within(index).getByRole("group", {
+      name: "Filter stories by topic",
     });
     expect(
-      within(workFilters).getByRole("button", { name: "Fruit picking" }),
+      within(topicFilters).getByRole("button", { name: "Fruit picking" }),
+    ).toBeInTheDocument();
+    expect(
+      within(topicFilters).getByRole("button", { name: "Farm work" }),
     ).toBeInTheDocument();
 
     // A value the batch never mentions is never offered as a filter, and an
-    // axis the batch can't populate at all never gets a row.
+    // axis the batch can't populate at all never gets a row. Work types are
+    // no longer an axis at all (retired 2026-08-16).
     expect(
       within(index).queryByRole("button", { name: "Ski-field work" }),
     ).not.toBeInTheDocument();
     expect(
-      within(index).queryByRole("group", { name: "Filter stories by topic" }),
+      within(index).queryByRole("group", { name: "Filter stories by work" }),
     ).not.toBeInTheDocument();
   });
 

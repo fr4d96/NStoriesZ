@@ -5,10 +5,7 @@ import {
   parseModerationQueueSearchParams,
   MODERATION_QUEUE_PAGE_SIZE,
 } from "@/lib/validation/moderation";
-import {
-  listActiveRegions,
-  listActiveWorkTypes,
-} from "@/lib/story/active-lookups";
+import { listActiveRegions } from "@/lib/story/active-lookups";
 
 export const metadata: Metadata = {
   title: "Moderation Queue",
@@ -52,10 +49,7 @@ export default async function ModerationStoriesQueuePage({
   const rawParams = await searchParams;
   const filters = parseModerationQueueSearchParams(rawParams);
 
-  const [regions, workTypes] = await Promise.all([
-    listActiveRegions(),
-    listActiveWorkTypes(),
-  ]);
+  const regions = await listActiveRegions();
 
   const offset = (filters.page - 1) * MODERATION_QUEUE_PAGE_SIZE;
 
@@ -66,7 +60,6 @@ export default async function ModerationStoriesQueuePage({
       status: filters.status ?? "submitted",
       sourceKind: filters.sourceKind,
       regionId: filters.regionId,
-      workTypeId: filters.workTypeId,
       consentMethod: filters.consentMethod,
       dateFrom: filters.dateFrom,
       dateTo: filters.dateTo,
@@ -125,21 +118,6 @@ export default async function ModerationStoriesQueuePage({
             {regions.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Work type
-          <select
-            name="workTypeId"
-            defaultValue={filters.workTypeId ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
-          >
-            <option value="">Any</option>
-            {workTypes.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
               </option>
             ))}
           </select>

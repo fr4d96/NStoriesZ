@@ -14,7 +14,6 @@ export type CostBand = (typeof costBands)[number];
 const fieldSchemas = {
   region: z.uuid(),
   destination: z.uuid(),
-  workType: z.uuid(),
   tag: z.uuid(),
   tripYear: z.coerce.number().int().min(2000).max(2100),
   travelStyle: z.string().trim().min(1).max(100),
@@ -28,7 +27,6 @@ const fieldSchemas = {
 export type StorySearchFilters = {
   region?: string;
   destination?: string;
-  workType?: string;
   tag?: string;
   tripYear?: number;
   travelStyle?: string;
@@ -78,7 +76,6 @@ export function parseStorySearchParams(
 export const FILTER_PARAM_KEYS = [
   "region",
   "destination",
-  "workType",
   "tag",
   "tripYear",
   "travelStyle",

@@ -297,6 +297,11 @@ body {
 .journiq-nav-link:hover::after {
   right: 0;
 }
+/* Current-page nav link (aria-current="page", the standard a11y attribute
+   for this) keeps the underline shown, not just on hover. */
+.journiq-nav-link[aria-current="page"]::after {
+  right: 0;
+}
 /*
  * Entrance/exit animation for the native <dialog>-based auth modal
  * (components/auth/auth-modal.tsx). `transition-behavior: allow-discrete`

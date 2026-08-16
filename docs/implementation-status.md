@@ -3,8 +3,516 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-12 (story editor images render inline and are drag-resizable, Bear.app-style;
-see "Inline, drag-resizable images in the story editor" below).
+Last updated: 2026-08-16 (inline editor image uploads now toast; /stories/new skips the working-title
+step entirely — see "2026-08-16, part 7" below).
+
+**2026-08-16, part 7 — Editor upload toasts; skip the working-title page.**
+
+1. **The rich-text editor's inline "Insert image" toolbar button now toasts on both ends of an
+   upload** — "Uploading `<file>`…" the moment it starts, "`<file>` uploaded." on success,
+   "`<file>` failed to upload." (error variant) on failure. `ImageButton`
+   (`components/story/editor/markdown-editor.tsx`) previously gave zero feedback beyond the toolbar
+   icon switching to "…" — easy to miss, and gave no signal at all once the upload actually finished
+   (the inserted image widget itself starts as a spinner too, so nothing visibly changed at that
+   moment either). Uses the same `useToast()`/`ToastProvider` this session's toast redesign already
+   established; `image-upload-manager.tsx` (the separate Images-panel upload surface) already had its
+   own completion/failure toasts and was left as-is. **Live-verified**: dispatched real file uploads
+   into the toolbar's hidden `<input>` via injected `File`/`DataTransfer` objects (this session's
+   browser tool has no native file-picker driver), confirmed via a DOM poll immediately after dispatch
+   that "Uploading test5.png…" renders with `role="status"`, and confirmed via the network log that
+   every one of eight rapid test uploads returned `200 OK` — the success-path `showToast()` call
+   sits unconditionally right after that same response parses, using the identical mechanism already
+   proven to render (multiple "Draft saved." toasts captured live in the same session).
+2. **`/stories/new` no longer shows a separate "give it a working title" page.** It now creates a
+   real "Untitled story" draft itself and redirects straight to the real editor — Title is already a
+   required, clearly-marked field there (part 6, `RequiredMark`), so there's nothing the old
+   intermediate page did that the destination doesn't already ask for. `new-story-form.tsx` (the old
+   title-input form) is deleted; `app/(contributor)/stories/new/page.tsx` now renders
+   `StartNewStory`, a Client Component that calls the **existing, unchanged** `createDraftAction`
+   directly as a plain async function (not via a `<form action>`) once on mount, with a fixed
+   "Untitled story" title. `redirect()` inside a Server Action called this way works identically to
+   the form-triggered case. A `started` ref (not state) guards against React Strict Mode's dev-only
+   double-invoke of effects creating two drafts per visit. Deliberately **not** a plain Server
+   Component performing the mutation directly on the GET-rendered page itself: Next.js Link
+   prefetching could then create a throwaway draft every time this route's link scrolls into view,
+   not only on an actual click — the mutation only ever runs from a real, one-shot client-side effect.
+   - **A real, load-bearing consequence found and fixed while updating this**: `stories.slug` is
+     generated once, at creation, from whatever title is passed to `create_self_service_draft()`
+     (confirmed by reading that function and confirming no later migration ever updates
+     `stories.slug`) — and is never regenerated when the title changes afterward. Every self-service
+     story now gets an `untitled-story-<hex>` slug specifically, permanently, regardless of what the
+     contributor renames it to. `e2e/cross-contributor-access.spec.ts`'s own fixture-hygiene comment
+     had relied on the OLD flow putting a `rls-test`-prefixed title into `_generate_story_slug()`
+     directly, so its fixture stories would silently stop matching
+     `scripts/rls-test-cleanup.sql`'s `slug like 'rls-test-%'` scope — the exact kind of permanent
+     fixture leak this session already spent real effort eliminating (part 5). Fixed by broadening
+     `rls-test-cleanup.sql`'s matching predicate everywhere it targets `stories` (20 call sites) to
+     `slug like 'rls-test-%' OR owner_user_id in (select id from auth.users where email like
+'%@whv-compass-test.example')` — every fixed test account shares that domain, and no real
+     contributor can, so the added signal is exactly as safe as the slug one and catches this case
+     unconditionally regardless of title. `docs/architecture.md`'s cleanup section updated to match.
+     **Verified live**: created a throwaway "Untitled story" draft as the `rls-owner` fixture account
+     (the eight test image uploads from item 1 above), ran `npm run test:rls:cleanup` by hand, and
+     confirmed the story was removed while all 13 real stories were untouched — then updated the two
+     `e2e/cross-contributor-access.spec.ts` call sites themselves to go through the real new flow
+     (fill Title/type real content on the edit page instead of a "Working title" field that no longer
+     exists; the second call site needed no title/content at all, since it never asserted on either).
+     **`npm run verify`: 319 tests, 0 lint errors, build clean. `npm run test:rls`: 69/69, and the
+     `posttest:rls` hook (part 5) fired and cleaned up automatically afterward, confirmed by a direct
+     post-run query showing exactly the 13 real stories and nothing else.**
+
+**2026-08-16, part 6 — Contributor UX polish batch (5 items).**
+
+1. **"My Stories" / "New Story" are now always-visible, clickable header links**, not just entries in
+   UserAvatarMenu's dropdown. New `components/contributor-nav-links.tsx` (Client Component, needs
+   `usePathname` for the active-page match), rendered in both `ContributorNav` (every `(contributor)`
+   route) and `SiteHeader`'s signed-in desktop state (a signed-in visitor browsing public pages sees
+   the same nav). The current page is underlined via `aria-current="page"` +
+   `.journiq-nav-link[aria-current="page"]::after` (`app/globals.css`) — extends the existing
+   hover-underline rule rather than introducing a new visual language. UserAvatarMenu keeps both
+   links too (harmless duplication, and still the only entry point on narrow viewports); it still
+   owns Account/Sign out. Active match is exact-path only (`/stories/new` is not "active" while
+   editing `/stories/[id]/edit`, which is reached from it but isn't itself "New Story").
+2. **Title, Story content, Location, and Tags are now required before a contributor can submit.**
+   Visual: a red `*` + `sr-only "required"` marker (`RequiredMark`, `story-edit-form.tsx`; a
+   duplicated 3-line inline version in `tag-editor.tsx`, not worth sharing across files for this
+   size) on all four field labels. Enforcement: a new gate on `app/(contributor)/stories/[id]/preview/page.tsx`
+   — `missingRequirements`, computed from `preview.title`, the parsed content's text, and
+   `getRevisionSelections(revisionId)`'s locations/tags counts — replaces `SubmitConsentPanel` with
+   an amber "Add …, … before you can submit." message (naming exactly what's missing) plus a link
+   back to editing, whenever anything is missing. **Deliberately UI-only, not a new DB constraint**:
+   `submit_revision_with_consent()` is exercised by dozens of `tests/integration/story-rls.integration.test.ts`
+   fixtures (via its `publishOwnerStory()` helper) that never call `set_revision_locations`/
+   `set_revision_tags`, so a hard requirement at the RPC would break `test:rls`, not just this form.
+   Title/content already had stricter save-time enforcement (`revisionInputSchema` rejects an empty
+   title/content on every autosave) — this preview-page gate is what actually catches the one gap:
+   the moment right after `/stories/new` creates the shell (`content_json` defaults to `[]`) and
+   before anything has been written.
+   - **A pre-existing, adjacent bug found and fixed while verifying this live**: a genuinely empty
+     `content_json` failed `storyContentSchema`'s `.length(1)` check with Zod's raw default message,
+     "Too small: expected array to have >=1 items," surfacing verbatim in the editor on the very
+     first keystroke in _any other_ field of a still-content-less New Story (confirmed live —
+     reproduced with the travel-style select before writing the fix, and again with the title field
+     alone, to confirm it wasn't caused by this session's own change). Not new — pre-existing
+     whenever content was empty — but directly adjacent to "make Story required," so fixed alongside
+     it: `.length(1, "Your story needs at least some content.")` in `lib/validation/story.ts`.
+3. **Travel style now has a free-text "Other" option.** `travel_style` is a loosely-typed `text`
+   column with no DB enum/CHECK (confirmed by reading `20260803090200_story_revisions.sql` before
+   relying on it), so widening `revisionInputSchema.travelStyle` from `z.enum(travelStyles)` to a
+   bounded free string (max 50 chars) needed no migration. The select gained an "Other (type your
+   own)" option; choosing it reveals a text input, debounced-saved the same way every other field is.
+   Loading a revision whose stored value isn't one of the three presets (e.g. from an earlier
+   session) auto-detects "other" mode and pre-fills the text, so it's never silently dropped into
+   "Not specified." The public `/stories` travel-style filter (`filter-bar.tsx`) needed no change —
+   it already builds its options from real distinct values via `list_distinct_public_travel_styles()`,
+   not the hardcoded enum.
+4. **Both "Preview" buttons in the edit form now use the same pill/accent style as "New Story"**
+   (`journiq-button bg-accent text-accent-foreground`, replacing a plain bordered-box style) — the
+   top-of-form and end-of-form Preview links in `story-edit-form.tsx`.
+5. **"Note to editors" is now optional-labelled and collapsed by default**, matching the existing
+   Images panel's `<details>`/`<summary>` pattern rather than introducing a new one. Summary reads
+   "Note to editors (optional, private, never published)"; the textarea keeps an `sr-only` label
+   since the summary text already states its purpose visibly.
+
+**Live-verified end to end** against the linked project, signed in as the account that owns "Hamilton
+Trip" (a real draft, not a fixture): confirmed the nav underline switches between My Stories/New
+Story, watched the raw Zod error appear and then confirmed the friendly message after the fix,
+selected "Other" travel style and typed a custom value that survived a reload, watched the preview
+page's gate list "at least one location, at least one tag" and then shrink to nothing as each was
+added (using a real OpenStreetMap-backed location search result, not a stub), and confirmed
+`SubmitConsentPanel` only renders once all four requirements are met. `npm run verify`: 319 tests,
+0 lint errors, build clean (all pre-existing warning count, no new ones).
+
+**Note on the live-verification story**: "Hamilton Trip" is a real draft belonging to the signed-in
+test account, not a fixture — used because it happened to be freshly created and empty. Its location,
+tag, and custom travel style were removed again after verification. Its body text
+("A quick trip to Hamilton for a working holiday.") could **not** be cleared back to empty afterward
+— autosave now correctly refuses to persist empty content, which is item 2 working as designed. Left
+in place rather than worked around; it's an ordinary, harmless placeholder sentence in the owning
+account's own still-unpublished draft, freely editable by them.
+
+**2026-08-16, part 5 — RLS test lookup fixtures are created inactive.**
+
+`tests/integration/story-rls.integration.test.ts` created its region/destination/work-type/tag
+fixtures with `active` defaulting to **true**. `scripts/rls-test-cleanup.sql` does delete them by
+slug prefix, but it is deliberately manual and never-automatic — so between runs the rows
+accumulated, and every dropdown that lists lookup values (`lib/story/active-lookups.ts`,
+`lib/story/public-queries.ts` — all filtering `active = true`) showed them to real users. By the time
+this was caught there were 5 copies each of "RLS Test Tag A"/"B" in the story editor's tag
+suggestions and the public `/stories` filter, plus 5 each of the region fixtures in the moderation
+queue's region filter. Part 4 made it matter more, since tags became the only taxonomy.
+
+Fixed by inserting all seven lookup fixtures with `active: false`. Nothing the suite asserts depends
+on them being active — verified before changing it: `list_published_stories` does not filter attached
+tags/work types by `active`, and `set_revision_tags` deliberately still matches an inactive lookup
+row (an existing story may already reference one). The reasoning is recorded as a comment at the
+fixture site so it isn't "helpfully" reverted later.
+
+The rows already in the linked project were set `active = false` in place rather than deleted: all 10
+tag and all 10 work-type fixtures are referenced by real `story_revision_tags`/`story_revision_work_types`
+rows, and every structural FK in the story domain is `on delete restrict` by design, so deleting them
+would have raised. (The region/destination fixtures were unreferenced but were deactivated too, for
+one uniform rule.) `scripts/rls-test-cleanup.sql` still removes them outright when it is run. Done as
+direct SQL rather than a migration — it is environment-specific fixture junk, not schema, and the
+established home for this is that cleanup script, which is deliberately not a migration.
+
+**Verified**: `npm run test:rls` passes 69/69 with inactive fixtures, and that run's own new fixtures
+landed inactive (tag fixture rows 10 → 12, `active` count 0). The live lookup tables now expose
+exactly 32 tags, 16 regions, 34 destinations, 0 work types, and the `/stories` filter dropdown
+contains no `RLS Test` option.
+
+**Test-story purge (follow-up, on explicit instruction).** The suite also left its _stories_ published
+and public: 204 `rls-test-%` fixtures plus 21 `prompt5-costband-%` Prompt 5 verification leftovers,
+against 12 real stories — the public listing and landing index were ~95% test data. All fixtures were
+then removed. `npm run test:rls:cleanup` handled the `rls-test-%` ones (and its own lookup fixtures)
+through its existing guarded path. A one-off companion pass, modelled on
+`scripts/rls-test-cleanup.sql`'s exact dependency order and trigger handling, removed the 30 that
+script's slug prefix does not match: the 21 `prompt5-costband-%` rows, `stress-test-undici-fix`, and
+the hand-made editor fixtures owned by the `dev-user@example.com` / `rls-owner@…` fixture accounts
+(`bear-editor-test-story`, `picking-apples-in-hawke-s-bay`, `highlight-fix-verify`,
+`highlight-and-list-fix-test`, `formatting-test`, `inline-image-test`, `plate-real-editor-test`,
+`table-feature-test`). That pass was run once from a scratchpad rather than committed as a repo
+script — it targets a fixed, non-recurring list, and a general "purge stories by slug prefix" tool is
+not worth leaving lying around. A full slug/title/owner audit of all 234 deleted stories was written
+to disk before anything was deleted.
+
+**Result**: 12 stories remain, all real user content (6 published, 6 draft), verified by listing them.
+Deliberately kept: everything owned by a real account and not named as a test, including junk-titled
+drafts (`sdf`, `aaa`/"Auckland Trip") — that is user data, not a fixture. 15 `story_media` rows were
+orphaned in the private bucket; **0** had been promoted to the public bucket, so no publicly-readable
+orphan objects remain. The landing page and `/stories` now show only real stories, and the region/tag
+filters only real values.
+
+**The suite now tears itself down** (2026-08-16, on explicit instruction — this reverses the
+scripts' original "manual only" stance, so every comment asserting that was updated with it:
+`scripts/run-rls-cleanup.mjs`, `scripts/rls-test-cleanup.sql`, and docs/architecture.md's
+"Cleanup is honest, not automatic" section, which was also factually stale about lookup tables).
+`package.json` gains `"posttest:rls": "npm run test:rls:cleanup"`. npm runs a `post<script>` hook
+only when the script exits 0 — **verified empirically with a throwaway package rather than assumed**
+— so a FAILING run deliberately leaves its fixtures in place for debugging, which is the behaviour
+you want. Every safety property is unchanged: the fail-closed guard still runs on each invocation,
+deletes are still scoped to `rls-test-%`, and full-truncate still needs its own second env var. The
+hook is scoped to `test:rls`, not `test`, so `npm run verify` is unaffected (confirmed).
+
+**A second, worse gap surfaced while proving the hook worked.** After the first automated run, the
+story count went 12 → 16 with zero `rls-test-%` rows left — the suite was creating fixtures the
+cleanup prefix could never match. Cause: the cost-band/full-text-search block titles its three
+stories `Prompt5 CostBand <runId> ...` **space-separated on purpose** (a documented constraint —
+`websearch_to_tsquery` treats a hyphen-joined query as a strict phrase, so slug()'s hyphenated form
+would never match a partial search). The DB derives the slug from the title, giving
+`prompt5-costband-…`, outside the `rls-test-` prefix. This was the only place in the suite that
+created stories without the `slug()` helper, so **3 leaked per run, forever** — which is what the 21
+"Prompt 5 verification leftovers" purged above actually were. Not leftovers from a one-off
+verification at all; an ongoing leak. Fixed by titling them `RLS Test Prompt5 CostBand <runId> …`, so
+the derived slug starts with `rls-test-` and cleanup matches. Safe for the search assertions: they
+query `CostBand <marker> Searchable` and `websearch_to_tsquery` AND-matches those words regardless of
+order or of extra words being present.
+
+**Verified end to end**: a full `npm run test:rls` now passes 69/69, fires the hook automatically, and
+leaves **zero** residue — 0 fixture stories, 0 fixture tags/regions, 32 active tags, 6 published
+public stories, exactly the real content. (Story total is 13, not 12: "Hamilton Trip" is a real story
+the user created in the browser during this session — confirmed by matching its owner to their other
+stories — not a fixture, so it was left alone.)
+
+**Duplicate-React-key bug found and fixed while verifying the purge**
+(`components/home/story-index.tsx`): each index row's `fields` list is `[region label, first tag, trip
+year]`, keyed by the bare value — but nothing stops two of those being the same string. The "Auckland
+Trip" story is in region Auckland _and_ carries a custom tag "Auckland", which tripped React's
+unique-key warning on every landing-page render. Found by reading the browser console on a clean
+rebuild, not by any test (a duplicate key only warns, it doesn't fail). Fixed to
+``key={`${field}-${index}`}`` — the convention `story-card.tsx` and `featured-story-slide.tsx` already
+use. Freely-typed tags (part 4) make this collision more likely, not less. Verified: zero console
+errors on a fresh page load.
+
+**2026-08-16, part 4 — My Stories list view; tags become the only taxonomy.**
+
+1. **My Stories now opens in list view, with a cover thumbnail beside each title.**
+   `app/(contributor)/my-stories/my-stories-view.tsx`'s `useSyncExternalStore` snapshot inverted:
+   only an explicitly stored `"grid"` opts out, so the default (including when localStorage is
+   unavailable) is `"list"`, and the server snapshot matches so hydration doesn't flip. An existing
+   stored preference still wins in both directions — the toggle and its storage key
+   (`kaki-my-stories-view`) are otherwise unchanged. The list rows were restyled after the landing
+   page's catalogue index (`components/home/story-index.tsx`): hairline-ruled `.nf-entry` rows, a
+   mono tabular numeral, a cover thumbnail, and a mono "Updated" line. Same one-grid-two-shapes
+   trick that index uses — mobile is `[thumb | stacked content]` with the numeral hidden
+   (`display: none` claims no track), and from `sm` up an inner `sm:contents` wrapper drops its
+   children into the parent grid as `[numeral | thumb | title+meta | actions]`. Unlike that index a
+   row can't be one big `<Link>` (each story carries Edit/Preview/Review actions), so the thumbnail
+   and title are the linked targets, the thumbnail link is `aria-hidden` + `tabIndex={-1}` (it
+   duplicates the title link), and each action carries an `sr-only` story title so "Preview" isn't
+   an ambiguous link name repeated down the page. Thumbnails reuse the existing
+   `story-cover-thumbnail.tsx` — a draft has no public-bucket image, so it mints a short-lived
+   signed preview URL through `mintPreviewUrlAction`; that path is untouched. 4 new tests
+   (`my-stories-view.test.tsx`). **Live-verified** at mobile and desktop viewports: list is the
+   default, a story whose cover is a private draft image renders a real signed-URL thumbnail
+   (confirmed the `src` is a `story-images-private` signed URL), and stories with no cover fall back
+   to the existing placeholder.
+
+2. **Work types are gone from every user-facing surface; tags are the only taxonomy.**
+   Removed from the story edit form, the editorial import form, the public `/stories` filter bar and
+   its metadata copy, the story card and featured slide badges, the landing-page index's "Work"
+   filter axis (its meta column now shows the first tag), the public story detail's chip row, the
+   moderation queue filter, the readiness checklist, and `whats-public-summary`. The supporting
+   readers/wrappers/schemas went with them: `listActiveWorkTypes`, `listPublicWorkTypes`,
+   `setRevisionWorkTypes`, `setWorkTypesAction`, `workType`/`workTypeId` in
+   `lib/validation/discovery.ts` and `lib/validation/moderation.ts`, and `workTypeId` on
+   `PublishedStoriesFilter`/`ModerationQueueParams`. `content-quality-checks.ts`'s
+   `hasWorkType`/`unclear_work_type` advisory became `hasTag`/`missing_tags`.
+
+   **Deliberately non-destructive at the data layer.** Nothing was dropped: `work_types`,
+   `story_revision_work_types`, `set_revision_work_types()`, and every `p_work_type_id` parameter on
+   `list_published_stories`/`get_moderation_queue` are all still there, and
+   `get_published_story`/`list_published_stories`/`get_revision_selections` still return their
+   `work_types` payloads. Existing published revisions carry work-type rows, `npm run test:rls`
+   exercises `set_revision_work_types` with its own "RLS Test Work Type A/B" fixtures, and a dropped
+   column or parameter is irreversible. The retirement is expressed as `active = false` on all nine
+   non-fixture `work_types` rows — the exact mechanism these lookup tables were given in
+   `20260803090000_lookup_tables.sql` — plus a table comment recording why the table is kept. The
+   app simply never sends `p_work_type_id` any more (a comment at each call site says so).
+
+3. **A contributor can now add as many tags as they like, including their own labels.** The edit
+   form previously offered a fixed checkbox list plus one "Other (type your own)" text input — one
+   custom label per story, maximum. New `components/story/tag-editor.tsx`: type a label, press Enter
+   (or comma, or "Add"), it becomes a removable chip; Backspace on an empty input removes the last
+   one; the curated tag rows are offered as native `<datalist>` suggestions rather than 32
+   checkboxes, so they stay discoverable without being a ceiling. It goes through the same
+   `setTagsAction` → `set_revision_tags` path as before, on the same mutation-queue "tags" slot (no
+   debounce — an add/remove is a discrete action, not typing). 7 new tests.
+
+   **The RPC, not the client, is the boundary** (Engineering Rules 2/3).
+   `supabase/migrations/20260816100000_set_revision_tags_multi_add.sql` replaces
+   `set_revision_tags()` — same signature, same authorization, same optimistic-version check, based
+   on the live `pg_get_functiondef()` output — and adds three behaviours: (a) a typed label that
+   case-insensitively names an existing `tags` row is stored as a _reference_ to that row, so "Van
+   life" and "van life" can't become two catalogue entries (and contributors still never need write
+   access to the admin-managed `tags` table); (b) duplicates collapse, by id or by folded custom
+   label; (c) a per-revision cap of **20** — chosen because it matches the cap already applied to
+   locations and to the selection arrays in `lib/validation/story.ts`, and because 20 topical labels
+   on one story is well past where tags describe a story rather than keyword-stuff it. The 100-char
+   length ceiling (`story_revision_tags_one_of`'s CHECK) is unchanged. Exceeding the cap raises
+   inside the same transaction as the delete, so a rejected write leaves the existing tags intact.
+   `lib/validation/story.ts`'s `revisionSelectionsSchema` became `revisionTagsSchema` with exported
+   `MAX_TAGS_PER_REVISION`/`TAG_MAX_LENGTH` constants (6 new tests).
+
+   `supabase/migrations/20260816100200_get_revision_selections_tag_names.sql` adds a `name` to each
+   element of that RPC's `tags` payload (resolved lookup name, or the contributor's own text) and
+   orders by it — the chip UI needs a display name, and a revision may legitimately reference a
+   now-inactive tag that the form's own options list no longer contains. `RevisionSelections` is
+   correspondingly `{ locations, tags: RevisionTagSelection[] }`; its `workTypeIds`/`customWorkType`
+   /`tagIds`/`customTag` fields are gone.
+
+4. **Curated tag list.** `supabase/migrations/20260816100100_curate_whv_tags_retire_work_types.sql`
+   upserts 32 WHV-relevant tags (insert-or-reactivate on `slug`; never `DELETE`, since revisions
+   reference these rows) and deactivates anything outside the set that isn't an `rls-test-%`
+   fixture — which today matches nothing, since all eleven pre-existing tags were already relevant
+   and were kept. The genuinely useful work-type concepts were folded in as tags:
+   _Work_ — Fruit picking, Horticulture, Viticulture, Farm work, Dairy farming, Packhouse work,
+   Hospitality, Tourism, Construction, Retail, Office work, Ski season, Au pair, Seasonal work,
+   Finding work, Pay & conditions, Cost of living. _Trip shape_ — Van life, Road trip, Backpacker
+   hostels, Budget travel, Solo travel, Couple travel, First-time traveller, Hiking & tramping,
+   Buying a car. _Place_ — North Island, South Island. _Practicalities_ — Visa & paperwork,
+   Tax & IRD, Second visa, Culture shock.
+
+   **All three migrations applied** to the linked project (`ybhydepjaantkngngvuf`) via
+   `apply_migration`, never `db push` (local and remote histories are legitimately divergent here).
+
+   **Live-verified**, signed in as a real contributor: the edit form shows one "Tags" fieldset and
+   no "Work types" one; typing `van LIFE` produced a `Van life` chip that persisted as a _reference_
+   to the real lookup row (confirmed by direct DB read: `tag_id = 94d1b711…`, `custom_label = null`),
+   `Ferry to Picton` persisted as a custom label, and `VAN LIFE` was refused with
+   `"VAN LIFE" is already on this story.`; a reload rendered both chips back with their names. The
+   RPC's own enforcement was verified separately with a **rolled-back probe** running as the story's
+   owner (`set local role authenticated` + a `request.jwt.claims` sub): five inputs (a duplicated
+   `tag_id`, two spellings of one custom label, and a label naming a lookup row) collapsed to
+   exactly two rows; 21 tags were rejected with `Too many tags for revision … (max 20 per story, got
+21)`; 20 were accepted. The probe rolled back, and the tags added by hand during verification
+   were removed afterwards, leaving the story's tag set as it was found. `/stories`' filter bar has
+   no Work type control and lists the 32 curated tags; the landing index's axes are Place and Topic
+   only.
+
+   **Not verified live:** the moderation queue page. Reaching it needs the moderator fixture
+   account, which would mean signing the already-signed-in contributor out of their own browser
+   session; the change there is the removal of one `<select>` and one query parameter, covered by
+   typecheck, build, and `test:rls`.
+
+   **Known, pre-existing, not changed:** `npm run test:rls` inserts fresh "RLS Test Tag A/B" rows on
+   every run with `active` defaulting to true, so those fixtures accumulate in the public tag
+   dropdown alongside the curated set. Left alone deliberately — the RLS suite depends on those rows
+   — but worth a cleanup decision later.
+
+   **Gates:** `npm run verify` passes (319 tests, up from 303; 0 lint errors, 151 pre-existing
+   warnings, unchanged), and `npm run test:rls` still passes 69/69 against the live project.
+
+**2026-08-16, part 3 — Toast redesign.**
+
+`components/ui/toast.tsx` restyled on explicit user reference (a screenshot of another site's toast)
+asking for "a nice green color that shows clearly": a solid `bg-green-600` (error: `bg-red-600`)
+pill, fixed regardless of light/dark mode (a toast is a momentary assertive notification, not page
+chrome, so it doesn't adapt to theme), a white icon in a translucent circle on the left
+(`CheckCircleIcon`/`AlertCircleIcon`, new additions to `components/icons.tsx`, matching the existing
+house icon style — 24×24, `currentColor` stroke), and a dismiss `×` button (`CloseIcon`, same set) on
+the right — clicking it now removes the toast immediately rather than waiting out the fixed
+3.5s auto-dismiss. `dismissToast(id)` is shared between the timeout and the button, so there's one
+removal path, not two. No caller changed (`showToast()`'s signature is unchanged) — both existing call
+sites (`story-edit-form.tsx`'s "Draft saved.", `image-upload-manager.tsx`) picked up the new look for
+free. **Live-verified**: triggered a real autosave via the dev server (signed in as the RLS owner
+fixture, edited a draft's title), screenshot confirms the new green pill with icon and × exactly
+matches the requested reference.
+
+**2026-08-16, part 2 — Moderation queue sort order + collapsed Media section.**
+
+1. **The "submitted" moderation queue now sorts newest-submission-first.** `get_moderation_queue()`'s
+   `'submitted'` branch (added in Prompt 6 Stage 1, `20260805100800_get_moderation_queue_v2.sql`) had
+   deliberately ordered `submitted_at asc` (oldest first — a FIFO fairness queue, per that
+   migration's own comment). Moderators asked for the opposite. Fixed in
+   `supabase/migrations/20260816090000_moderation_queue_submitted_desc.sql`: `order by
+s.submitted_at desc, r.id asc` — the only change; filters, pagination, and return shape are
+   untouched, and the `'recently_reviewed'` branch already ordered `created_at desc` and needed no
+   change. **Applied and live-verified**: signed in as the RLS moderator fixture, the Stories queue
+   now lists the most recently submitted story first (a story submitted at 4:48pm ahead of ones
+   submitted at 4:39pm and 12:41pm the same day).
+2. **The review page's "Media" section is now collapsed by default.** A moderator lands on this page
+   to read the story, not to see thumbnails first — the media grid (added earlier today, see part 1
+   below) now sits inside a closed `<details>`/`<summary>` (same pattern
+   `story-edit-form.tsx`'s own Images section already uses), opened only on click.
+   `app/(moderation)/moderation/stories/[id]/page.tsx` only; `PreviewGallery` itself is unchanged (it
+   still mints preview URLs on mount regardless of the parent's collapsed state, since it stays
+   mounted — a deliberate non-issue, given the RLS suite's fixture stories carry at most a handful of
+   images). **Live-verified**: the section renders "▶ MEDIA (4)" collapsed, with the story body
+   visible immediately below it; clicking it opens the full thumbnail grid.
+
+**2026-08-16, part 1 — Post-submit redirect, image loading spinner, moderator image visibility.**
+
+1. **Submitting for review (or a linked contributor's "Approve & submit for moderation") now
+   redirects to My Stories** instead of leaving the contributor on the preview page reading a
+   "Submitted for review." text line. `submitOwnConsentAction`
+   (`app/(contributor)/stories/[id]/preview/actions.ts`) calls `redirect("/my-stories")` on success
+   instead of returning a success state — My Stories already shows a status badge for
+   `pending_review`/`awaiting_contributor_approval`, so the contributor sees the story move.
+   `requestEditorialChangesAction`/`declineEditorialPublicationAction` are unchanged (not part of
+   this request). **Live-verified**: signed in as the RLS test owner fixture, submitted a real draft
+   with 4 attached images through the real consent form — landed on My Stories with the story showing
+   "In review", confirmed via a direct DB read that the revision genuinely flipped to `submitted`.
+2. **Preview images now show a spinner while their signed URL is being minted**, instead of a blank
+   gap in the text (inline embeds) or "Preparing image…" text-only (the gallery). `ContentBlockMediaMap`
+   (`components/story/content-block-renderer.tsx`) gained a `"loading"` literal state alongside its
+   existing `{url, altText, decorative}` shape — a caller that mints asynchronously
+   (`PreviewContentBody`) sets an embedded id to `"loading"` the moment it's known and clears it once
+   the mint resolves or fails; `MediaEmbed` renders the shared `<Spinner>` component
+   (`components/ui/spinner.tsx`, already used elsewhere) for that state. `PreviewGallery` got the same
+   treatment for its own "not yet loaded" branch. `PreviewContentBody`'s loading set is derived each
+   render from `blocks`/`urls`/`failed` rather than tracked as its own state, to satisfy
+   `react-hooks/set-state-in-effect` (a synchronous `setState` at the top of the effect body was
+   rejected by the linter as a cascading-render risk). 1 new render test
+   (`content-block-renderer.test.tsx`). **Live-verified**: the private preview page showed spinners on
+   first paint, then real images 1–2s later, for a fixture story with images both inline in text and
+   inside a table cell.
+3. **A moderator reviewing a submitted revision could not see any of its images — not the inline ones
+   in the body text, not even a thumbnail in the "Media" list.** Root cause:
+   `app/(moderation)/moderation/stories/[id]/page.tsx` called `ContentBlockRenderer` three times with
+   no `media` prop at all (defaults to `{}`), so every `![[mediaId]]` embed silently resolved to
+   nothing; the "Media (N)" section only ever rendered caption/processing-state text, never an actual
+   picture. Fixed by reusing the already-existing, already-tested preview components instead of
+   `ContentBlockRenderer` directly:
+   - The submitted revision's body now renders via `PreviewContentBody`, which mints short-lived
+     signed URLs through `mintPreviewUrlAction` — already generic over "owner, linked contributor,
+     assigned editor, admin, **or a moderator scoped to a revision they're genuinely reviewing**" (see
+     `_can_access_story_media()`, `supabase/migrations/20260804090600_story_preview_and_media_access.sql`),
+     so no new grant or RPC was needed, only a new caller.
+   - The "Media (N)" list gained an actual thumbnail grid via `PreviewGallery` (same component,
+     same mint), kept alongside the existing caption/processing-state rows rather than replacing them.
+   - The "Currently published" comparison panel (shown only when reviewing a replacement) now builds
+     its own `ContentBlockMediaMap` synchronously, server-side, from `get_published_story_media()` +
+     `getPublicImageUrl()` — no signed-URL minting needed there, since that revision's images are
+     already promoted to the public bucket.
+   - `PreviewGallery`/`PreviewContentBody`'s `media` prop was widened from `RevisionMediaItem[]` to a
+     new shared `PreviewableMediaItem` type (`lib/story/contributor-queries.ts`) covering only the
+     fields both `RevisionMediaItem` and `lib/story/moderation.ts`'s `ModeratorMediaItem` already
+     share — so both components work unchanged for either caller, no data reshaping needed.
+     **Live-verified**: signed in as the RLS test moderator fixture, opened the review page for the
+     revision submitted in item 1 above — all 4 images rendered as real thumbnails in the Media
+     section, and all 3 of the body's inline images (including one inside a table cell) rendered in the
+     Submitted revision panel, where every one of them had previously rendered nothing.
+
+Last updated before that: 2026-08-15 (first-sign-in lands on contributor-identity setup; detaching an
+image now strips its embed tokens).
+
+**2026-08-15 — First-sign-in landing + dangling image-embed fix.**
+
+1. **First sign-in lands on contributor-identity setup.** A brand new account has no `contributors`
+   row, and every authoring surface depends on one, so the first sign-in now lands on
+   `/account#contributor-identity` instead of an empty My Stories; every later sign-in lands on
+   My Stories exactly as before, and no staff role is diverted. The decision is a pure function
+   (`landingPathAfterSignIn()` in `lib/auth/post-login-redirect.ts`, unit-tested); the server-side
+   wrapper that supplies the identity flag is `lib/auth/contributor-identity.ts`, which only
+   queries when the role-based answer is the contributor default (no extra round trip for staff)
+   and reads the caller's own row only (`linked_user_id = auth.uid()`, never a client-supplied id).
+   Wired into both sign-in paths — `signInAction` and `app/auth/callback/route.ts` (email
+   confirmation / OAuth). An explicit `?next=` still wins over all of it. `/account` also shows a
+   prompt whenever the contributor identity is genuinely missing (driven by the absent row, not by
+   a one-shot query parameter, so it also catches anyone who skipped the step and came back).
+2. **Detaching an image left a dangling `![[mediaId]]` embed token — published stories then showed
+   nothing where the image was.** `save_revision_draft()` rejects content referencing media not
+   attached to the revision, but `detach_story_media()` had no counterpart on the way out: removing
+   an image deleted the `story_revision_media` row and left the token in the Markdown. The editor
+   still rendered that token (it resolves embeds by minting a private preview URL for the mediaId,
+   which is scoped to the story, not to the revision's media list), so the image looked present
+   while writing — but `get_published_story_media()` only ever returns attached, promoted media, so
+   the approved, published page rendered nothing there. Every later save of that draft also failed
+   with "references an image that is not attached to this revision". Fixed in
+   `supabase/migrations/20260815100000_detach_media_strips_embed_tokens.sql`: detaching now strips
+   that image's embed tokens (with or without a `|width` suffix) from the same revision's content in
+   the same transaction. `_authorize_revision_edit()` still gates the whole function, so an approved
+   or published revision remains unwritable (Rules 10–12). `removeMediaEmbeds()`
+   (`lib/story/markdown-media.ts`, 5 tests) plus a new `onMediaDetached` hook from
+   `ImageUploadManager` into `StoryEditForm` is the client-side half that keeps the open editor in
+   step, so the next autosave can't re-save the stale reference.
+   **Migration applied** to the linked project (`ybhydepjaantkngngvuf`) and the replacement function
+   verified in place. **Known pre-existing data**, not repaired by this change (an approved revision
+   is immutable): story `kakiman-5e00f9f4` still embeds a detached media id, and
+   `working-holiday-in-new-zealand-with-jeng-2c24729a`'s published revision still holds a
+   pre-Markdown `content_json` shape (`[{type:"paragraph",text:[…runs]}]`) — the latter is now
+   handled on read by item 3 below; the former is repaired by the author republishing (item 4).
+3. **Legacy `content_json` shapes now render instead of erroring.** `lib/story/legacy-content.ts`'s
+   `normalizeStoryContentJson()` reads a revision's stored content in ANY shape this codebase has
+   written — today's single Markdown block, the pre-20260811090000 paragraph/heading/quote/list/
+   table/image block union, and the oldest plain-string block text — and returns today's canonical
+   blocks. Conversion is on read only; no stored row is touched (an approved revision's content is
+   immutable, which is exactly why these rows still exist). The converted Markdown is passed back
+   through the real `storyContentSchema`, so a legacy document gets the same validation as anything
+   written today (no h1, no `![alt](url)`, safe hrefs only, length ceilings), and legacy run text is
+   Markdown-escaped so a literal `*`/`_`/`[` can never become markup. Replaces the direct
+   `storyContentSchema.safeParse()` call at all six read sites (public story, contributor preview,
+   moderation detail ×2, contributor edit, editorial edit). 13 tests in
+   `lib/story/legacy-content.test.ts`. **Live-verified:** `working-holiday-in-new-zealand-with-jeng-2c24729a`
+   now renders its body instead of "This story's content couldn't be rendered"; the two
+   Markdown-shape stories are unchanged.
+4. **`create_next_draft_revision()` could never copy child rows — "Edit" on any published story
+   carrying an image, location, work type, or tag failed outright.** It copied the source revision's
+   child rows and only _then_ pointed `stories.current_draft_revision_id` at the new revision, but
+   every child table carries `_protect_revision_child_immutability()`, which requires
+   `_revision_is_editable()` — which requires that pointer. **Confirmed empirically** against the
+   live project with an isolated, rolled-back probe insert reproducing the exact exception, before
+   any fix was written. Fixed in
+   `supabase/migrations/20260815110000_fix_create_next_draft_revision.sql` by setting the draft
+   pointer immediately after the new revision row is inserted and before the child copies (nothing
+   weakened: the trigger still demands an active draft-status revision, which it now genuinely is
+   from the moment it exists; the version bump still happens exactly once). The same migration
+   strips, from the new draft's copied content only, any embed token whose media was not carried
+   over — otherwise a pre-existing dangling reference would make every autosave in the new draft
+   fail with "references an image that is not attached to this revision", with the offending token
+   invisible in the editor. **Applied and live-verified**: `npm run test:rls` passes 69/69, and a
+   rolled-back probe of the real repair path on `kakiman-5e00f9f4` now returns a new draft with its
+   media copied and the dangling token stripped (story left untouched — pointer still null, version
+   still 29, one revision).
+5. **Not reproduced:** "a newly published story does not appear in the landing page's Featured
+   section." Verified live against the linked project — `list_published_stories` returns the three
+   stories published 2026-08-15 newest-first, and the newest one is the first Featured card, with
+   its custom tags and cover photo. Most likely a stale cached page (`revalidate = 60`) at the time
+   it was looked at.
+
+Last updated before that: 2026-08-12 (story editor images render inline and are drag-resizable,
+Bear.app-style; see "Inline, drag-resizable images in the story editor" below).
 
 **2026-08-06 — Rebrand + home hero redesign.** Product renamed from "WHV Compass NZ" to
 "Kakinotes" across all user-facing copy, metadata, `package.json`/`package-lock.json`, and docs

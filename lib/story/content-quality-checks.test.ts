@@ -18,7 +18,7 @@ const baseInput: QualityCheckInput = {
   tripEndDate: "2023-03-01",
   tripYear: 2023,
   hasRegion: true,
-  hasWorkType: true,
+  hasTag: true,
   media: [],
 };
 
@@ -49,15 +49,15 @@ describe("runContentQualityChecks", () => {
     expect(findings.map((f) => f.code)).toContain("unclear_dates");
   });
 
-  it("flags missing region and work type independently", () => {
+  it("flags missing region and missing tags independently", () => {
     const findings = runContentQualityChecks({
       ...baseInput,
       hasRegion: false,
-      hasWorkType: false,
+      hasTag: false,
     });
     const codes = findings.map((f) => f.code);
     expect(codes).toContain("missing_region");
-    expect(codes).toContain("unclear_work_type");
+    expect(codes).toContain("missing_tags");
   });
 
   it("flags an absolute visa/employment claim", () => {

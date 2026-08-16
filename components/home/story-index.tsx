@@ -23,15 +23,17 @@ const MAX_OPTIONS = 6;
  * reader compares real records instead of re-reading the same few stories
  * in three different shapes.
  *
- * Every column is a field the story actually carries -- place, work, trip
+ * Every column is a field the story actually carries -- place, topic, trip
  * year -- so the index reads as a record rather than marketing. Nothing is
  * derived or fabricated: a field a story lacks is simply not rendered, and
  * each axis is built only from values present in this batch, so a chip can
  * never lead to an empty result and an axis with nothing to choose between
  * hides itself entirely.
  *
- * Place, work, and topic stay separate axes on purpose -- lumping tags in
- * under "Work" would file "South Island" as a kind of job.
+ * Place and topic stay separate axes on purpose. There is no longer a "Work"
+ * axis: work types were retired as a taxonomy (2026-08-16) and the work
+ * concepts that mattered ("Horticulture", "Hospitality", ...) are now
+ * ordinary tags, so they arrive on the Topic axis.
  *
  * Filtering is client-side state over an already-fetched batch (no round
  * trip per chip). The full, server-filtered catalogue lives at `/stories`.
@@ -63,7 +65,6 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
     }
     return [
       axis("place", "Place", (s) => regionNames(s.regions)),
-      axis("work", "Work", (s) => stringList(s.work_types)),
       axis("topic", "Topic", (s) => stringList(s.tags)),
     ].filter((a) => a.partitions);
   }, [stories]);
@@ -205,7 +206,7 @@ function IndexEntry({
   // never rendered as a placeholder dash.
   const fields = [
     firstRegionLabel(story.regions),
-    stringList(story.work_types)[0],
+    stringList(story.tags)[0],
     story.trip_year ? String(story.trip_year) : null,
   ].filter((value): value is string => Boolean(value));
 
@@ -261,7 +262,14 @@ function IndexEntry({
             <ul className="hidden font-mono text-xs text-foreground/50 md:block">
               {fields.map((field, index) => (
                 <li
-                  key={field}
+                  // Index-suffixed, not the bare value: these fields are a
+                  // region label, a tag, and a year, and nothing stops two of
+                  // them being the same string -- a story tagged "Auckland"
+                  // whose region is also Auckland duplicated the key and
+                  // tripped React's unique-key warning. Freely-typed tags
+                  // (2026-08-16) make the collision more likely, not less.
+                  // Same convention as story-card.tsx / featured-story-slide.tsx.
+                  key={`${field}-${index}`}
                   className={`truncate tabular-nums ${
                     index === 0 ? "" : "mt-1 text-foreground/40"
                   }`}

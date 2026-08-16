@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { ContributorNavLinks } from "@/components/contributor-nav-links";
 import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
 
 /**
@@ -31,7 +32,9 @@ export async function ContributorNav() {
           Kakinotes
         </Link>
 
-        <div className="ml-auto flex items-center gap-2">
+        <ContributorNavLinks className="ml-auto hidden md:flex" />
+
+        <div className="ml-auto flex items-center gap-2 md:ml-0">
           <ThemeToggle />
           <UserAvatarMenu emoji={avatarEmoji} />
         </div>

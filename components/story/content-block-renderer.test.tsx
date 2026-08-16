@@ -90,6 +90,22 @@ describe("ContentBlockRenderer", () => {
     expect(screen.getByText("still here")).toBeInTheDocument();
   });
 
+  it('renders a spinner in place of an embed whose entry is the literal "loading" state', () => {
+    const blocks = markdownToStoryContent(
+      "![[44444444-4444-4444-8444-444444444444]]",
+    );
+
+    render(
+      <ContentBlockRenderer
+        blocks={blocks}
+        media={{ "44444444-4444-4444-8444-444444444444": "loading" }}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
   it("renders bold, italic, and strikethrough as real tags", () => {
     const blocks = markdownToStoryContent("**bold** *italic* ~~struck~~");
 

@@ -69,7 +69,8 @@ lib/
     mutations.ts                # thin wrappers over every author/submit/consent/media RPC
     moderation.ts               # staff-facing reads + moderate/report RPC wrappers
     image-validation.ts, image-pipeline.ts  # magic-byte sniffing + the sharp-based pipeline (Sub-phase 2)
-    active-lookups.ts           # active-only regions/destinations/work_types/tags (Sub-phase 3)
+    active-lookups.ts           # active-only regions/destinations/tags (Sub-phase 3;
+                                #   work_types reader removed 2026-08-16, see "Taxonomy" below)
     rich-text-serialize.ts      # pure Tiptap JSON <-> canonical block/run/mark schema converters
     mutation-queue.ts           # client-side serialized, per-slot-coalescing async mutation queue
 components/
@@ -307,6 +308,20 @@ the database. Only `regions`/`destinations`/`work_types`/`tags` (no ownership, n
 sensitive columns) keep plain RLS with real grants (`active = true` readable by anyone; writes
 admin-only).
 
+### Taxonomy: tags only (2026-08-16)
+
+`tags` is the platform's single story taxonomy. `work_types` was retired: every non-fixture row is
+`active = false`, no UI reads the table, and no query the app sends passes `p_work_type_id`. Nothing
+was dropped — the table, `story_revision_work_types`, `set_revision_work_types()`, and every
+`p_work_type_id` parameter remain, because published revisions still carry work-type rows and the
+live RLS suite still exercises that RPC. The useful work concepts (Horticulture, Viticulture,
+Construction, Tourism, Retail, Farm work, ...) are now ordinary tags.
+
+A contributor may add as many tags as they like, including labels of their own, up to 20 per
+revision. `set_revision_tags()` is the enforcing boundary: it deduplicates case-insensitively, folds
+a typed label that names an existing `tags` row into a reference to that row (so contributors never
+need write access to the admin-managed lookup table), and rejects anything past the cap.
+
 Every function follows one template: `set search_path = ''` (schema-qualify everything), re-derive
 caller identity/role from the database (never trust a parameter), lock the row(s) being mutated
 (`select ... for update`), check current state (raise a specific exception on anything invalid —
@@ -508,16 +523,37 @@ admin (or once via direct SQL for the very first admin), call
 randomizing the **data** these accounts create (`rls-test-<random>-...` slugs/titles), not the
 accounts.
 
-**Cleanup is honest, not automatic**: `scripts/rls-test-cleanup.sql` (run via
-`npm run test:rls:cleanup`, which reuses the exact same fail-closed guard) deletes, in the
-dependency order the domain's `on delete restrict` foreign keys require, every row belonging to a
-story whose slug matches `rls-test-%`. A commented-out full-truncate fallback exists for a dev
-project that's drifted beyond scoped cleanup, gated by a second explicit env var
-(`SUPABASE_RLS_TEST_CONFIRM_FULL_TRUNCATE`). Neither path touches `auth.users`/`profiles`/
-`user_roles`/`contributors` — the fixed account pool must survive every cleanup run. Disposable
-`regions`/`destinations` rows created by the destination-integrity test are **not** cleaned up
-(lookup-table growth from a handful of test runs is a trivial, accepted cost, unlike story-domain
-data). Every run otherwise leaves nothing behind once cleanup is run.
+**Cleanup runs automatically after a passing run** (changed 2026-08-16 — it was manual-only before):
+`scripts/rls-test-cleanup.sql` (run via `npm run test:rls:cleanup`, which reuses the exact same
+fail-closed guard) deletes, in the dependency order the domain's `on delete restrict` foreign keys
+require, every row belonging to a story matching EITHER of two signals: a slug matching `rls-test-%`,
+or ownership by one of the fixed `@whv-compass-test.example` test accounts. (The second signal was
+added the same day, after `/stories/new` stopped letting a caller's title reach
+`_generate_story_slug()` at creation time — see that migration's own note in the script — which broke
+the first signal for anything created through the real "New Story" page and renamed afterward, e.g.
+`e2e/cross-contributor-access.spec.ts`. Both signals only ever match disposable test data; no real
+contributor can own that email domain.) `package.json` wires that command as npm's `posttest:rls`
+hook, so a **successful** `npm run test:rls` tears itself down; a **failing** run does not (npm skips
+`post*` hooks on a non-zero exit), leaving the broken run's data in place for debugging. Running it by
+hand still works unchanged.
+
+Why it changed: the suite publishes its fixture stories, nothing removed them between runs, and
+"remember to run cleanup" did not hold — the public `/stories` listing and landing page eventually
+carried 204 `rls-test-%` stories against 12 real ones. The guard, the `rls-test-%` scoping, and the
+separately-gated full-truncate path are all unchanged, which is what makes automating it safe.
+
+A commented-out full-truncate fallback exists for a dev project that's drifted beyond scoped cleanup,
+gated by a second explicit env var (`SUPABASE_RLS_TEST_CONFIRM_FULL_TRUNCATE`). Neither path touches
+`auth.users`/`profiles`/`user_roles`/`contributors` — the fixed account pool must survive every
+cleanup run.
+
+The suite's disposable `regions`/`destinations`/`work_types`/`tags` fixtures **are** deleted by the
+scoped path (by the same `rls-test-%` slug prefix), and since 2026-08-16 they are also created with
+`active = false`, so even between runs they never reach a user-facing dropdown — every such list
+(`lib/story/active-lookups.ts`, `lib/story/public-queries.ts`) filters on `active = true`. That
+belt-and-braces matters because the earlier "lookup-table growth is a trivial, accepted cost"
+assumption turned out to be wrong: real contributors were being shown five copies of "RLS Test Tag A"
+in the story editor's tag suggestions and the public `/stories` filter.
 
 ## Local vs. hosted Supabase development
 
@@ -1057,7 +1093,7 @@ of static rendering/ISR in the App Router regardless of `export const revalidate
 page that never actually uses the session. `lib/supabase/public.ts#createPublicClient()` is a
 plain `@supabase/supabase-js` client (no cookies, `persistSession: false`) used by every function in
 `lib/story/public-queries.ts` (including new cookie-free duplicates of the lookup-table reads,
-`listPublicRegions`/`listPublicDestinations`/`listPublicWorkTypes`/`listPublicTags`, kept separate
+`listPublicRegions`/`listPublicDestinations`/`listPublicTags`, kept separate
 from `lib/story/active-lookups.ts` so the authoring UI's existing cookie-bound queries are
 untouched). This is what lets `/` and `/sitemap.xml` (revalidate 60/3600) actually build as static
 (`○`) routes. `/stories`, `/stories/[id]`, `/contributors`, `/contributors/[slug]` still render

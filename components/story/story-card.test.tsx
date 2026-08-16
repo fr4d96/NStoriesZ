@@ -15,8 +15,7 @@ const baseStory: StoryCardData = {
   contributor_slug: "mei-l",
   cover_image_path: null,
   regions: [{ region_name: "Hawke's Bay", destination_name: "Hastings" }],
-  work_types: ["Fruit picking"],
-  tags: ["Rural"],
+  tags: ["Fruit picking", "Rural"],
 };
 
 describe("StoryCard", () => {

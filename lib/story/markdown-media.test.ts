@@ -4,6 +4,7 @@ import {
   extractMediaEmbeds,
   mediaEmbedToken,
   clampEmbedWidth,
+  removeMediaEmbeds,
   MIN_EMBED_WIDTH,
   MAX_EMBED_WIDTH,
 } from "./markdown-media";
@@ -53,5 +54,35 @@ describe("mediaEmbedToken", () => {
   it("round-trips through extractMediaEmbeds", () => {
     const token = mediaEmbedToken(ID_A, 640);
     expect(extractMediaEmbeds(token)).toEqual([{ mediaId: ID_A, width: 640 }]);
+  });
+});
+
+describe("removeMediaEmbeds", () => {
+  it("removes every token for the given id, with or without a width", () => {
+    const markdown = `Before ![[${ID_A}]] middle ![[${ID_A}|320]] after`;
+    expect(removeMediaEmbeds(markdown, ID_A)).toBe("Before  middle  after");
+  });
+
+  it("leaves other images' tokens untouched", () => {
+    const markdown = `![[${ID_A}|200]]\n\n![[${ID_B}]]`;
+    const stripped = removeMediaEmbeds(markdown, ID_A);
+    expect(extractMediaIds(stripped)).toEqual([ID_B]);
+  });
+
+  it("matches regardless of the id's case", () => {
+    const markdown = `![[${ID_A.toUpperCase()}]]`;
+    expect(removeMediaEmbeds(markdown, ID_A)).toBe("");
+  });
+
+  it("collapses the blank line a removed stand-alone token leaves behind", () => {
+    const markdown = `First paragraph.\n\n![[${ID_A}|240]]\n\nSecond paragraph.`;
+    expect(removeMediaEmbeds(markdown, ID_A)).toBe(
+      "First paragraph.\n\nSecond paragraph.",
+    );
+  });
+
+  it("returns the document unchanged when the id is not embedded", () => {
+    const markdown = `Just text with ![[${ID_B}]]`;
+    expect(removeMediaEmbeds(markdown, ID_A)).toBe(markdown);
   });
 });

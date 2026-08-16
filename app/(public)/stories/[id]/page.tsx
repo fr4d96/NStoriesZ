@@ -7,7 +7,8 @@ import {
   listPublicRegions,
 } from "@/lib/story/public-queries";
 import { getPublicImageUrl } from "@/lib/story/public-image-url";
-import { imageBlockMediaIds, storyContentSchema } from "@/lib/validation/story";
+import { imageBlockMediaIds } from "@/lib/validation/story";
+import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
 import {
   ContentBlockRenderer,
   type ContentBlockMediaMap,
@@ -133,7 +134,7 @@ export default async function StoryDetailPage({
           )
           .slice(0, 3);
 
-  const parsedContent = storyContentSchema.safeParse(story.content_json);
+  const parsedContent = normalizeStoryContentJson(story.content_json);
 
   // Images placed inline (an "image" block referencing a mediaId) render
   // via ContentBlockRenderer's own media map; the trailing StoryGallery
@@ -141,7 +142,7 @@ export default async function StoryDetailPage({
   // twice (see components/story/content-block-renderer.tsx's
   // ContentBlockMediaMap comment and story-gallery.tsx's updated header).
   const inlineMediaIds = new Set(
-    parsedContent.success ? imageBlockMediaIds(parsedContent.data) : [],
+    parsedContent ? imageBlockMediaIds(parsedContent) : [],
   );
   const contentMedia: ContentBlockMediaMap = {};
   for (const m of media) {
@@ -204,15 +205,9 @@ export default async function StoryDetailPage({
         ) : null}
       </div>
 
-      {(regions.length > 0 ||
-        stringList(story.work_types).length > 0 ||
-        stringList(story.tags).length > 0) && (
+      {(regions.length > 0 || stringList(story.tags).length > 0) && (
         <div className="mt-4 flex flex-wrap gap-1.5">
-          {[
-            ...regions,
-            ...stringList(story.work_types),
-            ...stringList(story.tags),
-          ].map((label) => (
+          {[...regions, ...stringList(story.tags)].map((label) => (
             <span
               key={label}
               className="rounded-full bg-tag-background px-2 py-0.5 text-xs text-tag-foreground"
@@ -224,11 +219,8 @@ export default async function StoryDetailPage({
       )}
 
       <div className="mt-8">
-        {parsedContent.success ? (
-          <ContentBlockRenderer
-            blocks={parsedContent.data}
-            media={contentMedia}
-          />
+        {parsedContent ? (
+          <ContentBlockRenderer blocks={parsedContent} media={contentMedia} />
         ) : (
           <p className="text-destructive">
             This story&apos;s content couldn&apos;t be rendered.

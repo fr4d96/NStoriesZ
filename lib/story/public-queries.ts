@@ -18,7 +18,6 @@ export type PublishedStoriesFilter = {
   limit?: number;
   regionId?: string;
   destinationId?: string;
-  workTypeId?: string;
   tagId?: string;
   tripYear?: number;
   travelStyle?: string;
@@ -57,8 +56,8 @@ export async function getPublishedStoryMedia(storyId: string) {
 
 /**
  * Keyset-paginated. p_limit is clamped server-side regardless of what's
- * passed. Card-shaped rows include cover image path, regions, work types,
- * and tags in the same query (Prompt 5) -- no per-card follow-up query.
+ * passed. Card-shaped rows include cover image path, regions, and tags in
+ * the same query (Prompt 5) -- no per-card follow-up query.
  */
 export async function listPublishedStories(
   filter: PublishedStoriesFilter = {},
@@ -70,7 +69,9 @@ export async function listPublishedStories(
     p_limit: filter.limit,
     p_region_id: filter.regionId,
     p_destination_id: filter.destinationId,
-    p_work_type_id: filter.workTypeId,
+    // p_work_type_id is deliberately never sent: the parameter still exists
+    // on list_published_stories() (published revisions still carry work-type
+    // rows) but nothing in the product filters by it any more.
     p_tag_id: filter.tagId,
     p_trip_year: filter.tripYear,
     p_travel_style: filter.travelStyle,
@@ -140,7 +141,6 @@ export async function getPublicContributor(slug: string) {
 
 export type PublicRegion = { id: string; name: string };
 export type PublicDestination = { id: string; name: string; regionId: string };
-export type PublicWorkType = { id: string; name: string };
 export type PublicTag = { id: string; name: string };
 
 export async function listPublicRegions(): Promise<PublicRegion[]> {
@@ -169,16 +169,9 @@ export async function listPublicDestinations(): Promise<PublicDestination[]> {
   }));
 }
 
-export async function listPublicWorkTypes(): Promise<PublicWorkType[]> {
-  const supabase = createPublicClient();
-  const { data, error } = await supabase
-    .from("work_types")
-    .select("id, name")
-    .eq("active", true)
-    .order("name");
-  if (error) throw error;
-  return data ?? [];
-}
+// No listPublicWorkTypes: tags are the only taxonomy offered on the public
+// browse surface as of 2026-08-16 (every non-fixture work_types row is now
+// inactive).
 
 export async function listPublicTags(): Promise<PublicTag[]> {
   const supabase = createPublicClient();

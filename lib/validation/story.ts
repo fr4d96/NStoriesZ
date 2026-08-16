@@ -144,13 +144,31 @@ export function imageBlockMediaIds(blocks: StoryContentBlock[]): string[] {
   return extractMediaIds(storyContentText(blocks));
 }
 
-export const storyContentSchema = z.array(storyContentBlockSchema).length(1);
+// Custom message on the array-length check itself, not just the inner run
+// text's -- a genuinely empty document (content_json === '[]', the shape
+// create_self_service_draft() starts every new story with) fails THIS
+// check, not the per-run "Your story needs at least some content." one a
+// few lines up, and Zod's own default message for .length() ("Too small:
+// expected array to have >=1 items") was surfacing verbatim in the editor
+// on the very first keystroke in any other field of a still-content-less
+// New Story -- confirmed live before writing this fix, not assumed.
+export const storyContentSchema = z
+  .array(storyContentBlockSchema)
+  .length(1, "Your story needs at least some content.");
 
 // Mirrors supabase/migrations/20260803090200_story_revisions.sql's CHECK
 // constraints — duplicated deliberately for fast/friendly form errors; the
 // DB constraints (and the immutability trigger) are the non-bypassable
 // source of truth per Engineering Rule 3.
 export const travelStyles = ["budget", "midRange", "comfort"] as const;
+
+// travel_style is a loosely-typed `text` column with no DB enum/CHECK
+// (confirmed by reading supabase/migrations/20260803090200_story_revisions.sql
+// before writing this) -- travelStyles above are curated presets offered in
+// the UI, not an exhaustive allowlist. A contributor's own wording (the
+// edit form's "Other" option) is just as valid a stored value, bounded to
+// the same length as other short free-text fields on this form.
+const TRAVEL_STYLE_MAX_LENGTH = 50;
 
 export const revisionInputSchema = z
   .object({
@@ -160,7 +178,12 @@ export const revisionInputSchema = z
     tripStartDate: z.iso.date().optional().or(z.literal("")),
     tripEndDate: z.iso.date().optional().or(z.literal("")),
     tripYear: z.number().int().min(2000).max(2100).optional(),
-    travelStyle: z.enum(travelStyles).optional(),
+    travelStyle: z
+      .string()
+      .trim()
+      .max(TRAVEL_STYLE_MAX_LENGTH)
+      .optional()
+      .or(z.literal("")),
     totalExpenseNzdCents: z.number().int().min(0).optional(),
     contributorNote: z.string().trim().max(2000).optional().or(z.literal("")),
   })
@@ -188,9 +211,9 @@ export const createDraftSchema = z.object({
 
 export type CreateDraftInput = z.infer<typeof createDraftSchema>;
 
-// Locations/work types/tags — same identifiers set_revision_locations /
-// set_revision_work_types / set_revision_tags expect, validated client-side
-// before every call (Rule: validate at every trust boundary).
+// Locations/tags — same identifiers set_revision_locations /
+// set_revision_tags expect, validated client-side before every call
+// (Rule: validate at every trust boundary).
 export const revisionLocationSchema = z.object({
   regionId: z.uuid(),
   destinationId: z.uuid().nullable().optional(),
@@ -199,22 +222,42 @@ export const revisionLocationSchema = z.object({
 
 export const revisionLocationsSchema = z.array(revisionLocationSchema).max(20);
 
-// Work types/tags: each selection is either a reference to an existing
-// lookup row, or a contributor-authored "Other" value -- never both/neither
-// (mirrors the DB CHECK constraint added alongside custom_label in
+/**
+ * Per-revision tag cap, mirrored from set_revision_tags()'s own constant.
+ * Generous but not unbounded: it matches the cap already applied to
+ * locations, and 20 topical labels on one story is well past the point where
+ * tags describe a story rather than keyword-stuff it.
+ */
+export const MAX_TAGS_PER_REVISION = 20;
+
+/** Matches story_revision_tags_one_of's CHECK on custom_label length. */
+export const TAG_MAX_LENGTH = 100;
+
+// Tags — the platform's only story taxonomy as of 2026-08-16 (work types
+// are retired; see supabase/migrations/20260816100100_curate_whv_tags_retire_work_types.sql).
+// Each selection is either a reference to an existing lookup row, or a
+// contributor-authored label -- never both/neither (mirrors the DB CHECK
+// constraint added alongside custom_label in
 // supabase/migrations/20260812110000_work_type_tag_custom_labels.sql).
-export const revisionSelectionSchema = z
+export const revisionTagSchema = z
   .object({
     id: z.uuid().optional(),
-    customLabel: z.string().trim().min(1).max(100).optional(),
+    customLabel: z.string().trim().min(1).max(TAG_MAX_LENGTH).optional(),
   })
   .refine((v) => Boolean(v.id) !== Boolean(v.customLabel), {
     message: "Provide either a selection or a custom label, not both.",
   });
 
-export const revisionSelectionsSchema = z
-  .array(revisionSelectionSchema)
-  .max(20);
+// A contributor may add as many tags as they like, up to a generous cap.
+// This is the friendly client-side mirror only: set_revision_tags() applies
+// the same 20 server-side, deduplicates case-insensitively, and folds a
+// typed label naming an existing tag into a reference to it -- it, not this,
+// is the enforcing boundary (Engineering Rule 3).
+export const revisionTagsSchema = z
+  .array(revisionTagSchema)
+  .max(MAX_TAGS_PER_REVISION, {
+    message: `You can add up to ${MAX_TAGS_PER_REVISION} tags to a story.`,
+  });
 
 export const confirmationMethods = [
   "account",

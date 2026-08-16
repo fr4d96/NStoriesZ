@@ -45,8 +45,8 @@ export function WhatsPublicSummary({
           The full story title{hasExcerpt ? " and excerpt" : ""} and body text
         </li>
         <li>
-          Trip details you set: region, destination, work type, tags, trip
-          date/year, travel style, and reported cost (if you added one)
+          Trip details you set: region, destination, tags, trip date/year,
+          travel style, and reported cost (if you added one)
         </li>
         {imageCount > 0 && (
           <li>

@@ -3,6 +3,7 @@ import remarkGfm from "remark-gfm";
 import type { StoryContentBlock } from "@/lib/validation/story";
 import { storyContentText } from "@/lib/validation/story";
 import { remarkMediaEmbed } from "@/lib/story/remark-media-embed";
+import { Spinner } from "@/components/ui/spinner";
 
 /**
  * Renders the story's single Markdown block as real React elements — never
@@ -18,14 +19,17 @@ import { remarkMediaEmbed } from "@/lib/story/remark-media-embed";
  * — resolving that to an actual URL/alt text is the caller's job, since the
  * answer depends on context: a short-lived signed private-bucket URL for a
  * draft preview, or a plain public-bucket URL for a published story (see the
- * public/preview page callers). A mediaId with no entry in this map (e.g.
- * the image was detached after this content_json was saved) renders
+ * public/preview page callers). A mediaId with NO entry in this map at all
+ * (e.g. the image was detached after this content_json was saved) renders
  * nothing, never a broken-image icon or a crash — consistent with this
- * component's "never throw on bad data" posture.
+ * component's "never throw on bad data" posture. A caller that mints the
+ * URL asynchronously (PreviewContentBody) can instead set an entry to the
+ * literal `"loading"` while the mint is in flight, which renders a spinner
+ * in the image's place instead of a jarring blank gap in the text.
  */
 export type ContentBlockMediaMap = Record<
   string,
-  { url: string; altText: string | null; decorative: boolean }
+  "loading" | { url: string; altText: string | null; decorative: boolean }
 >;
 
 function MediaEmbed({
@@ -39,6 +43,26 @@ function MediaEmbed({
 }) {
   const resolved = media[mediaId];
   if (!resolved) return null;
+
+  const dimensionStyle = width
+    ? { width: `${width}px`, maxWidth: "100%" }
+    : undefined;
+  const frameClassName = width
+    ? "my-4 inline-block h-auto rounded-md object-contain"
+    : "my-4 block max-h-[32rem] w-full rounded-md object-contain";
+
+  if (resolved === "loading") {
+    return (
+      <span
+        aria-label="Loading image"
+        style={{ ...dimensionStyle, aspectRatio: width ? undefined : "16 / 9" }}
+        className={`${frameClassName} flex items-center justify-center bg-black/5 text-black/40 dark:bg-white/5 dark:text-white/40`}
+      >
+        <Spinner className="h-6 w-6" />
+      </span>
+    );
+  }
+
   // A stored width (set via the editor's drag-to-resize handle) renders at
   // that exact size, capped to the container so it's never wider than the
   // reading column on a narrow screen; no stored width falls back to the
@@ -48,12 +72,8 @@ function MediaEmbed({
     <img
       src={resolved.url}
       alt={resolved.decorative ? "" : (resolved.altText ?? "")}
-      style={width ? { width: `${width}px`, maxWidth: "100%" } : undefined}
-      className={
-        width
-          ? "my-4 block h-auto rounded-md object-contain"
-          : "my-4 block max-h-[32rem] w-full rounded-md object-contain"
-      }
+      style={dimensionStyle}
+      className={frameClassName}
     />
   );
 }

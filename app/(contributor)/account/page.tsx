@@ -51,6 +51,28 @@ export default async function AccountPage() {
         </p>
       )}
 
+      {/* A brand new account has no contributor identity yet, and the first
+          sign-in is routed straight here for that reason (see
+          lib/auth/post-login-redirect.ts). The prompt is driven by the real
+          absence of the row, not by a one-shot query parameter, so it also
+          catches anyone who skipped the step and came back later. */}
+      {!contributor && (
+        <div className="mt-6 rounded-md border border-black/15 bg-surface-muted p-4 text-sm dark:border-white/15">
+          <p className="font-medium">Set your contributor identity to start</p>
+          <p className="mt-1 text-foreground/70">
+            It&apos;s how your stories are attributed, and you need one before
+            you can publish.{" "}
+            <a
+              href="#contributor-identity"
+              className="underline underline-offset-2"
+            >
+              Set it up below
+            </a>
+            .
+          </p>
+        </div>
+      )}
+
       <section className="mt-10">
         <h2 className="font-[Georgia,'Times_New_Roman',serif] text-xl tracking-tight">
           Profile
@@ -68,7 +90,10 @@ export default async function AccountPage() {
         />
       </section>
 
-      <section className="mt-10 border-t border-border-subtle pt-10">
+      <section
+        id="contributor-identity"
+        className="mt-10 scroll-mt-24 border-t border-border-subtle pt-10"
+      >
         <h2 className="font-[Georgia,'Times_New_Roman',serif] text-xl tracking-tight">
           Contributor identity
         </h2>

@@ -10,6 +10,7 @@ import { AuthModal } from "@/components/auth/auth-modal";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { SignUpForm } from "@/components/auth/sign-up-form";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { ContributorNavLinks } from "@/components/contributor-nav-links";
 import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
 import { createClient } from "@/lib/supabase/client";
 
@@ -148,6 +149,8 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
+
+        {signedIn && <ContributorNavLinks className="hidden md:flex" />}
 
         <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle inverted={inverted} />

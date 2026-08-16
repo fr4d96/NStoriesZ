@@ -29,7 +29,6 @@ const CHECKLIST_ITEMS: {
   { key: "body_present", label: "Story body" },
   { key: "trip_date_or_year_present", label: "Trip date/year" },
   { key: "region_selected", label: "Region" },
-  { key: "work_types_selected", label: "Work types" },
   { key: "tags_selected", label: "Tags" },
   { key: "images_uploaded", label: "Images uploaded" },
   { key: "cover_selected", label: "Cover selected" },

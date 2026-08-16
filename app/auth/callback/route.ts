@@ -3,7 +3,7 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { resolveSafeReturnTo } from "@/lib/validation/safe-redirect";
 import { getCurrentUserRole } from "@/lib/auth/roles";
-import { defaultPathForRole } from "@/lib/auth/post-login-redirect";
+import { resolveSignInLandingPath } from "@/lib/auth/contributor-identity";
 
 /**
  * Handles both Supabase email-link shapes: PKCE `code` (used for OAuth and
@@ -32,7 +32,8 @@ export async function GET(request: NextRequest) {
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      const finalNext = next || defaultPathForRole(await getCurrentUserRole());
+      const finalNext =
+        next || (await resolveSignInLandingPath(await getCurrentUserRole()));
       return NextResponse.redirect(`${origin}${finalNext}`);
     }
   } else if (tokenHash && type) {
@@ -41,7 +42,8 @@ export async function GET(request: NextRequest) {
       token_hash: tokenHash,
     });
     if (!error) {
-      const finalNext = next || defaultPathForRole(await getCurrentUserRole());
+      const finalNext =
+        next || (await resolveSignInLandingPath(await getCurrentUserRole()));
       return NextResponse.redirect(`${origin}${finalNext}`);
     }
   }

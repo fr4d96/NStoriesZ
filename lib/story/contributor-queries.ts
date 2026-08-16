@@ -75,7 +75,15 @@ export async function getCurrentConsentState(storyId: string) {
   return data ?? null;
 }
 
-export type RevisionMediaItem = {
+/**
+ * The subset of a media row that PreviewGallery/PreviewContentBody actually
+ * need to mint and render a preview -- structurally shared with
+ * lib/story/moderation.ts's ModeratorMediaItem (a different RPC's row shape,
+ * same presentation fields), so those two components work unchanged for a
+ * moderator reviewing someone else's revision, not only for the owner's own
+ * preview page.
+ */
+export type PreviewableMediaItem = {
   mediaId: string;
   sortOrder: number;
   isCover: boolean;
@@ -83,6 +91,9 @@ export type RevisionMediaItem = {
   caption: string | null;
   decorative: boolean;
   processingState: string;
+};
+
+export type RevisionMediaItem = PreviewableMediaItem & {
   /** Hash of the processed derivative (Prompt 7) — used for same-story duplicate-image warnings, never a storage path. */
   sha256: string | null;
 };
@@ -151,25 +162,35 @@ export async function getStoryPreview(
   };
 }
 
+/**
+ * One tag on a revision: either a reference to a `tags` lookup row (`id`
+ * set) or a contributor-authored label (`id` null). `name` is what to show
+ * either way -- resolved server-side so a retired (inactive) lookup tag,
+ * which the edit form's own options list no longer contains, still renders
+ * with its real name.
+ */
+export type RevisionTagSelection = {
+  id: string | null;
+  name: string;
+};
+
 export type RevisionSelections = {
   locations: Array<{
     regionId: string;
     destinationId: string | null;
     sortOrder: number;
   }>;
-  workTypeIds: string[];
-  customWorkType: string;
-  tagIds: string[];
-  customTag: string;
+  tags: RevisionTagSelection[];
 };
 
 /**
- * Wraps get_revision_selections() (supabase/migrations/20260804091000_get_revision_selections.sql)
- * — the missing reader symmetric with set_revision_locations/
- * set_revision_work_types/set_revision_tags, added in this sub-phase so the
- * edit form doesn't forget the contributor's prior selections on reload.
- * Applied to the linked hosted project; types/database.ts is real generated
- * output for this RPC (npm run supabase:types:linked).
+ * Wraps get_revision_selections() (supabase/migrations/20260804091000_get_revision_selections.sql,
+ * latest revision 20260816100200_get_revision_selections_tag_names.sql)
+ * — the reader symmetric with set_revision_locations/set_revision_tags, so
+ * the edit form doesn't forget the contributor's prior selections on reload.
+ * The RPC still returns a `work_types` payload for already-recorded rows;
+ * it is deliberately ignored here, since work types are retired from every
+ * authoring surface (2026-08-16).
  */
 export async function getRevisionSelections(
   revisionId: string,
@@ -186,31 +207,22 @@ export async function getRevisionSelections(
       destinationId: string | null;
       sortOrder: number;
     }> | null) ?? [];
-  const workTypes =
-    (row?.work_types as Array<{
-      workTypeId: string | null;
-      customLabel: string | null;
-    }> | null) ?? [];
   const tags =
     (row?.tags as Array<{
       tagId: string | null;
       customLabel: string | null;
+      name: string | null;
     }> | null) ?? [];
   return {
     locations,
-    workTypeIds: workTypes
-      .map((w) => w.workTypeId)
-      .filter((id): id is string => id != null),
-    // The edit form only ever writes at most one custom entry per field —
-    // joining is just a safety net for data written some other way.
-    customWorkType: workTypes
-      .map((w) => w.customLabel)
-      .filter((label): label is string => label != null)
-      .join(", "),
-    tagIds: tags.map((t) => t.tagId).filter((id): id is string => id != null),
-    customTag: tags
-      .map((t) => t.customLabel)
-      .filter((label): label is string => label != null)
-      .join(", "),
+    tags: tags
+      .map((t) => ({
+        id: t.tagId,
+        name: t.name ?? t.customLabel ?? "",
+      }))
+      // A row with neither a resolvable name nor a label can't be shown or
+      // meaningfully re-sent; dropping it is safer than rendering a blank
+      // chip the contributor can't identify.
+      .filter((t) => t.name.length > 0),
   };
 }

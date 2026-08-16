@@ -10,7 +10,7 @@ import {
 } from "@/lib/validation/auth";
 import { resolveSafeReturnTo } from "@/lib/validation/safe-redirect";
 import { getCurrentUserRole } from "@/lib/auth/roles";
-import { defaultPathForRole } from "@/lib/auth/post-login-redirect";
+import { resolveSignInLandingPath } from "@/lib/auth/contributor-identity";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -83,15 +83,16 @@ export async function signInAction(
   }
 
   // An explicit `next` (e.g. bounced here from a protected page) always
-  // wins. Otherwise, land staff roles on their own dashboard instead of
-  // the ordinary contributor account page -- see
-  // lib/auth/post-login-redirect.ts.
+  // wins. Otherwise, land staff roles on their own dashboard, a returning
+  // contributor on My Stories, and a brand new account on the
+  // contributor-identity setup it needs before it can write anything --
+  // see lib/auth/post-login-redirect.ts.
   const rawNext = formData.get("next")?.toString();
   if (rawNext) {
     redirect(resolveSafeReturnTo(rawNext, "/account"));
   }
   const role = await getCurrentUserRole();
-  redirect(defaultPathForRole(role));
+  redirect(await resolveSignInLandingPath(role));
 }
 
 export async function signOutAction() {

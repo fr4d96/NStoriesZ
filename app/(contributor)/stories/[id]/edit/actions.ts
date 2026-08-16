@@ -5,14 +5,13 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import {
   revisionInputSchema,
   revisionLocationsSchema,
-  revisionSelectionsSchema,
+  revisionTagsSchema,
   type RevisionInput,
 } from "@/lib/validation/story";
 import { getErrorMessage } from "@/lib/errors";
 import {
   saveRevisionDraft,
   setRevisionLocations,
-  setRevisionWorkTypes,
   setRevisionTags,
   updateStoryMediaCaption,
   reorderStoryMedia,
@@ -118,29 +117,6 @@ export async function setLocationsAction(
   }
 }
 
-export async function setWorkTypesAction(
-  revisionId: string,
-  expectedVersion: number,
-  workTypes: unknown,
-): Promise<MutationResult> {
-  const authError = await requireSignedIn();
-  if (authError) return authError;
-
-  const parsed = revisionSelectionsSchema.safeParse(workTypes);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: parsed.error.issues[0]?.message ?? "Invalid work types.",
-    };
-  }
-  try {
-    await setRevisionWorkTypes(revisionId, expectedVersion, parsed.data);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: errorMessage(error) };
-  }
-}
-
 export async function setTagsAction(
   revisionId: string,
   expectedVersion: number,
@@ -149,7 +125,7 @@ export async function setTagsAction(
   const authError = await requireSignedIn();
   if (authError) return authError;
 
-  const parsed = revisionSelectionsSchema.safeParse(tags);
+  const parsed = revisionTagsSchema.safeParse(tags);
   if (!parsed.success) {
     return {
       ok: false,

@@ -4,8 +4,10 @@ import { FilterBar } from "./filter-bar";
 
 const regions = [{ id: "r1", name: "Hawke's Bay" }];
 const destinations = [{ id: "d1", name: "Hastings", regionId: "r1" }];
-const workTypes = [{ id: "w1", name: "Fruit picking" }];
-const tags = [{ id: "t1", name: "Rural" }];
+const tags = [
+  { id: "t1", name: "Fruit picking" },
+  { id: "t2", name: "Rural" },
+];
 const travelStyles = ["budget", "comfort"];
 
 describe("FilterBar", () => {
@@ -14,7 +16,6 @@ describe("FilterBar", () => {
       <FilterBar
         regions={regions}
         destinations={destinations}
-        workTypes={workTypes}
         tags={tags}
         travelStyles={travelStyles}
         current={{}}
@@ -24,7 +25,6 @@ describe("FilterBar", () => {
     expect(screen.getByLabelText(/search/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/region/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/destination/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/work type/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^tag$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/trip year/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/travel style/i)).toBeInTheDocument();
@@ -43,7 +43,6 @@ describe("FilterBar", () => {
       <FilterBar
         regions={regions}
         destinations={destinations}
-        workTypes={workTypes}
         tags={tags}
         travelStyles={travelStyles}
         current={{}}
@@ -62,7 +61,6 @@ describe("FilterBar", () => {
       <FilterBar
         regions={regions}
         destinations={destinations}
-        workTypes={workTypes}
         tags={tags}
         travelStyles={travelStyles}
         current={{ region: "r1", q: "apples" }}

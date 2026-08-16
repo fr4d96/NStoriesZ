@@ -9,11 +9,10 @@ import {
 import {
   listActiveRegions,
   listActiveDestinations,
-  listActiveWorkTypes,
   listActiveTags,
 } from "@/lib/story/active-lookups";
 import { StoryEditForm } from "@/components/story/story-edit-form";
-import { storyContentSchema } from "@/lib/validation/story";
+import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
 
 export async function generateMetadata({
   params,
@@ -62,17 +61,15 @@ export default async function EditStoryPage({
     );
   }
 
-  const [selections, preview, regions, destinations, workTypes, tags] =
-    await Promise.all([
-      getRevisionSelections(draft.revision_id),
-      getStoryPreview(id),
-      listActiveRegions(),
-      listActiveDestinations(),
-      listActiveWorkTypes(),
-      listActiveTags(),
-    ]);
+  const [selections, preview, regions, destinations, tags] = await Promise.all([
+    getRevisionSelections(draft.revision_id),
+    getStoryPreview(id),
+    listActiveRegions(),
+    listActiveDestinations(),
+    listActiveTags(),
+  ]);
 
-  const parsedContent = storyContentSchema.safeParse(draft.content_json);
+  const parsedContent = normalizeStoryContentJson(draft.content_json);
 
   return (
     <StoryEditForm
@@ -81,7 +78,7 @@ export default async function EditStoryPage({
       initialVersion={draft.version}
       initialTitle={draft.title}
       initialExcerpt={draft.excerpt ?? ""}
-      initialContentJson={parsedContent.success ? parsedContent.data : []}
+      initialContentJson={parsedContent ?? []}
       initialTripStartDate={draft.trip_start_date}
       initialTripEndDate={draft.trip_end_date}
       initialTripYear={draft.trip_year}
@@ -89,14 +86,10 @@ export default async function EditStoryPage({
       initialTotalExpenseNzdCents={draft.total_expense_nzd_cents}
       initialContributorNote={draft.contributor_note ?? ""}
       initialLocations={selections.locations}
-      initialWorkTypeIds={selections.workTypeIds}
-      initialCustomWorkType={selections.customWorkType}
-      initialTagIds={selections.tagIds}
-      initialCustomTag={selections.customTag}
+      initialTags={selections.tags}
       initialMedia={preview?.media ?? []}
       regions={regions}
       destinations={destinations}
-      workTypes={workTypes}
       tags={tags}
       isNewStory={draft.revision_number === 1}
     />

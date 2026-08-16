@@ -45,6 +45,16 @@ export type ImageUploadManagerProps = {
    * an image from the text (in the editor) is what returns it here.
    */
   inlineMediaIds: ReadonlySet<string>;
+  /**
+   * Called when an image is removed, so the open editor can strip that
+   * image's `![[mediaId]]` embed tokens from the story text to match.
+   * detach_story_media() does the same strip authoritatively in the
+   * database (see 20260815100000_detach_media_strips_embed_tokens.sql) --
+   * this keeps the editor this panel is sitting next to in step, so the
+   * next autosave doesn't try to re-save a reference the revision no
+   * longer carries.
+   */
+  onMediaDetached?: (mediaId: string) => void;
 };
 
 const PROCESSING_LABELS: Record<string, string> = {
@@ -65,6 +75,7 @@ export function ImageUploadManager({
   queue,
   onVersionBumped,
   inlineMediaIds,
+  onMediaDetached,
 }: ImageUploadManagerProps) {
   const [media, setMedia] = useState<RevisionMediaItem[]>(
     [...initialMedia].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -250,6 +261,7 @@ export function ImageUploadManager({
 
   function detach(mediaId: string) {
     setMedia((prev) => prev.filter((m) => m.mediaId !== mediaId));
+    onMediaDetached?.(mediaId);
     queue.enqueue(`media-detach:${mediaId}`, async () => {
       const result = await detachMediaAction(
         revisionId,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { defaultPathForRole } from "./post-login-redirect";
+import {
+  CONTRIBUTOR_SETUP_PATH,
+  defaultPathForRole,
+  landingPathAfterSignIn,
+} from "./post-login-redirect";
 
 describe("defaultPathForRole", () => {
   it("sends a moderator to the moderation dashboard", () => {
@@ -20,5 +24,26 @@ describe("defaultPathForRole", () => {
 
   it("falls back to My Stories for a null role", () => {
     expect(defaultPathForRole(null)).toBe("/my-stories");
+  });
+});
+
+describe("landingPathAfterSignIn", () => {
+  it("sends a brand new account (no contributor identity yet) to set one up", () => {
+    expect(landingPathAfterSignIn("user", false)).toBe(CONTRIBUTOR_SETUP_PATH);
+    expect(landingPathAfterSignIn(null, false)).toBe(CONTRIBUTOR_SETUP_PATH);
+  });
+
+  it("sends a returning contributor to My Stories", () => {
+    expect(landingPathAfterSignIn("user", true)).toBe("/my-stories");
+  });
+
+  it("never diverts a staff role, with or without a contributor identity", () => {
+    for (const hasIdentity of [true, false]) {
+      expect(landingPathAfterSignIn("moderator", hasIdentity)).toBe(
+        "/moderation",
+      );
+      expect(landingPathAfterSignIn("admin", hasIdentity)).toBe("/moderation");
+      expect(landingPathAfterSignIn("editor", hasIdentity)).toBe("/editorial");
+    }
   });
 });

@@ -34,6 +34,20 @@ vi.mock("@/lib/auth/roles", () => ({
   getCurrentUserRole: () => mockGetCurrentUserRole(),
 }));
 
+// The real resolveSignInLandingPath() is server-only (it reads the caller's
+// own contributors row); its own decision is unit-tested purely in
+// lib/auth/post-login-redirect.test.ts. Here it is mocked so these tests
+// stay about signInAction's own routing rules.
+const mockHasContributorIdentity = vi.fn();
+vi.mock("@/lib/auth/contributor-identity", async () => {
+  const { landingPathAfterSignIn } =
+    await import("@/lib/auth/post-login-redirect");
+  return {
+    resolveSignInLandingPath: async (role: "user" | null) =>
+      landingPathAfterSignIn(role, await mockHasContributorIdentity()),
+  };
+});
+
 import {
   signUpAction,
   signInAction,
@@ -59,6 +73,7 @@ beforeEach(() => {
   mockGetUser.mockReset();
   mockUpdateUser.mockReset();
   mockGetCurrentUserRole.mockReset().mockResolvedValue(null);
+  mockHasContributorIdentity.mockReset().mockResolvedValue(true);
 });
 
 describe("signUpAction", () => {
@@ -156,6 +171,18 @@ describe("signInAction", () => {
         formData({ email: "a@example.com", password: "password123" }),
       ),
     ).rejects.toThrow("REDIRECT:/my-stories");
+  });
+
+  it("with no explicit next, sends a brand new account to set up its contributor identity", async () => {
+    mockGetCurrentUserRole.mockResolvedValue("user");
+    mockHasContributorIdentity.mockResolvedValue(false);
+
+    await expect(
+      signInAction(
+        {},
+        formData({ email: "a@example.com", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/account#contributor-identity");
   });
 
   it("with no explicit next, sends a moderator to their own dashboard, not /account", async () => {

@@ -6,8 +6,11 @@ import {
   revisionInputSchema,
   travelStyles,
   imageBlockMediaIds,
+  markdownToStoryContent,
+  storyContentText,
   type StoryContentBlock,
 } from "@/lib/validation/story";
+import { removeMediaEmbeds } from "@/lib/story/markdown-media";
 import {
   StoryContentEditor,
   type StoryContentEditorHandle,
@@ -21,19 +24,21 @@ import {
 import { MutationQueue } from "@/lib/story/mutation-queue";
 import { getErrorMessage } from "@/lib/errors";
 import { useToast } from "@/components/ui/toast";
-import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
+import type {
+  RevisionMediaItem,
+  RevisionTagSelection,
+} from "@/lib/story/contributor-queries";
 import type {
   ActiveRegion,
   ActiveDestination,
-  ActiveWorkType,
   ActiveTag,
 } from "@/lib/story/active-lookups";
 import {
   saveRevisionFieldsAction,
   setLocationsAction,
-  setWorkTypesAction,
   setTagsAction,
 } from "@/app/(contributor)/stories/[id]/edit/actions";
+import { TagEditor } from "@/components/story/tag-editor";
 
 export type StoryEditFormProps = {
   storyId: string;
@@ -53,14 +58,11 @@ export type StoryEditFormProps = {
     destinationId: string | null;
     sortOrder: number;
   }>;
-  initialWorkTypeIds: string[];
-  initialCustomWorkType: string;
-  initialTagIds: string[];
-  initialCustomTag: string;
+  initialTags: RevisionTagSelection[];
   initialMedia: RevisionMediaItem[];
   regions: ActiveRegion[];
   destinations: ActiveDestination[];
-  workTypes: ActiveWorkType[];
+  /** Suggestions only -- a contributor may add any label they like. */
   tags: ActiveTag[];
   /**
    * Editorial-only addition (Prompt 4 Sub-phase 4): shows the paste/convert
@@ -93,6 +95,23 @@ function formatCamelCaseLabel(value: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/**
+ * Visual + a11y marker for a required field label -- title, story content,
+ * locations, and tags (see the preview page's `missingRequirements` gate,
+ * which is where these are actually enforced; this form never blocks
+ * autosave itself on them, since a contributor fills them in incrementally).
+ * `aria-hidden` on the glyph plus a visually-hidden "required" is the usual
+ * pattern -- a screen reader shouldn't read a bare "asterisk".
+ */
+function RequiredMark() {
+  return (
+    <span className="text-red-600 dark:text-red-400">
+      <span aria-hidden="true"> *</span>
+      <span className="sr-only"> required</span>
+    </span>
+  );
+}
+
 export function StoryEditForm({
   storyId,
   revisionId,
@@ -107,14 +126,10 @@ export function StoryEditForm({
   initialTotalExpenseNzdCents,
   initialContributorNote,
   initialLocations,
-  initialWorkTypeIds,
-  initialCustomWorkType,
-  initialTagIds,
-  initialCustomTag,
+  initialTags,
   initialMedia,
   regions,
   destinations,
-  workTypes,
   tags,
   showContentImport,
   isNewStory = false,
@@ -167,6 +182,19 @@ export function StoryEditForm({
     initialTripYear ? String(initialTripYear) : "",
   );
   const [travelStyle, setTravelStyle] = useState(initialTravelStyle ?? "");
+  // travel_style is a loosely-typed `text` column (no DB enum/CHECK --
+  // confirmed by reading supabase/migrations/20260803090200_story_revisions.sql
+  // before relying on it), so a contributor's own wording is just as valid
+  // a value as the three curated presets -- "other" here is a UI-only mode,
+  // never itself a stored value. Detects an existing custom value on load
+  // (e.g. from an earlier session) so re-opening the form doesn't silently
+  // drop it into "Not specified".
+  const [travelStyleMode, setTravelStyleMode] = useState<"preset" | "other">(
+    initialTravelStyle &&
+      !(travelStyles as readonly string[]).includes(initialTravelStyle)
+      ? "other"
+      : "preset",
+  );
   const [expenseDollars, setExpenseDollars] = useState(
     initialTotalExpenseNzdCents != null
       ? String(initialTotalExpenseNzdCents / 100)
@@ -179,16 +207,8 @@ export function StoryEditForm({
   const [locationSearchNotice, setLocationSearchNotice] = useState<
     string | null
   >(null);
-  const [workTypeIds, setWorkTypeIds] = useState<string[]>(initialWorkTypeIds);
-  const [customWorkType, setCustomWorkType] = useState(initialCustomWorkType);
-  const [otherWorkTypeEnabled, setOtherWorkTypeEnabled] = useState(
-    initialCustomWorkType !== "",
-  );
-  const [tagIds, setTagIds] = useState<string[]>(initialTagIds);
-  const [customTag, setCustomTag] = useState(initialCustomTag);
-  const [otherTagEnabled, setOtherTagEnabled] = useState(
-    initialCustomTag !== "",
-  );
+  const [selectedTags, setSelectedTags] =
+    useState<RevisionTagSelection[]>(initialTags);
 
   const debounceHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Synchronous ref, not just React state -- checked from inside the
@@ -389,39 +409,49 @@ export function StoryEditForm({
     }
   }
 
-  function buildSelections(ids: string[], customLabel: string) {
-    const selections: Array<{ id?: string; customLabel?: string }> = ids.map(
-      (id) => ({ id }),
-    );
-    const trimmed = customLabel.trim();
-    if (trimmed) selections.push({ customLabel: trimmed });
-    return selections;
+  /**
+   * An image was removed in the image panel: strip its embed tokens from the
+   * story text too, so the editor stops showing an image the revision no
+   * longer carries (the editor resolves embeds by mediaId through a private
+   * preview URL, so an orphaned token keeps rendering there long after the
+   * published page would show nothing at all). The database performs the
+   * same strip authoritatively inside detach_story_media(); this is what
+   * keeps THIS tab's in-memory content from re-saving the stale reference on
+   * the next autosave -- which save_revision_draft would now reject.
+   *
+   * No save is scheduled: the detach mutation itself is what persists the
+   * removal, and scheduling a content save here would race it on the same
+   * version.
+   */
+  function handleMediaDetached(mediaId: string) {
+    const text = storyContentText(content);
+    const stripped = removeMediaEmbeds(text, mediaId);
+    if (stripped === text) return;
+    const next = markdownToStoryContent(stripped);
+    setContent(next);
+    // The editor is uncontrolled (see story-content-editor.tsx) -- without
+    // this imperative resync the visible document would keep the token and
+    // the next keystroke would put it straight back into the snapshot.
+    richTextEditorRef.current?.replaceContent(next);
   }
 
-  function saveWorkTypes(ids: string[], customLabel: string) {
-    setSaving(true);
-    queue.enqueue("workTypes", async () => {
-      const result = await setWorkTypesAction(
-        revisionId,
-        versionRef.current,
-        buildSelections(ids, customLabel),
-      );
-      if (result.ok) {
-        versionRef.current += 1;
-        bumpVersion();
-      } else {
-        throw new Error(result.error);
-      }
-    });
-  }
-
-  function saveTags(ids: string[], customLabel: string) {
+  /**
+   * Adding or removing a tag is a discrete action, not typing, so each one
+   * saves immediately on the queue's own "tags" slot (the queue coalesces a
+   * burst of them rather than racing). A tag the contributor typed that
+   * names an existing lookup row is sent as a reference to that row -- and
+   * set_revision_tags() re-does that resolution, the deduplication, and the
+   * 20-tag cap server-side regardless of what this client sends.
+   */
+  function saveTags(next: RevisionTagSelection[]) {
     setSaving(true);
     queue.enqueue("tags", async () => {
       const result = await setTagsAction(
         revisionId,
         versionRef.current,
-        buildSelections(ids, customLabel),
+        next.map((tag) =>
+          tag.id ? { id: tag.id } : { customLabel: tag.name },
+        ),
       );
       if (result.ok) {
         versionRef.current += 1;
@@ -432,55 +462,9 @@ export function StoryEditForm({
     });
   }
 
-  function toggleWorkType(id: string) {
-    const next = workTypeIds.includes(id)
-      ? workTypeIds.filter((w) => w !== id)
-      : [...workTypeIds, id];
-    setWorkTypeIds(next);
-    saveWorkTypes(next, customWorkType);
-  }
-
-  function toggleTag(id: string) {
-    const next = tagIds.includes(id)
-      ? tagIds.filter((t) => t !== id)
-      : [...tagIds, id];
-    setTagIds(next);
-    saveTags(next, customTag);
-  }
-
-  const customWorkTypeDebounce = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  function onCustomWorkTypeChange(value: string) {
-    setCustomWorkType(value);
-    if (customWorkTypeDebounce.current)
-      clearTimeout(customWorkTypeDebounce.current);
-    setSaving(true);
-    customWorkTypeDebounce.current = setTimeout(() => {
-      saveWorkTypes(workTypeIds, value);
-    }, FIELDS_SAVE_DEBOUNCE_MS);
-  }
-
-  function toggleOtherWorkType() {
-    const next = !otherWorkTypeEnabled;
-    setOtherWorkTypeEnabled(next);
-    if (!next) onCustomWorkTypeChange("");
-  }
-
-  const customTagDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function onCustomTagChange(value: string) {
-    setCustomTag(value);
-    if (customTagDebounce.current) clearTimeout(customTagDebounce.current);
-    setSaving(true);
-    customTagDebounce.current = setTimeout(() => {
-      saveTags(tagIds, value);
-    }, FIELDS_SAVE_DEBOUNCE_MS);
-  }
-
-  function toggleOtherTag() {
-    const next = !otherTagEnabled;
-    setOtherTagEnabled(next);
-    if (!next) onCustomTagChange("");
+  function changeTags(next: RevisionTagSelection[]) {
+    setSelectedTags(next);
+    saveTags(next);
   }
 
   function addLocation() {
@@ -570,7 +554,7 @@ export function StoryEditForm({
           </span>
           <Link
             href={`/stories/${storyId}/preview`}
-            className="rounded-md border border-black/15 px-3 py-1.5 font-medium hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+            className="journiq-button bg-accent text-sm text-accent-foreground"
           >
             Preview
           </Link>
@@ -604,6 +588,7 @@ export function StoryEditForm({
         <div>
           <label htmlFor="edit-title" className="block text-sm font-medium">
             Title
+            <RequiredMark />
           </label>
           <input
             id="edit-title"
@@ -643,7 +628,10 @@ export function StoryEditForm({
         )}
 
         <div>
-          <span className="block text-sm font-medium">Story</span>
+          <span className="block text-sm font-medium">
+            Story
+            <RequiredMark />
+          </span>
           <div className="mt-1">
             <StoryContentEditor
               ref={richTextEditorRef}
@@ -742,10 +730,20 @@ export function StoryEditForm({
           </label>
           <select
             id="edit-travel-style"
-            value={travelStyle}
+            value={travelStyleMode === "other" ? "other" : travelStyle}
             onChange={(e) => {
-              setTravelStyle(e.target.value);
-              scheduleSave({ travelStyle: e.target.value });
+              const value = e.target.value;
+              if (value === "other") {
+                // Switching mode alone doesn't save -- nothing changes on
+                // the server until real text is typed below, so toggling
+                // to "Other" and back to a preset without typing anything
+                // is a no-op, not a save of an empty string.
+                setTravelStyleMode("other");
+                return;
+              }
+              setTravelStyleMode("preset");
+              setTravelStyle(value);
+              scheduleSave({ travelStyle: value });
             }}
             className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
           >
@@ -755,7 +753,22 @@ export function StoryEditForm({
                 {formatCamelCaseLabel(style)}
               </option>
             ))}
+            <option value="other">Other (type your own)</option>
           </select>
+          {travelStyleMode === "other" && (
+            <input
+              type="text"
+              value={travelStyle}
+              maxLength={50}
+              placeholder="Describe your travel style"
+              onChange={(e) => {
+                setTravelStyle(e.target.value);
+                scheduleSave({ travelStyle: e.target.value });
+              }}
+              className="mt-2 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+              aria-label="Other travel style (type your own)"
+            />
+          )}
         </div>
 
         <div>
@@ -777,7 +790,10 @@ export function StoryEditForm({
         </div>
 
         <fieldset>
-          <legend className="text-sm font-medium">Locations</legend>
+          <legend className="text-sm font-medium">
+            Locations
+            <RequiredMark />
+          </legend>
           <div className="mt-1">
             <LocationSearch
               regions={regions}
@@ -842,92 +858,36 @@ export function StoryEditForm({
           </div>
         </fieldset>
 
-        <fieldset>
-          <legend className="text-sm font-medium">Work types</legend>
-          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            {workTypes.map((wt) => (
-              <label key={wt.id} className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={workTypeIds.includes(wt.id)}
-                  onChange={() => toggleWorkType(wt.id)}
-                />
-                {wt.name}
-              </label>
-            ))}
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={otherWorkTypeEnabled}
-                onChange={toggleOtherWorkType}
-              />
-              Other (type your own)
-            </label>
-            {otherWorkTypeEnabled && (
-              <input
-                type="text"
-                value={customWorkType}
-                maxLength={100}
-                placeholder="Describe your work type"
-                onChange={(e) => onCustomWorkTypeChange(e.target.value)}
-                className="rounded-md border border-black/15 px-2 py-1.5 text-sm dark:border-white/15 dark:bg-transparent"
-                aria-label="Other work type (type your own)"
-              />
-            )}
-          </div>
-        </fieldset>
+        <TagEditor
+          selected={selectedTags}
+          suggestions={tags}
+          onChange={changeTags}
+        />
 
-        <fieldset>
-          <legend className="text-sm font-medium">Tags</legend>
-          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            {tags.map((tag) => (
-              <label key={tag.id} className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={tagIds.includes(tag.id)}
-                  onChange={() => toggleTag(tag.id)}
-                />
-                {tag.name}
-              </label>
-            ))}
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={otherTagEnabled}
-                onChange={toggleOtherTag}
-              />
-              Other (type your own)
+        <details className="rounded-md border border-black/10 dark:border-white/10">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+            Note to editors{" "}
+            <span className="font-normal text-black/50 dark:text-white/50">
+              (optional, private, never published)
+            </span>
+          </summary>
+          <div className="border-t border-black/10 p-3 dark:border-white/10">
+            <label htmlFor="edit-note" className="sr-only">
+              Note to editors
             </label>
-            {otherTagEnabled && (
-              <input
-                type="text"
-                value={customTag}
-                maxLength={100}
-                placeholder="Add a tag"
-                onChange={(e) => onCustomTagChange(e.target.value)}
-                className="rounded-md border border-black/15 px-2 py-1.5 text-sm dark:border-white/15 dark:bg-transparent"
-                aria-label="Other tag (type your own)"
-              />
-            )}
+            <textarea
+              id="edit-note"
+              value={contributorNote}
+              maxLength={2000}
+              rows={3}
+              onChange={(e) => {
+                setContributorNote(e.target.value);
+                scheduleSave({ contributorNote: e.target.value });
+              }}
+              className="w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+            />
           </div>
-        </fieldset>
-
-        <div>
-          <label htmlFor="edit-note" className="block text-sm font-medium">
-            Note to editors (private, never published)
-          </label>
-          <textarea
-            id="edit-note"
-            value={contributorNote}
-            maxLength={2000}
-            rows={3}
-            onChange={(e) => {
-              setContributorNote(e.target.value);
-              scheduleSave({ contributorNote: e.target.value });
-            }}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
-          />
-        </div>
+        </details>
 
         <details className="rounded-md border border-black/10 dark:border-white/10">
           <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
@@ -942,6 +902,7 @@ export function StoryEditForm({
               queue={queue}
               onVersionBumped={bumpVersion}
               inlineMediaIds={inlineMediaIds}
+              onMediaDetached={handleMediaDetached}
             />
           </div>
         </details>
@@ -949,7 +910,7 @@ export function StoryEditForm({
         <div className="flex justify-end border-t border-black/10 pt-6 dark:border-white/10">
           <Link
             href={`/stories/${storyId}/preview`}
-            className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+            className="journiq-button bg-accent text-sm text-accent-foreground"
           >
             Preview
           </Link>

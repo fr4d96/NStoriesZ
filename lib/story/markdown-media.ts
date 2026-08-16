@@ -45,6 +45,34 @@ export function clampEmbedWidth(width: number): number {
   );
 }
 
+/**
+ * Removes every embed token for one mediaId (with or without a `|width`
+ * suffix) from a Markdown document.
+ *
+ * Used when an image is detached from a revision: the embed token must go
+ * with it, or the content would keep pointing at an image the revision no
+ * longer carries -- which renders as nothing at all on the published page,
+ * while still looking fine in the editor (the editor resolves an embed by
+ * mediaId through the private-preview signed URL, not through the
+ * revision's media list). The database enforces the same clean-up
+ * authoritatively inside detach_story_media(); this is the client-side half
+ * that keeps the open editor in step. A token that was alone on its line
+ * leaves that line empty, so the emptied line is collapsed rather than left
+ * as a stray blank.
+ */
+export function removeMediaEmbeds(markdown: string, mediaId: string): string {
+  const escapedId = mediaId.toLowerCase().replace(/[^0-9a-f-]/g, "");
+  if (!escapedId) return markdown;
+  const tokenPattern = new RegExp(
+    `!\\[\\[${escapedId}(?:\\|\\d{2,4})?\\]\\]`,
+    "gi",
+  );
+  return markdown
+    .replace(tokenPattern, "")
+    .replace(/^[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 export function mediaEmbedToken(mediaId: string, width?: number): string {
   return width
     ? `![[${mediaId}|${clampEmbedWidth(width)}]]`

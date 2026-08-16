@@ -9,6 +9,9 @@ import {
   revisionInputSchema,
   submitRevisionSchema,
   createReportSchema,
+  revisionTagsSchema,
+  MAX_TAGS_PER_REVISION,
+  TAG_MAX_LENGTH,
 } from "./story";
 
 describe("isSafeHref", () => {
@@ -290,6 +293,50 @@ describe("createReportSchema", () => {
       storyId: "11111111-1111-4111-8111-111111111111",
       category: "not-a-real-category",
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("revisionTagsSchema", () => {
+  const ref = { id: "11111111-1111-4111-8111-111111111111" };
+
+  it("accepts a mix of lookup references and contributor-authored labels", () => {
+    const result = revisionTagsSchema.safeParse([
+      ref,
+      { customLabel: "Ferry to Picton" },
+    ]);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a full cap's worth of tags", () => {
+    const result = revisionTagsSchema.safeParse(
+      Array.from({ length: MAX_TAGS_PER_REVISION }, (_, i) => ({
+        customLabel: `Tag ${i}`,
+      })),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects more than the cap (set_revision_tags enforces the same 20)", () => {
+    const result = revisionTagsSchema.safeParse(
+      Array.from({ length: MAX_TAGS_PER_REVISION + 1 }, (_, i) => ({
+        customLabel: `Tag ${i}`,
+      })),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a selection that is both a reference and a label, or neither", () => {
+    expect(
+      revisionTagsSchema.safeParse([{ ...ref, customLabel: "Both" }]).success,
+    ).toBe(false);
+    expect(revisionTagsSchema.safeParse([{}]).success).toBe(false);
+  });
+
+  it("rejects a label longer than the stored column allows", () => {
+    const result = revisionTagsSchema.safeParse([
+      { customLabel: "x".repeat(TAG_MAX_LENGTH + 1) },
+    ]);
     expect(result.success).toBe(false);
   });
 });

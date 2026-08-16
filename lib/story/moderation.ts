@@ -218,7 +218,6 @@ export type ModerationQueueParams = {
   status?: "submitted" | "recently_reviewed";
   sourceKind?: string;
   regionId?: string;
-  workTypeId?: string;
   consentMethod?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -251,7 +250,8 @@ export async function getModerationQueue(
     p_status: params.status,
     p_source_kind: params.sourceKind,
     p_region_id: params.regionId,
-    p_work_type_id: params.workTypeId,
+    // p_work_type_id still exists on the RPC but is never sent: the queue's
+    // work-type filter was removed when work types were retired (2026-08-16).
     p_consent_method: params.consentMethod,
     p_date_from: params.dateFrom,
     p_date_to: params.dateTo,

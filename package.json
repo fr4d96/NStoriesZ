@@ -24,6 +24,7 @@
     "supabase:types": "supabase gen types typescript --local --schema public > types/database.ts.tmp && mv types/database.ts.tmp types/database.ts",
     "supabase:types:linked": "supabase gen types typescript --linked --schema public > types/database.ts.tmp && mv types/database.ts.tmp types/database.ts",
     "test:rls": "node --env-file=.env.test.local node_modules/.bin/vitest run --config vitest.rls.config.ts",
+    "posttest:rls": "npm run test:rls:cleanup",
     "test:rls:cleanup": "node --env-file=.env.test.local scripts/run-rls-cleanup.mjs",
     "media:cleanup:pending": "node --env-file=.env.maintenance.local scripts/cleanup-abandoned-media-uploads.mjs",
     "e2e:cleanup:editorial-fixtures": "node --env-file=.env.maintenance.local scripts/cleanup-editorial-e2e-fixtures.mjs"

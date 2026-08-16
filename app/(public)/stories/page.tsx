@@ -5,7 +5,6 @@ import {
   listDistinctPublicTravelStyles,
   listPublicRegions,
   listPublicDestinations,
-  listPublicWorkTypes,
   listPublicTags,
 } from "@/lib/story/public-queries";
 import { parseStorySearchParams } from "@/lib/validation/discovery";
@@ -17,7 +16,7 @@ export const revalidate = 60;
 export const metadata: Metadata = {
   title: "Stories",
   description:
-    "Browse real, first-person Working Holiday Visa stories from New Zealand, filterable by region, work type, trip year, travel style, and reported cost.",
+    "Browse real, first-person Working Holiday Visa stories from New Zealand, filterable by region, tag, trip year, travel style, and reported cost.",
 };
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -30,14 +29,12 @@ export default async function StoriesPage({
   const rawParams = await searchParams;
   const filters = parseStorySearchParams(rawParams);
 
-  const [regions, destinations, workTypes, tags, travelStyles] =
-    await Promise.all([
-      listPublicRegions(),
-      listPublicDestinations(),
-      listPublicWorkTypes(),
-      listPublicTags(),
-      listDistinctPublicTravelStyles(),
-    ]);
+  const [regions, destinations, tags, travelStyles] = await Promise.all([
+    listPublicRegions(),
+    listPublicDestinations(),
+    listPublicTags(),
+    listDistinctPublicTravelStyles(),
+  ]);
 
   let stories: Awaited<ReturnType<typeof listPublishedStories>> = [];
   let loadError = false;
@@ -45,7 +42,6 @@ export default async function StoriesPage({
     stories = await listPublishedStories({
       regionId: filters.region,
       destinationId: filters.destination,
-      workTypeId: filters.workType,
       tagId: filters.tag,
       tripYear: filters.tripYear,
       travelStyle: filters.travelStyle,
@@ -85,7 +81,7 @@ export default async function StoriesPage({
         </h1>
         <p className="mt-3 text-foreground/70">
           Real Working Holiday accounts from people who&apos;ve done it — filter
-          by region, work, trip year, travel style, or reported cost to find one
+          by region, tag, trip year, travel style, or reported cost to find one
           like yours.
         </p>
       </div>
@@ -98,7 +94,6 @@ export default async function StoriesPage({
             name: d.name,
             regionId: d.regionId,
           }))}
-          workTypes={workTypes}
           tags={tags}
           travelStyles={travelStyles}
           current={filters}

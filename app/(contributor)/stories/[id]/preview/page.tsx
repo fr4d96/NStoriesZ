@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStoryPreview } from "@/lib/story/contributor-queries";
-import { imageBlockMediaIds, storyContentSchema } from "@/lib/validation/story";
+import {
+  getStoryPreview,
+  getRevisionSelections,
+} from "@/lib/story/contributor-queries";
+import { imageBlockMediaIds, storyContentText } from "@/lib/validation/story";
+import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
 import { PreviewContentBody } from "@/components/story/preview-content-body";
 import { PreviewGallery } from "@/components/story/preview-gallery";
 import { SubmitConsentPanel } from "@/components/story/submit-consent-panel";
@@ -37,13 +41,13 @@ export default async function StoryPreviewPage({
   }
   if (!preview) notFound();
 
-  const parsedContent = storyContentSchema.safeParse(preview.contentJson);
+  const parsedContent = normalizeStoryContentJson(preview.contentJson);
 
   // Same "don't show an inline-placed image twice" rule as the public page
   // (app/(public)/stories/[id]/page.tsx) -- see
   // components/story/story-gallery.tsx's header comment.
   const inlineMediaIds = new Set(
-    parsedContent.success ? imageBlockMediaIds(parsedContent.data) : [],
+    parsedContent ? imageBlockMediaIds(parsedContent) : [],
   );
   const galleryMedia = preview.media.filter(
     (m) => !inlineMediaIds.has(m.mediaId),
@@ -83,6 +87,35 @@ export default async function StoryPreviewPage({
     preview.revisionStatus === "draft" &&
     (preview.lifecycleStatus === "draft" ||
       preview.lifecycleStatus === "published");
+
+  // Required-before-submit gate: Title/Story content already have their own
+  // stricter server-side enforcement (revisionInputSchema rejects an empty
+  // title or content on every save), but this is the one place a story
+  // could still legitimately reach with an empty title/content -- right
+  // after /stories/new creates the shell (content_json defaults to `[]`,
+  // which normalizeStoryContentJson() correctly refuses to treat as real
+  // content) and before the contributor has written anything yet. Location
+  // and tags have no such save-time enforcement at all -- set_locations/
+  // set_tags accept an empty selection, by design, since a contributor adds
+  // them incrementally. This is deliberately a UI-only gate (SubmitConsentPanel
+  // stays hidden, the RPC itself is untouched) rather than a new DB
+  // constraint: `submit_revision_with_consent()` is exercised by
+  // tests/integration/story-rls.integration.test.ts's `publishOwnerStory()`
+  // helper across dozens of fixtures that never call set_revision_locations/
+  // set_revision_tags, so a hard requirement there would break test:rls, not
+  // just this form.
+  const selections = canSubmitOwnConsent
+    ? await getRevisionSelections(preview.revisionId)
+    : null;
+  const missingRequirements = canSubmitOwnConsent
+    ? [
+        !preview.title.trim() && "a title",
+        !(parsedContent && storyContentText(parsedContent).trim()) &&
+          "your story",
+        !selections?.locations.length && "at least one location",
+        !selections?.tags.length && "at least one tag",
+      ].filter((v): v is string => Boolean(v))
+    : [];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
@@ -130,11 +163,8 @@ export default async function StoryPreviewPage({
       )}
 
       <div className="mt-8">
-        {parsedContent.success ? (
-          <PreviewContentBody
-            blocks={parsedContent.data}
-            media={preview.media}
-          />
+        {parsedContent ? (
+          <PreviewContentBody blocks={parsedContent} media={preview.media} />
         ) : (
           <p className="text-red-600 dark:text-red-400">
             This draft&apos;s content couldn&apos;t be rendered.
@@ -171,18 +201,37 @@ export default async function StoryPreviewPage({
 
       <StickyVisible show={canSubmitOwnConsent}>
         <div className="mt-8">
-          <SubmitConsentPanel
-            storyId={preview.storyId}
-            revisionId={preview.revisionId}
-            expectedVersion={preview.version}
-            hasMedia={preview.media.length > 0}
-            isEditorialImport={preview.sourceKind === "editorial_import"}
-            submitLabel={
-              preview.lifecycleStatus === "published"
-                ? "Submit correction for review"
-                : "Submit for review"
-            }
-          />
+          {missingRequirements.length > 0 ? (
+            <div
+              role="status"
+              className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+            >
+              <p className="font-medium">
+                Add {missingRequirements.join(", ")} before you can submit.
+              </p>
+              {canEdit && (
+                <Link
+                  href={`/stories/${preview.storyId}/edit`}
+                  className="mt-1 inline-block underline underline-offset-2"
+                >
+                  Back to editing
+                </Link>
+              )}
+            </div>
+          ) : (
+            <SubmitConsentPanel
+              storyId={preview.storyId}
+              revisionId={preview.revisionId}
+              expectedVersion={preview.version}
+              hasMedia={preview.media.length > 0}
+              isEditorialImport={preview.sourceKind === "editorial_import"}
+              submitLabel={
+                preview.lifecycleStatus === "published"
+                  ? "Submit correction for review"
+                  : "Submit for review"
+              }
+            />
+          )}
         </div>
       </StickyVisible>
     </div>

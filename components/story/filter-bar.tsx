@@ -28,14 +28,12 @@ const costBandLabels: Record<(typeof costBands)[number], string> = {
 export function FilterBar({
   regions,
   destinations,
-  workTypes,
   tags,
   travelStyles,
   current,
 }: {
   regions: Option[];
   destinations: DestinationOption[];
-  workTypes: Option[];
   tags: Option[];
   travelStyles: string[];
   current: StorySearchFilters;
@@ -77,22 +75,6 @@ export function FilterBar({
           {visibleDestinations.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium">Work type</span>
-        <select
-          name="workType"
-          defaultValue={current.workType ?? ""}
-          className="rounded-md border border-border-subtle bg-surface px-3 py-2"
-        >
-          <option value="">Any work type</option>
-          {workTypes.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
             </option>
           ))}
         </select>

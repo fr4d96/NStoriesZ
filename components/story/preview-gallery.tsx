@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
+import type { PreviewableMediaItem } from "@/lib/story/contributor-queries";
 import { mintPreviewUrlAction } from "@/app/(contributor)/stories/[id]/media-actions";
+import { Spinner } from "@/components/ui/spinner";
 
 /**
  * Mints a short-lived signed URL per image, client-side, only after the
  * corresponding Server Action has independently re-checked
  * authorize_story_media_preview() — see media-actions.ts. Nothing here
  * ever receives a raw storage path; the props are exactly what
- * get_story_preview() returns (media_id + presentation fields only).
+ * get_story_preview() (or, for a moderator, get_story_for_moderator's own
+ * path-free media list — see PreviewableMediaItem) returns: media_id +
+ * presentation fields only.
  */
-export function PreviewGallery({ media }: { media: RevisionMediaItem[] }) {
+export function PreviewGallery({ media }: { media: PreviewableMediaItem[] }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -56,9 +59,16 @@ export function PreviewGallery({ media }: { media: RevisionMediaItem[] }) {
                 alt={item.altText ?? ""}
                 className="h-full w-full object-cover"
               />
-            ) : (
+            ) : errors[item.mediaId] ? (
               <div className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-black/50 dark:text-white/50">
-                {errors[item.mediaId] ?? "Preparing image…"}
+                {errors[item.mediaId]}
+              </div>
+            ) : (
+              <div
+                className="flex h-full w-full items-center justify-center text-black/40 dark:text-white/40"
+                aria-label="Loading image"
+              >
+                <Spinner className="h-6 w-6" />
               </div>
             )}
           </div>

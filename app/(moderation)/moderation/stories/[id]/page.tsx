@@ -8,8 +8,16 @@ import {
   listReportsForStaff,
   parseModeratorMedia,
 } from "@/lib/story/moderation";
-import { storyContentSchema } from "@/lib/validation/story";
-import { ContentBlockRenderer } from "@/components/story/content-block-renderer";
+import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
+import { getPublishedStoryMedia } from "@/lib/story/public-queries";
+import { getPublicImageUrl } from "@/lib/story/public-image-url";
+import { imageBlockMediaIds } from "@/lib/validation/story";
+import {
+  ContentBlockRenderer,
+  type ContentBlockMediaMap,
+} from "@/components/story/content-block-renderer";
+import { PreviewContentBody } from "@/components/story/preview-content-body";
+import { PreviewGallery } from "@/components/story/preview-gallery";
 import { ReviewControls } from "./review-controls";
 
 export const metadata: Metadata = {
@@ -46,20 +54,49 @@ export default async function ModerationReviewPage({
   const detail = rows?.[0];
   if (!detail) notFound();
 
-  const [snapshotRows, moderationHistory, editorialHistory, reports] =
-    await Promise.all([
-      getPublishedRevisionSnapshot(detail.story_id),
-      getStoryModerationHistory(detail.story_id),
-      getStoryEditorialHistory(detail.story_id),
-      listReportsForStaff({ storyId: detail.story_id, limit: 50 }),
-    ]);
+  const [
+    snapshotRows,
+    moderationHistory,
+    editorialHistory,
+    reports,
+    publishedMedia,
+  ] = await Promise.all([
+    getPublishedRevisionSnapshot(detail.story_id),
+    getStoryModerationHistory(detail.story_id),
+    getStoryEditorialHistory(detail.story_id),
+    listReportsForStaff({ storyId: detail.story_id, limit: 50 }),
+    // Anonymous-safe (get_published_story_media requires visibility =
+    // 'public' AND lifecycle_status = 'published'): during a replacement
+    // review the story stays published throughout, so this is exactly the
+    // currently-live media set to compare against -- and it's already
+    // promoted to the public bucket, so unlike `media` below (the
+    // submitted revision's, still private) it needs no signed-URL mint,
+    // just a plain public URL.
+    getPublishedStoryMedia(detail.story_id),
+  ]);
   const publishedSnapshot = snapshotRows[0] ?? null;
   const isReplacement = publishedSnapshot !== null;
 
-  const parsedContent = storyContentSchema.safeParse(detail.content_json);
+  const parsedContent = normalizeStoryContentJson(detail.content_json);
   const parsedPublishedContent = publishedSnapshot
-    ? storyContentSchema.safeParse(publishedSnapshot.content_json)
+    ? normalizeStoryContentJson(publishedSnapshot.content_json)
     : null;
+
+  const publishedContentMedia: ContentBlockMediaMap = {};
+  if (parsedPublishedContent) {
+    const inlineIds = new Set(imageBlockMediaIds(parsedPublishedContent));
+    for (const m of publishedMedia) {
+      if (!inlineIds.has(m.media_id)) continue;
+      const url = getPublicImageUrl(m.public_url);
+      if (url) {
+        publishedContentMedia[m.media_id] = {
+          url,
+          altText: m.alt_text,
+          decorative: m.decorative,
+        };
+      }
+    }
+  }
 
   const media = parseModeratorMedia(detail.media);
   const openReports = reports.filter(
@@ -130,27 +167,33 @@ export default async function ModerationReviewPage({
       </section>
 
       {media.length > 0 && (
-        <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+        // Collapsed by default -- a moderator lands here to read the story
+        // first, not to see thumbnails before anything else; opening this
+        // is a deliberate choice, not the first thing on the page.
+        <details className="mt-6 rounded-md border border-black/10 dark:border-white/10">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
             Media ({media.length})
-          </h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            {media.map((m) => (
-              <li
-                key={m.mediaId}
-                className="flex flex-wrap items-center justify-between gap-2 rounded border border-black/10 px-3 py-2 dark:border-white/10"
-              >
-                <span>
-                  {m.isCover ? "Cover — " : ""}
-                  {m.caption || m.altText || "(no caption)"}
-                </span>
-                <span className="text-xs text-black/50 dark:text-white/50">
-                  {m.processingState}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+          </summary>
+          <div className="border-t border-black/10 p-4 dark:border-white/10">
+            <PreviewGallery media={media} />
+            <ul className="mt-3 space-y-2 text-sm">
+              {media.map((m) => (
+                <li
+                  key={m.mediaId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-black/10 px-3 py-2 dark:border-white/10"
+                >
+                  <span>
+                    {m.isCover ? "Cover — " : ""}
+                    {m.caption || m.altText || "(no caption)"}
+                  </span>
+                  <span className="text-xs text-black/50 dark:text-white/50">
+                    {m.processingState}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
       )}
 
       <section className="mt-6">
@@ -169,8 +212,11 @@ export default async function ModerationReviewPage({
                 {publishedSnapshot?.title}
               </p>
               <div className="mt-3">
-                {parsedPublishedContent?.success ? (
-                  <ContentBlockRenderer blocks={parsedPublishedContent.data} />
+                {parsedPublishedContent ? (
+                  <ContentBlockRenderer
+                    blocks={parsedPublishedContent}
+                    media={publishedContentMedia}
+                  />
                 ) : (
                   <p className="text-sm text-black/50">
                     Could not render published content.
@@ -184,8 +230,8 @@ export default async function ModerationReviewPage({
               </h3>
               <p className="mt-2 text-lg font-semibold">{detail.title}</p>
               <div className="mt-3">
-                {parsedContent.success ? (
-                  <ContentBlockRenderer blocks={parsedContent.data} />
+                {parsedContent ? (
+                  <PreviewContentBody blocks={parsedContent} media={media} />
                 ) : (
                   <p className="text-sm text-black/50">
                     Could not render submitted content.
@@ -196,8 +242,8 @@ export default async function ModerationReviewPage({
           </div>
         ) : (
           <div className="mt-3 rounded-md border border-black/10 p-4 dark:border-white/10">
-            {parsedContent.success ? (
-              <ContentBlockRenderer blocks={parsedContent.data} />
+            {parsedContent ? (
+              <PreviewContentBody blocks={parsedContent} media={media} />
             ) : (
               <p className="text-sm text-black/50">
                 Could not render submitted content.

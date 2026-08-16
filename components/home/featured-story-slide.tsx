@@ -27,10 +27,7 @@ export function FeaturedStorySlide({
 }) {
   const coverUrl = getPublicImageUrl(story.cover_image_path);
   const regionLabel = firstRegionLabel(story.regions);
-  const badges = [
-    ...stringList(story.work_types),
-    ...stringList(story.tags),
-  ].slice(0, 3);
+  const badges = stringList(story.tags).slice(0, 3);
 
   return (
     <article className="group relative grid h-full grid-rows-[minmax(0,34%)_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-border-subtle bg-surface shadow-lg sm:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] sm:grid-rows-1">

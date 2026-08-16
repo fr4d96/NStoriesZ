@@ -24,3 +24,34 @@ export function defaultPathForRole(role: AppRole | null): string {
       return "/my-stories";
   }
 }
+
+/**
+ * The account page, anchored at the contributor-identity section. A brand
+ * new account has no contributor identity yet, and every authoring surface
+ * depends on one (it is how a story is attributed, and it is never inferred
+ * from the account -- see app/(contributor)/account/contributor-form.tsx),
+ * so the first sign-in lands there instead of on an empty My Stories.
+ */
+export const CONTRIBUTOR_SETUP_PATH = "/account#contributor-identity";
+
+/**
+ * Pure decision for "where does this sign-in land," given the caller's role
+ * and whether they already have a contributor identity. Staff roles are
+ * unaffected -- they go to their own dashboard, which never depends on a
+ * contributor identity. Only the ordinary-contributor default is split:
+ * first sign-in (no identity yet) -> set it up; every later sign-in ->
+ * My Stories, exactly as before.
+ *
+ * The identity flag is passed in rather than read here so this stays a pure,
+ * directly-testable function; lib/auth/contributor-identity.ts#resolveSignInLandingPath
+ * is the server-side wrapper that supplies it (and only queries for it when
+ * the role-based answer is the contributor default).
+ */
+export function landingPathAfterSignIn(
+  role: AppRole | null,
+  hasContributorIdentity: boolean,
+): string {
+  const rolePath = defaultPathForRole(role);
+  if (rolePath !== "/my-stories") return rolePath;
+  return hasContributorIdentity ? "/my-stories" : CONTRIBUTOR_SETUP_PATH;
+}

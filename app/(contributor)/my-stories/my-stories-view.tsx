@@ -18,16 +18,20 @@ const VIEW_STORAGE_KEY = "kaki-my-stories-view";
 // right after, with no extra render triggered by our own code.
 const viewListeners = new Set<() => void>();
 
+// List is the default: only an explicitly stored "grid" preference opts out.
+// A contributor with no stored preference (including one whose browser
+// blocks localStorage) lands on the list, which is the denser, more
+// readable shape for a working catalogue of your own drafts.
 function getViewSnapshot(): ViewMode {
   try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "grid";
+    return localStorage.getItem(VIEW_STORAGE_KEY) === "grid" ? "grid" : "list";
   } catch {
-    return "grid";
+    return "list";
   }
 }
 
 function getServerViewSnapshot(): ViewMode {
-  return "grid";
+  return "list";
 }
 
 function subscribeToView(listener: () => void) {
@@ -238,57 +242,96 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
           })}
         </ul>
       ) : (
-        <ul className="mt-8 divide-y divide-border-subtle">
-          {stories.map((story) => {
+        // Styled after the landing page's catalogue index
+        // (components/home/story-index.tsx): hairline-ruled rows (.nf-entry),
+        // a mono tabular numeral, and a cover thumbnail beside the title.
+        // Unlike that index, a row here can't be one big <Link> -- each story
+        // carries its own Edit/Preview actions -- so the thumbnail and title
+        // are the linked targets and the actions sit alongside.
+        <ul className="mt-8">
+          {stories.map((story, index) => {
             const { awaitingApproval, editable } = storyStatusFlags(story);
             const updated = formatDate(story.updated_at);
+            const title = story.title ?? "Untitled story";
             return (
-              <li
-                key={story.id}
-                className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">
-                      {story.title ?? "Untitled story"}
-                    </span>
-                    <StatusBadge status={story.lifecycle_status} />
+              <li key={story.id} className="nf-entry">
+                {/* One grid, two shapes. Mobile: [thumb | stacked content],
+                    numeral hidden (display:none claims no track). From sm up
+                    the inner wrapper becomes `display: contents` so its
+                    children drop into the parent grid as real columns
+                    [numeral | thumb | title+meta | actions]. */}
+                <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 py-4 sm:grid-cols-[2.5rem_5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-5">
+                  <span
+                    aria-hidden="true"
+                    className="hidden font-mono text-sm text-foreground/40 tabular-nums sm:block"
+                  >
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+
+                  <Link
+                    href={`/stories/${story.id}/preview`}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="block h-12 w-16 overflow-hidden rounded-md bg-surface-muted sm:h-14 sm:w-20"
+                  >
+                    <StoryCoverThumbnail
+                      mediaId={story.coverMediaId}
+                      altText={null}
+                    />
+                  </Link>
+
+                  <div className="sm:contents">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/stories/${story.id}/preview`}
+                          className="font-medium hover:text-accent hover:underline underline-offset-2"
+                        >
+                          {title}
+                        </Link>
+                        <StatusBadge status={story.lifecycle_status} />
+                      </div>
+                      {story.excerpt && (
+                        <p className="mt-1 line-clamp-2 text-sm text-foreground/70">
+                          {story.excerpt}
+                        </p>
+                      )}
+                      {updated && (
+                        <p className="mt-1 font-mono text-xs text-foreground/45 tabular-nums">
+                          Updated {updated}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-2 flex gap-3 text-sm font-bold sm:mt-0">
+                      {editable && (
+                        <Link
+                          href={`/stories/${story.id}/edit`}
+                          className="text-accent underline underline-offset-2"
+                        >
+                          Edit
+                          <span className="sr-only"> {title}</span>
+                        </Link>
+                      )}
+                      {awaitingApproval ? (
+                        <Link
+                          href={`/stories/${story.id}/preview`}
+                          className="text-accent underline underline-offset-2"
+                        >
+                          Review
+                          <span className="sr-only"> {title}</span>
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/stories/${story.id}/preview`}
+                          className="text-foreground/70 underline underline-offset-2"
+                        >
+                          Preview
+                          <span className="sr-only"> {title}</span>
+                        </Link>
+                      )}
+                    </div>
                   </div>
-                  {story.excerpt && (
-                    <p className="mt-1 text-sm text-foreground/70">
-                      {story.excerpt}
-                    </p>
-                  )}
-                  {updated && (
-                    <p className="mt-1 text-sm text-foreground/55">
-                      Updated {updated}
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-3 text-sm font-bold">
-                  {editable && (
-                    <Link
-                      href={`/stories/${story.id}/edit`}
-                      className="text-accent underline underline-offset-2"
-                    >
-                      Edit
-                    </Link>
-                  )}
-                  {awaitingApproval ? (
-                    <Link
-                      href={`/stories/${story.id}/preview`}
-                      className="text-accent underline underline-offset-2"
-                    >
-                      Review
-                    </Link>
-                  ) : (
-                    <Link
-                      href={`/stories/${story.id}/preview`}
-                      className="text-foreground/70 underline underline-offset-2"
-                    >
-                      Preview
-                    </Link>
-                  )}
                 </div>
               </li>
             );

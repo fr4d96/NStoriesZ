@@ -2,8 +2,25 @@
 // Wrapper for scripts/rls-test-cleanup.sql. Reuses the exact same
 // fail-closed guard as tests/integration/story-rls.integration.test.ts (not
 // a separate, weaker one), verifies the Supabase CLI is actually installed,
-// then runs the scoped cleanup via `supabase db query --linked`. Never
-// invoked automatically by anything else.
+// then runs the scoped cleanup via `supabase db query --linked`.
+//
+// Invoked automatically as npm's `posttest:rls` hook after a SUCCESSFUL
+// `npm run test:rls` (2026-08-16), reversing this script's original
+// "manual only" stance. Why the reversal: the suite publishes its fixture
+// stories, and nothing removed them between runs, so the public /stories
+// listing and landing page filled up with hundreds of `rls-test-%` stories
+// (~95% of all public content at the point this was caught). "Remember to
+// run cleanup" was not working.
+//
+// The safety properties that made the manual stance defensible are all
+// still here and are what make the automation safe: the fail-closed guard
+// below still runs on every invocation (a missing/mismatched confirm string
+// still refuses), the deletes are still scoped to the `rls-test-%` slug
+// prefix, and the full-truncate path still needs its own second env var.
+// npm runs a `post<script>` hook ONLY when the script exited 0 — verified
+// empirically, not assumed — so a FAILING test run deliberately leaves its
+// fixtures in place for debugging, which is the behaviour you want.
+// Running this by hand (`npm run test:rls:cleanup`) still works unchanged.
 import { execFileSync } from "node:child_process";
 
 function assertSafeToRun() {

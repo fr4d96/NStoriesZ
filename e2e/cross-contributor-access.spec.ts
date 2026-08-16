@@ -93,10 +93,33 @@ test.describe("cross-contributor UI-level access denial", () => {
     const ownerPage = await ownerContext.newPage();
     await signIn(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
 
+    // /stories/new (2026-08-16) skips the old separate working-title page
+    // entirely -- it creates a title-only "Untitled story" draft itself and
+    // redirects straight here, so the title/content this test actually
+    // needs are both set on the real edit page. Content must be set too
+    // (not just title): saveRevisionFieldsAction validates title/content
+    // together as one snapshot, and a still-empty story now fails that
+    // validation outright (see story-edit-form.tsx's RequiredMark fields),
+    // which would silently leave the placeholder title in place instead of
+    // this test's real, unique one.
     await ownerPage.goto("/stories/new");
-    await ownerPage.getByLabel("Working title").fill(title);
-    await ownerPage.getByRole("button", { name: "Start writing" }).click();
     await ownerPage.waitForURL(/\/stories\/[^/]+\/edit$/, { timeout: 15000 });
+    await ownerPage.getByLabel("Title").fill(title);
+    await ownerPage.locator(".cm-content").click();
+    await ownerPage.keyboard.type(
+      "Real content for the cross-contributor access test.",
+    );
+    // Waits for a real save cycle to complete, not just for the debounce to
+    // fire once -- "Saving…" appears synchronously on the keystroke, so
+    // waiting for it to appear THEN disappear (rather than just disappear)
+    // rules out the race where this assertion runs before "Saving…" has
+    // shown up at all.
+    await expect(ownerPage.getByText("Saving…")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(ownerPage.getByText("Saving…")).toHaveCount(0, {
+      timeout: 15000,
+    });
 
     const ownerEditUrl = new URL(ownerPage.url());
     const match = ownerEditUrl.pathname.match(/^\/stories\/([^/]+)\/edit$/);
@@ -251,11 +274,11 @@ test.describe("cross-contributor UI-level access denial", () => {
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
     await signIn(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
+    // /stories/new (2026-08-16) creates its own "Untitled story" draft and
+    // redirects straight to the edit page -- this case only needs a real
+    // story to exist (its title is never asserted on below), so nothing
+    // further needs to be typed here, unlike the first test above.
     await ownerPage.goto("/stories/new");
-    await ownerPage
-      .getByLabel("Working title")
-      .fill(`rls-test cross contributor editorial per row e2e ${runId}`);
-    await ownerPage.getByRole("button", { name: "Start writing" }).click();
     await ownerPage.waitForURL(/\/stories\/[^/]+\/edit$/, { timeout: 15000 });
     const ownerStoryMatch = new URL(ownerPage.url()).pathname.match(
       /^\/stories\/([^/]+)\/edit$/,
