@@ -3,8 +3,36 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-16 (inline editor image uploads now toast; /stories/new skips the working-title
-step entirely — see "2026-08-16, part 7" below).
+Last updated: 2026-08-17 (My Stories / New Story are header links on contributor routes only; on
+public pages they live in the profile-icon dropdown — see "2026-08-17" below).
+
+**2026-08-17 — My Stories / New Story leave the public header nav.**
+
+`SiteHeader` (rendered by both `app/(public)/layout.tsx` and `app/(auth)/layout.tsx`) no longer
+renders `ContributorNavLinks` for signed-in visitors. On public pages the primary nav bar is back to
+Stories/Destinations/About, and My Stories / New Story are reached only through the profile icon —
+`UserAvatarMenu`'s own `menuItems` already carried both on every signed-in header, so that half of
+the change needed no code (verified live, not assumed). Rationale: a signed-in visitor on a public
+page is reading, not authoring; the authoring shortcuts belong on the routes where authoring happens.
+
+`ContributorNavLinks` itself is unchanged and still rendered by `ContributorNav` — so `/account`,
+`/my-stories`, `/stories/new`, and `/stories/[id]/edit|preview` keep both as always-visible,
+underline-on-current-page header links (part 6, item 1, now scoped to those routes only). Staff
+headers (`ModerationNav`/`EditorialNav`/`ReadinessNav`) never had them and still don't.
+
+- **Layout**: removing the element left no gap — SiteHeader's primary `<nav>` already owns the
+  `ml-auto` that pushes the theme toggle + avatar cluster right, so the desktop header simply closes
+  up. Mobile is untouched: signed in, the avatar replaces the hamburger and its dropdown carries the
+  public primary nav (`extraItems`) _plus_ My Stories/New Story/Account/Sign out — confirmed live at
+  375px that all seven entries render.
+- **Live-verified** signed in at 867px and 375px and signed out: public landing/about header shows
+  only Storiesss/Destinations/About + theme + avatar; the avatar dropdown shows My Stories →
+  `/my-stories`, New Story → `/stories/new`, Account, Sign out; `/account` still shows both links in
+  its own header bar. Signed-out public header is unchanged (Sign in / Share your story).
+- **Test**: `components/site-header.test.tsx` gained a signed-in case (the Supabase browser-client
+  mock's session is now switchable via a hoisted `sessionMock`) asserting no `navigation`-role
+  "Contributor" landmark and no My Stories/New Story _links_ in the header, while both are present as
+  `menuitem`s once the avatar is opened. **`npm run verify`: 320 tests, 0 lint errors, build clean.**
 
 **2026-08-16, part 7 — Editor upload toasts; skip the working-title page.**
 

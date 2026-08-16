@@ -1,8 +1,11 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { usePathnameMock } = vi.hoisted(() => ({
+const { usePathnameMock, sessionMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn(() => "/"),
+  // Mutable so a test can flip the header into its signed-in state; reset
+  // to null (signed out) in beforeEach.
+  sessionMock: { current: null as { user: { id: string } } | null },
 }));
 vi.mock("next/navigation", () => ({
   usePathname: usePathnameMock,
@@ -32,13 +35,13 @@ vi.mock("@/app/(auth)/actions", () => ({
 
 // The real browser client needs NEXT_PUBLIC_SUPABASE_URL/KEY, which aren't
 // loaded into process.env under Vitest (unlike Next's own dev/build, which
-// inlines them) -- SiteHeader's session check is exercised live instead
-// (manually, and by the (contributor) layout's own auth-gated tests), so
-// this just needs to resolve to "signed out" without throwing.
+// inlines them) -- so this stands in for it, returning whatever session
+// `sessionMock.current` holds (null = signed out, the default).
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     auth: {
-      getSession: () => Promise.resolve({ data: { session: null } }),
+      getSession: () =>
+        Promise.resolve({ data: { session: sessionMock.current } }),
       onAuthStateChange: () => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       }),
@@ -55,6 +58,7 @@ import { SiteHeader } from "./site-header";
 
 beforeEach(() => {
   usePathnameMock.mockReturnValue("/");
+  sessionMock.current = null;
   Object.defineProperty(window, "scrollY", {
     value: 0,
     writable: true,
@@ -122,6 +126,41 @@ describe("SiteHeader", () => {
       screen.getByRole("heading", { name: "Create your account" }),
     ).toBeInTheDocument();
     expect(screen.getByText("sign-up-form")).toBeInTheDocument();
+  });
+
+  it("keeps My Stories / New Story out of the public nav bar when signed in", async () => {
+    sessionMock.current = { user: { id: "user-1" } };
+    render(<SiteHeader />);
+
+    // The avatar replaces the signed-out buttons once the session resolves.
+    // Two render (the md:flex desktop cluster and the md:hidden mobile one);
+    // jsdom applies no CSS, so both are in the tree -- the desktop one is
+    // first in document order.
+    const avatars = await screen.findAllByRole("button", {
+      name: "Account menu",
+    });
+    expect(avatars).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: "Sign in" }),
+    ).not.toBeInTheDocument();
+
+    // No second "Contributor" nav bar alongside Primary -- those two links
+    // belong to the (contributor) routes' own header, not this one.
+    expect(
+      screen.queryByRole("navigation", { name: "Contributor" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My Stories" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "New Story" })).toBeNull();
+
+    // They are still one click away, inside the profile icon's dropdown.
+    fireEvent.click(avatars[0]);
+    expect(
+      screen.getByRole("menuitem", { name: "My Stories" }),
+    ).toHaveAttribute("href", "/my-stories");
+    expect(screen.getByRole("menuitem", { name: "New Story" })).toHaveAttribute(
+      "href",
+      "/stories/new",
+    );
   });
 
   it("closes the modal via its close button", () => {

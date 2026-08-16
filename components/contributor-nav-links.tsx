@@ -6,17 +6,21 @@ import { usePathname } from "next/navigation";
 /**
  * "My Stories" / "New Story" as always-visible, clickable header links,
  * with the current page underlined (`.journiq-nav-link[aria-current="page"]`,
- * app/globals.css) -- previously these two were reachable only from inside
- * UserAvatarMenu's dropdown, one click deeper than a contributor's two most
- * frequent destinations should be. UserAvatarMenu still carries them too
- * (harmless duplication, not removed -- the dropdown is also the mobile
- * entry point wherever a header has no room for a second nav row), and
- * still owns Account/Sign out, which aren't frequent-enough actions to
- * deserve permanent header space.
+ * app/globals.css) -- a contributor's two most frequent destinations, one
+ * click deep instead of two, while they are actually working on stories.
+ *
+ * Deliberately rendered ONLY by ContributorNav (the `(contributor)` routes:
+ * /account, /my-stories, /stories/new, /stories/[id]/edit|preview) and NOT
+ * by the public SiteHeader. On public pages a signed-in visitor is reading,
+ * not authoring, so those two links stay tucked inside the profile icon's
+ * dropdown (UserAvatarMenu's own menuItems, which carry them on every
+ * signed-in header in the app) rather than taking permanent space in the
+ * public nav bar next to Stories/Destinations/About. UserAvatarMenu also
+ * still owns Account/Sign out everywhere.
  *
  * Client Component (needs usePathname for the active-page match) rendered
- * inside the otherwise-Server-Component ContributorNav/SiteHeader, the same
- * split ThemeToggle/UserAvatarMenu already use in those headers.
+ * inside the otherwise-Server-Component ContributorNav, the same split
+ * ThemeToggle/UserAvatarMenu already use in that header.
  */
 const links = [
   { href: "/my-stories", label: "My Stories" },

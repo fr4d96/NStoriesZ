@@ -10,7 +10,6 @@ import { AuthModal } from "@/components/auth/auth-modal";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { SignUpForm } from "@/components/auth/sign-up-form";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
-import { ContributorNavLinks } from "@/components/contributor-nav-links";
 import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
 import { createClient } from "@/lib/supabase/client";
 
@@ -62,6 +61,12 @@ type AuthModalKind = "sign-in" | "sign-up" | null;
  * components/auth/user-avatar-menu.tsx, which replaces the whole
  * My Stories/Account/New Story/Sign out button row with a single avatar
  * that opens those same four actions in a dropdown.
+ *
+ * That dropdown is the ONLY place My Stories / New Story appear on public
+ * pages -- ContributorNavLinks (the always-visible header versions) is
+ * rendered by ContributorNav alone, on the (contributor) routes where the
+ * visitor is actually authoring. A signed-in visitor browsing public pages
+ * is reading, so the public nav bar stays Stories/Destinations/About.
  */
 export function SiteHeader() {
   const pathname = usePathname();
@@ -149,8 +154,6 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-
-        {signedIn && <ContributorNavLinks className="hidden md:flex" />}
 
         <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle inverted={inverted} />
