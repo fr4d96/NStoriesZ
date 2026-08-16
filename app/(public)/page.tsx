@@ -102,7 +102,7 @@ export default async function HomePage() {
           full-bleed. svh rather than vh so a mobile URL bar collapsing does
           not resize the hero mid-scroll; clamped so it stays cinematic on a
           short phone and does not become a canyon on a tall desktop. */}
-      <section className="relative isolate -mt-[76px] flex h-[92svh] max-h-[900px] min-h-[560px] overflow-hidden bg-[#05070a] text-white">
+      <section className="nf-dark-band relative isolate -mt-[76px] flex h-[92svh] max-h-[900px] min-h-[560px] overflow-hidden bg-[#05070a] text-white">
         <HeroSlideshow />
         <div className="relative mx-auto flex w-full max-w-[1440px] items-end px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
           <div className="max-w-3xl">
@@ -219,7 +219,7 @@ export default async function HomePage() {
 
       <section
         id="share"
-        className="journiq-share scroll-mt-24 py-16 text-white sm:py-24 lg:py-28"
+        className="nf-dark-band journiq-share scroll-mt-24 py-16 text-white sm:py-24 lg:py-28"
       >
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
           <div className="nf-pull max-w-3xl">
@@ -234,7 +234,7 @@ export default async function HomePage() {
               <Link href="/sign-up" className="night-button-primary">
                 Share your story <ArrowRightIcon className="h-4 w-4" />
               </Link>
-              <Link href="/about" className="night-button-ghost text-white/75">
+              <Link href="/about" className="night-button-ghost">
                 See writing tips
               </Link>
             </div>

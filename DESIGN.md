@@ -18,15 +18,22 @@ colors:
   tag-foreground: "#8fe6da"
   muted-foreground: "#98a6a5"
   destructive: "#ff6b6b"
-  light-background: "#f7f9f9"
-  light-foreground: "#0b1013"
-  light-surface: "#ffffff"
-  light-surface-muted: "#eceff0"
-  light-border-subtle: "rgba(11, 16, 19, 0.14)"
-  light-accent: "#0d7d74"
+  light-background: "#f6f3ef"
+  light-foreground: "#1b1612"
+  light-surface: "#fdfbf8"
+  light-surface-muted: "#ece7e1"
+  light-border-subtle: "rgba(27, 22, 18, 0.15)"
+  light-accent: "#00756e"
   light-accent-foreground: "#ffffff"
-  light-muted-foreground: "#4a5658"
+  light-tag-background: "rgba(0, 117, 110, 0.11)"
+  light-tag-foreground: "#005d57"
+  light-forest: "#17110d"
+  light-muted-foreground: "#6a635c"
   light-destructive: "#c0392b"
+  # Shadow ink -- the warm foreground at low alpha, never neutral black: a
+  # black shadow on the warm ground reads as a cold gray smudge.
+  shadow-ink-soft: "rgba(27, 22, 18, 0.13)"
+  shadow-ink-deep: "rgba(27, 22, 18, 0.55)"
 typography:
   display:
     fontFamily: "'Avenir Next', 'Avenir', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -101,34 +108,45 @@ still uses it.
 
 ## Colors
 
-A near-black ground, a cool off-white ink, and exactly one saturated accent. Both themes speak the
-same language — dark is the signature rendition, light is its counterpart on a cool near-white
-ground, not a different world. Values below are written `dark / light`.
+A near-black ground and a cool off-white ink in the signature dark rendition; a **warm** off-white
+ground and warm ink in its light counterpart — the same archive seen in daylight rather than in a
+darkened room, not a different world. Exactly one saturated accent in both. Values below are written
+`dark / light`.
+
+Warmth lives ONLY in the neutrals. The accent stays cool teal in both renditions, so light mode is a
+warm ground against a cool signal — not the warm-ground-plus-warm-primary (cream + brown) cliché, and
+not a return to the retired Field Journal paper/terracotta world.
 
 ### Primary
 
-- **Signal Cyan** (`#35d0c4` dark / **`#0d7d74` light**): the one accent. CTA fills and outlines,
+- **Signal Cyan** (`#35d0c4` dark / **`#00756e` light**): the one accent. CTA fills and outlines,
   the active headline word, active filter chips, the live slide index, focus rings (`--ring`),
   progress fills. This is the one token that cannot simply invert: `#35d0c4` reads at ~10:1 on the
-  near-black ground but only ~1.9:1 on a near-white one, so light mode uses the deeper teal, which
-  clears 4.5:1 both as text on the page ground and as a fill beneath white text
+  near-black ground but only ~1.9:1 on a near-white one, so light mode uses a deepened rendition of
+  the same hue (187°), which clears 4.5:1 as text on the page ground, on raised surfaces, and on
+  `--surface-muted` (its tightest pairing at 4.53:1), as well as under white text as a fill
   (`--accent-foreground` is `#05070a` dark / `#ffffff` light).
 
 ### Neutral
 
-- **Void** (`#05070a` dark / `#f7f9f9` light): page ground. Near-black rather than pure black; the
-  light counterpart is a cool near-white with a faint cyan bias, never stark `#fff`.
-- **Ink** (`#f4f6f5` dark / `#0b1013` light): body text.
-- **Surface** (`#0d1218` dark / `#ffffff` light): raised surfaces — cards, panels, popovers.
-- **Surface Muted** (`#10161d` dark / `#eceff0` light): image placeholders, muted fills, inset
+- **Void** (`#05070a` dark / `#f6f3ef` light): page ground. Near-black rather than pure black; the
+  light counterpart is a warm off-white (~L 0.97 OKLCH at hue 78), never stark `#fff` — a pure-white
+  ground under near-black ink glared and read clinical, which is what this rendition replaced.
+- **Ink** (`#f4f6f5` dark / `#1b1612` light): body text. 16.2:1 on its own ground.
+- **Surface** (`#0d1218` dark / `#fdfbf8` light): raised surfaces — cards, panels, popovers. The
+  light value is a warm near-white one step above the ground, never `#ffffff`.
+- **Surface Muted** (`#10161d` dark / `#ece7e1` light): image placeholders, muted fills, inset
   wells.
-- **Muted Ink** (`#98a6a5` dark / `#4a5658` light): secondary and supporting copy. Both clear
+- **Muted Ink** (`#98a6a5` dark / `#6a635c` light): secondary and supporting copy. Both clear
   4.5:1 on their own ground — never dim body text with an opacity below ~60% instead.
-- **Fog** (`rgba(244, 246, 245, 0.14)` dark / `rgba(11, 16, 19, 0.14)` light): the only border
+- **Fog** (`rgba(244, 246, 245, 0.14)` dark / `rgba(27, 22, 18, 0.15)` light): the only border
   colour in the system — the ink at low opacity, never a gray.
-- **Deep Ink Band** (`--forest`: `#0d1a20` dark / `#0b1013` light): the footer and other
+- **Deep Ink Band** (`--forest`: `#0d1a20` dark / `#17110d` light): the footer and other
   always-dark bands that sit slightly apart from the page ground.
 - **Destructive** (`#ff6b6b` dark / `#c0392b` light): errors and destructive actions only.
+- **Shadow ink** (`rgba(27, 22, 18, 0.13)` soft / `rgba(27, 22, 18, 0.55)` deep): shadows are the
+  warm foreground at low alpha, never neutral black — a black shadow on the warm ground reads as a
+  cold gray smudge. Same geometry and alpha as before, only the hue is pulled onto the palette.
 
 ### Named Rules
 
@@ -139,6 +157,17 @@ where they carry meaning rather than brand, and nowhere else.
 **The Two Renditions Rule.** Every colour decision is made for both themes at once, and neither is
 an inversion of the other. Before adding a literal colour, check it against both grounds; if it
 only works on one, it needs a token with two values, not a `dark:` override.
+
+**The Always-Dark Band Rule.** A few surfaces are permanently dark in BOTH themes because they are
+full-bleed photography under a scrim: the landing hero and the `.journiq-share` contribute band.
+Tokens still flip underneath them, so anything token-driven inside one resolves to the _light_
+rendition against a near-black photo — which is how the hero's CTA once rendered as near-black ink
+on a near-black photo (1.1:1, effectively invisible) and the accent word came out as the deep teal
+instead of the signature cyan. Mark such a section `.nf-dark-band` (`app/globals.css`), which pins
+`--foreground`/`--accent`/`--accent-foreground`/`--muted-foreground`/`--border-subtle` to their dark
+values so the band behaves exactly as it does in dark mode. A component that can appear both inside
+and outside such a band — `.night-button-primary` is the live example — takes `color: inherit`
+rather than any token, so it is correct in both without a call-site flag.
 
 ## Typography
 

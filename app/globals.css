@@ -553,6 +553,53 @@ body {
   font-size: clamp(2rem, 4.4vw, 3.6rem);
   text-wrap: balance;
 }
+/*
+ * Always-dark bands.
+ *
+ * A few surfaces are permanently dark in BOTH themes because they are
+ * full-bleed photography with a scrim over it: the landing hero and the
+ * .journiq-share contribute band. The page's tokens still flip underneath
+ * them, so in light mode every token-driven colour inside was resolving to
+ * its light rendition against a near-black photo -- the accent word
+ * "Aotearoa" and the active slide numeral came out as the deep teal
+ * (#00756e ≈ 2.5:1 on the scrimmed photo) instead of the signature cyan.
+ *
+ * Pinning the handful of tokens that actually appear inside these bands to
+ * their dark rendition makes the band behave exactly as it does in dark
+ * mode, which is the whole point of an always-dark band. Deliberately does
+ * NOT pin --surface/--surface-muted: no card or panel is nested in either
+ * band today, and leaving them alone keeps the blast radius to colours
+ * these sections really use.
+ */
+.nf-dark-band {
+  --foreground: #f4f6f5;
+  --accent: #35d0c4;
+  --accent-foreground: #05070a;
+  --muted-foreground: #98a6a5;
+  --border-subtle: rgba(244, 246, 245, 0.14);
+}
+
+/*
+ * Both of these sit in TWO kinds of context, which is why neither takes its
+ * ink from --foreground:
+ *
+ *   1. Always-dark photographic bands that do not flip with the theme --
+ *      the landing hero (bg #05070a) and the .journiq-share band. Both set
+ *      `text-white` on the section itself.
+ *   2. The ordinary themed ground -- the featured story cards (--surface)
+ *      and the index's "Browse the full catalogue" CTA.
+ *
+ * `color: inherit` is what makes one class correct in both: it picks up the
+ * band's own white on (1) and the themed ink on (2), and stays correct if
+ * either button is ever moved. Before this, .night-button-primary hardcoded
+ * `var(--foreground)`, which is right for (2) but rendered the hero's "Read
+ * the stories" and the share band's "Share your story" as near-black ink on
+ * a near-black photo -- 1.1:1, effectively invisible, and the single worst
+ * thing about the light rendition of the landing page. .night-button-ghost
+ * had the mirror-image bug: it hardcoded the DARK theme's off-white
+ * (rgba(244,246,245,...)), which happened to be right only because both of
+ * its call sites are on dark bands.
+ */
 .night-button-primary {
   min-height: 46px;
   display: inline-flex;
@@ -563,7 +610,7 @@ body {
   border: 1px solid var(--accent);
   padding: 11px 22px;
   font-weight: 700;
-  color: var(--foreground);
+  color: inherit;
   transition:
     background-color 0.25s ease,
     color 0.25s ease,
@@ -577,14 +624,17 @@ body {
 .night-button-ghost {
   font-size: 0.875rem;
   font-weight: 700;
-  color: rgba(244, 246, 245, 0.75);
+  /* Muted via opacity rather than a baked-in alpha colour, so the muting
+     survives whichever ground this lands on. */
+  color: inherit;
+  opacity: 0.75;
   text-decoration: underline;
-  text-decoration-color: rgba(244, 246, 245, 0.3);
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   text-underline-offset: 4px;
-  transition: color 0.2s ease;
+  transition: opacity 0.2s ease;
 }
 .night-button-ghost:hover {
-  color: var(--foreground);
+  opacity: 1;
 }
 
 /* ---------- Night Field motion: the focus pull ----------
