@@ -66,14 +66,14 @@ export function ContributorReviewPanel({
         <button
           type="button"
           onClick={() => setMode(mode === "changes" ? null : "changes")}
-          className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium dark:border-white/15"
+          className="rounded-md border border-border-subtle px-3 py-1.5 text-sm font-medium"
         >
           Request changes
         </button>
         <button
           type="button"
           onClick={() => setMode(mode === "decline" ? null : "decline")}
-          className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 dark:border-red-700 dark:text-red-400"
+          className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive"
         >
           Decline
         </button>
@@ -100,17 +100,17 @@ export function ContributorReviewPanel({
             required
             rows={3}
             placeholder="What would you like changed?"
-            className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+            className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
           />
           <button
             type="submit"
             disabled={changesPending}
-            className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium disabled:opacity-60 dark:border-white/15"
+            className="rounded-md border border-border-subtle px-3 py-1.5 text-sm font-medium disabled:opacity-60"
           >
             {changesPending ? "Sending…" : "Send request"}
           </button>
           {changesState.error && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="text-sm text-destructive">
               {changesState.error}
             </p>
           )}
@@ -124,17 +124,17 @@ export function ContributorReviewPanel({
             name="note"
             rows={3}
             placeholder="Optional: let the editor know why."
-            className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+            className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
           />
           <button
             type="submit"
             disabled={declinePending}
-            className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 disabled:opacity-60 dark:border-red-700 dark:text-red-400"
+            className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive disabled:opacity-60"
           >
             {declinePending ? "Declining…" : "Confirm decline"}
           </button>
           {declineState.error && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="text-sm text-destructive">
               {declineState.error}
             </p>
           )}

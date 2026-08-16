@@ -108,21 +108,21 @@ export default async function ReportsTriagePage({
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Reports triage
       </h1>
-      <p className="mt-2 max-w-2xl text-sm text-black/60 dark:text-white/60">
+      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
         Every reader-submitted report, across every story. Private internal
         notes and resolution live on each report&rsquo;s own page, never here.
       </p>
 
       <form
         method="get"
-        className="mt-6 grid grid-cols-2 gap-3 rounded-md border border-black/10 p-4 text-sm sm:grid-cols-4 dark:border-white/10"
+        className="mt-6 grid grid-cols-2 gap-3 rounded-md border border-border-subtle p-4 text-sm sm:grid-cols-4"
       >
         <label className="flex flex-col gap-1">
           Status
           <select
             name="status"
             defaultValue={filters.status ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             <option value="open">Open</option>
@@ -136,7 +136,7 @@ export default async function ReportsTriagePage({
           <select
             name="category"
             defaultValue={filters.category ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
@@ -152,7 +152,7 @@ export default async function ReportsTriagePage({
             type="date"
             name="dateFrom"
             defaultValue={filters.dateFrom ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -161,7 +161,7 @@ export default async function ReportsTriagePage({
             type="date"
             name="dateTo"
             defaultValue={filters.dateTo ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
         </label>
         <div className="flex items-end">
@@ -176,15 +176,15 @@ export default async function ReportsTriagePage({
 
       <div className="mt-8" aria-live="polite">
         {loadError ? (
-          <p className="rounded-md border border-black/10 bg-black/5 p-6 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="rounded-md border border-border-subtle bg-surface-muted p-6 text-sm">
             Could not load reports right now. Please try again.
           </p>
         ) : rows.length === 0 ? (
-          <p className="rounded-md border border-black/10 bg-black/5 p-6 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="rounded-md border border-border-subtle bg-surface-muted p-6 text-sm">
             Nothing matches these filters.
           </p>
         ) : (
-          <ul className="divide-y divide-black/10 dark:divide-white/10">
+          <ul className="divide-y divide-border-subtle">
             {rows.map((row) => (
               <li
                 key={row.id}
@@ -195,11 +195,11 @@ export default async function ReportsTriagePage({
                     <span className="font-medium">
                       {CATEGORY_LABELS[row.category] ?? row.category}
                     </span>
-                    <span className="rounded-full bg-black/10 px-2 py-0.5 text-xs dark:bg-white/10">
+                    <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs">
                       {STATUS_LABELS[row.status] ?? row.status}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Reported {new Date(row.created_at).toLocaleString("en-NZ")}
                   </p>
                 </div>
@@ -233,9 +233,7 @@ export default async function ReportsTriagePage({
       </div>
 
       <div className="mt-8 flex items-center justify-between text-sm">
-        <span className="text-black/60 dark:text-white/60">
-          Page {filters.page}
-        </span>
+        <span className="text-muted-foreground">Page {filters.page}</span>
         <div className="flex gap-3">
           {hasPrevPage && (
             <Link

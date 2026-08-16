@@ -66,13 +66,13 @@ export function ReviewControls({
   );
 
   return (
-    <div className="mt-8 space-y-6 border-t border-black/10 pt-6 dark:border-white/10">
+    <div className="mt-8 space-y-6 border-t border-border-subtle pt-6">
       {decisionMessage && (
         <p
           role={decisionMessageIsError ? "alert" : "status"}
           className={
             decisionMessageIsError
-              ? "text-sm text-red-700 dark:text-red-400"
+              ? "text-sm text-destructive"
               : "text-sm text-green-800 dark:text-green-400"
           }
         >
@@ -85,7 +85,7 @@ export function ReviewControls({
             <h2 className="text-sm font-semibold text-green-800 dark:text-green-300">
               Approve
             </h2>
-            <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+            <p className="mt-1 text-xs text-muted-foreground">
               Begins a publication attempt, copies any not-yet-promoted media to
               public storage, then finalizes publication. If any step fails,
               nothing is silently lost — the attempt stays active and can be
@@ -98,13 +98,13 @@ export function ReviewControls({
                 name="userFacingReason"
                 rows={2}
                 placeholder="Optional note shown to the contributor"
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+                className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
               />
               <textarea
                 name="editorNote"
                 rows={2}
                 placeholder="Optional internal note (staff only)"
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+                className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
               />
               <button
                 type="submit"
@@ -131,7 +131,7 @@ export function ReviewControls({
                 Decision
                 <select
                   name="decision"
-                  className="mt-1 block rounded-md border border-black/15 px-2 py-1 text-sm dark:border-white/15 dark:bg-transparent"
+                  className="mt-1 block rounded-md border border-border-subtle px-2 py-1 text-sm dark:bg-transparent"
                 >
                   <option value="changes_requested">Request changes</option>
                   <option value="reject">Reject</option>
@@ -142,13 +142,13 @@ export function ReviewControls({
                 rows={2}
                 required
                 placeholder="Reason shown to the contributor (required)"
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+                className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
               />
               <textarea
                 name="editorNote"
                 rows={2}
                 placeholder="Optional internal note (staff only)"
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+                className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
               />
               <button
                 type="submit"
@@ -161,7 +161,7 @@ export function ReviewControls({
           </section>
         </>
       ) : (
-        <p className="text-sm text-black/60 dark:text-white/60">
+        <p className="text-sm text-muted-foreground">
           This revision is currently &ldquo;{revisionStatus}&rdquo; — approve /
           reject / request-changes only apply to a submitted revision.
         </p>
@@ -171,7 +171,7 @@ export function ReviewControls({
         <button
           type="button"
           onClick={() => setShowArchive((v) => !v)}
-          className="text-sm font-semibold text-red-800 dark:text-red-300"
+          className="text-sm font-semibold text-destructive"
         >
           {showArchive
             ? "Hide archive/unpublish"
@@ -187,13 +187,13 @@ export function ReviewControls({
               rows={2}
               required
               placeholder="Reason (required)"
-              className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+              className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
             />
             <textarea
               name="note"
               rows={2}
               placeholder="Optional internal note"
-              className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+              className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
             />
             <button
               type="submit"
@@ -203,18 +203,12 @@ export function ReviewControls({
               {archivePending ? "Archiving…" : "Archive story"}
             </button>
             {archiveState.error && (
-              <p
-                role="alert"
-                className="text-sm text-red-700 dark:text-red-400"
-              >
+              <p role="alert" className="text-sm text-destructive">
                 {archiveState.error}
               </p>
             )}
             {archiveState.success && (
-              <p
-                role="status"
-                className="text-sm text-black/70 dark:text-white/70"
-              >
+              <p role="status" className="text-sm text-muted-foreground">
                 {archiveState.success}
               </p>
             )}

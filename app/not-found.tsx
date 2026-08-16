@@ -9,7 +9,7 @@ export default function NotFound() {
       className="mx-auto max-w-5xl px-4 py-16 text-center"
     >
       <h1 className="text-2xl font-semibold tracking-tight">Page not found</h1>
-      <p className="mt-4 text-black/70 dark:text-white/70">
+      <p className="mt-4 text-muted-foreground">
         We couldn&apos;t find the page you were looking for.
       </p>
       <Link href="/" className="mt-6 inline-block underline">

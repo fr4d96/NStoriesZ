@@ -48,28 +48,28 @@ export function ReassignForm({
             name="editorId"
             placeholder="Target editor user ID (uuid)"
             required
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
           <input
             type="text"
             name="note"
             placeholder="Optional note"
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
           <button
             type="submit"
             disabled={pending}
-            className="w-fit rounded-md border border-black/15 px-2 py-1 font-medium disabled:opacity-60 dark:border-white/15"
+            className="w-fit rounded-md border border-border-subtle px-2 py-1 font-medium disabled:opacity-60"
           >
             {pending ? "Reassigning…" : "Confirm reassignment"}
           </button>
           {state.error && (
-            <p role="alert" className="text-red-700 dark:text-red-400">
+            <p role="alert" className="text-destructive">
               {state.error}
             </p>
           )}
           {state.success && (
-            <p role="status" className="text-black/70 dark:text-white/70">
+            <p role="status" className="text-muted-foreground">
               {state.success}
             </p>
           )}

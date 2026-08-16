@@ -18,7 +18,7 @@ export default async function EditorialContributorsPage() {
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Contributors
       </h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
+      <p className="mt-2 text-sm text-muted-foreground">
         Every contributor record. Linking/unlinking an account is an audited,
         editor/admin-only action — see the contributor_links history for the
         full trail of who linked or unlinked whom.
@@ -26,7 +26,7 @@ export default async function EditorialContributorsPage() {
 
       <CreateContributorForm />
 
-      <ul className="mt-8 divide-y divide-black/10 dark:divide-white/10">
+      <ul className="mt-8 divide-y divide-border-subtle">
         {contributors.map((c) => (
           <li
             key={c.id}
@@ -39,13 +39,13 @@ export default async function EditorialContributorsPage() {
                   className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                     c.isLinked
                       ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                      : "bg-black/10 text-black/70 dark:bg-white/10 dark:text-white/70"
+                      : "bg-surface-muted text-muted-foreground"
                   }`}
                 >
                   {c.isLinked ? "Linked" : "Unlinked"}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {c.attributionType} · {c.publicStatus}
               </p>
             </div>
@@ -53,7 +53,7 @@ export default async function EditorialContributorsPage() {
           </li>
         ))}
         {contributors.length === 0 && (
-          <li className="py-4 text-sm text-black/60 dark:text-white/60">
+          <li className="py-4 text-sm text-muted-foreground">
             No contributor records yet.
           </li>
         )}

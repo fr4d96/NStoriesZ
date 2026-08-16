@@ -34,17 +34,17 @@ export function ContributorRowActions({
           type="text"
           name="note"
           placeholder="Reason (optional)"
-          className="w-40 rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+          className="w-40 rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
         />
         <button
           type="submit"
           disabled={unlinkPending}
-          className="text-xs text-red-600 underline underline-offset-2 disabled:opacity-60 dark:text-red-400"
+          className="text-xs text-destructive underline underline-offset-2 disabled:opacity-60"
         >
           {unlinkPending ? "Unlinking…" : "Unlink"}
         </button>
         {unlinkState.error && (
-          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+          <p role="alert" className="text-xs text-destructive">
             {unlinkState.error}
           </p>
         )}
@@ -72,13 +72,13 @@ export function ContributorRowActions({
         name="userId"
         required
         placeholder="Account user id (UUID)"
-        className="w-48 rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+        className="w-48 rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
       />
       <input
         type="text"
         name="note"
         placeholder="Note (optional)"
-        className="w-48 rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+        className="w-48 rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
       />
       <button
         type="submit"
@@ -88,7 +88,7 @@ export function ContributorRowActions({
         {linkPending ? "Linking…" : "Link"}
       </button>
       {linkState.error && (
-        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="text-xs text-destructive">
           {linkState.error}
         </p>
       )}

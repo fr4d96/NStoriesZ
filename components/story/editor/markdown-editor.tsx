@@ -141,7 +141,7 @@ function ToolbarButton({
       disabled={disabled}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      className="flex h-8 min-w-8 items-center justify-center rounded px-1.5 text-sm font-medium hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10"
+      className="flex h-8 min-w-8 items-center justify-center rounded px-1.5 text-sm font-medium hover:bg-surface-muted disabled:opacity-40"
     >
       {label}
     </button>
@@ -158,7 +158,7 @@ function MarkdownGuideLink() {
       rel="noopener noreferrer"
       title="Markdown syntax guide (opens in a new tab)"
       aria-label="Markdown syntax guide (opens in a new tab)"
-      className="flex h-8 w-8 items-center justify-center rounded-full border border-current text-xs font-semibold italic hover:bg-black/5 dark:hover:bg-white/10"
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-current text-xs font-semibold italic hover:bg-surface-muted"
     >
       i
     </a>
@@ -270,7 +270,7 @@ function EditorToolbar({
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-0.5 border-b border-black/10 px-1.5 py-1 dark:border-white/10">
+    <div className="flex flex-wrap items-center justify-between gap-0.5 border-b border-border-subtle px-1.5 py-1">
       <div className="flex flex-wrap items-center gap-0.5">
         <ToolbarButton
           title="Heading"
@@ -292,7 +292,7 @@ function EditorToolbar({
           label={<span className="line-through">S</span>}
           onClick={run((v) => wrapSelection(v, "~~", "~~", "struck text"))}
         />
-        <div className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+        <div className="mx-1 h-5 w-px bg-surface-muted" />
         <ToolbarButton
           title="Quote"
           label="❝"
@@ -313,7 +313,7 @@ function EditorToolbar({
           label="☑"
           onClick={run((v) => toggleLinePrefix(v, "- [ ] "))}
         />
-        <div className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+        <div className="mx-1 h-5 w-px bg-surface-muted" />
         <ToolbarButton
           title="Link"
           label="🔗"

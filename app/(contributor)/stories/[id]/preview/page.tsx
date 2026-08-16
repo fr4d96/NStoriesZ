@@ -147,12 +147,10 @@ export default async function StoryPreviewPage({
         {preview.title}
       </h1>
       {preview.excerpt && (
-        <p className="mt-2 text-black/70 dark:text-white/70">
-          {preview.excerpt}
-        </p>
+        <p className="mt-2 text-muted-foreground">{preview.excerpt}</p>
       )}
 
-      <p className="mt-4 text-sm text-black/60 dark:text-white/60">
+      <p className="mt-4 text-sm text-muted-foreground">
         Personal experience, not advice — shared by {preview.attributionValue}.
       </p>
 
@@ -166,7 +164,7 @@ export default async function StoryPreviewPage({
         {parsedContent ? (
           <PreviewContentBody blocks={parsedContent} media={preview.media} />
         ) : (
-          <p className="text-red-600 dark:text-red-400">
+          <p className="text-destructive">
             This draft&apos;s content couldn&apos;t be rendered.
           </p>
         )}

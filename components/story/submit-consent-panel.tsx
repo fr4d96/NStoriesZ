@@ -34,14 +34,14 @@ export function SubmitConsentPanel({
   return (
     <form
       action={formAction}
-      className="rounded-md border border-black/10 p-4 dark:border-white/10"
+      className="rounded-md border border-border-subtle p-4"
     >
       <input type="hidden" name="storyId" value={storyId} />
       <input type="hidden" name="revisionId" value={revisionId} />
       <input type="hidden" name="expectedVersion" value={expectedVersion} />
 
       <h2 className="text-sm font-semibold">Publication permission</h2>
-      <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+      <p className="mt-1 text-xs text-muted-foreground">
         Personal experience, not advice — your story will be reviewed before it
         appears publicly.
       </p>
@@ -83,7 +83,7 @@ export function SubmitConsentPanel({
               id="identifiable-people-state"
               name="identifiablePeopleState"
               required
-              className="mt-1 rounded-md border border-black/15 px-2 py-1 text-sm dark:border-white/15 dark:bg-transparent"
+              className="mt-1 rounded-md border border-border-subtle px-2 py-1 text-sm dark:bg-transparent"
             >
               <option value="not_applicable">No identifiable people</option>
               <option value="confirmed">Yes — I have their permission</option>
@@ -116,7 +116,7 @@ export function SubmitConsentPanel({
       </button>
 
       {state.error && (
-        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-2 text-sm text-destructive">
           {state.error}
         </p>
       )}

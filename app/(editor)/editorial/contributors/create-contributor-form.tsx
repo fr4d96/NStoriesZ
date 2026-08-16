@@ -17,7 +17,7 @@ export function CreateContributorForm() {
   return (
     <form
       action={formAction}
-      className="mt-4 flex flex-col gap-3 rounded-md border border-black/10 p-4 sm:flex-row sm:items-end dark:border-white/10"
+      className="mt-4 flex flex-col gap-3 rounded-md border border-border-subtle p-4 sm:flex-row sm:items-end"
     >
       <div className="flex-1">
         <label
@@ -33,13 +33,13 @@ export function CreateContributorForm() {
           required
           maxLength={120}
           placeholder="Display name"
-          className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
         />
       </div>
       <select
         name="attributionType"
         defaultValue="display_name"
-        className="rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+        className="rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
       >
         <option value="real_name">Real name</option>
         <option value="display_name">Display name</option>
@@ -49,12 +49,12 @@ export function CreateContributorForm() {
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex items-center justify-center rounded-md border border-black/15 px-4 py-2 text-sm font-semibold disabled:opacity-60 dark:border-white/15"
+        className="inline-flex items-center justify-center rounded-md border border-border-subtle px-4 py-2 text-sm font-semibold disabled:opacity-60"
       >
         {pending ? "Creating…" : "Create"}
       </button>
       {state.error && (
-        <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="text-xs text-destructive">
           {state.error}
         </p>
       )}

@@ -24,11 +24,22 @@
  * replaced is gone. See DESIGN.md.
  *
  * Both themes speak the same language: dark is the signature rendition,
- * light is its counterpart on a cool near-white ground, not a different
- * world. The accent is the one token that cannot simply invert -- cyan
- * #35d0c4 reads at ~10:1 on the near-black ground but only ~1.9:1 on a
- * near-white one, so light mode uses the deep teal #0d7d74, which clears
- * 4.5:1 both as text on the page ground and as a fill under white text.
+ * light is its counterpart -- the same archive seen in daylight rather than
+ * a darkened room. The light ground is a warm off-white (#f6f3ef, ~L 0.97
+ * OKLCH at hue 78) and raised surfaces are a warm near-white (#fdfbf8),
+ * never stark #ffffff: a pure-white ground under a near-black ink glared
+ * and read clinical, which is what this rendition was rewritten to fix.
+ * Warmth lives ONLY in the neutrals -- the accent stays cool teal, so the
+ * pairing is a warm ground against a cool signal, not the warm-on-warm
+ * (cream + brown) cliché, and not a return to the retired Field Journal
+ * paper/terracotta world.
+ *
+ * The accent is the one token that cannot simply invert -- cyan #35d0c4
+ * reads at ~10:1 on the near-black ground but only ~1.9:1 on a near-white
+ * one, so light mode uses a deepened rendition of the same hue (#00756e,
+ * hue 187 preserved), which clears 4.5:1 as text on the page ground, on
+ * raised surfaces, AND on --surface-muted (its tightest pairing, 4.53:1),
+ * as well as under white text as a fill.
  *
  * Theme selection: `data-theme="light"|"dark"` on <html>, set by a blocking
  * inline script in app/layout.tsx before paint (reads localStorage, falls
@@ -42,25 +53,25 @@
  */
 :root {
   color-scheme: light;
-  --background: #f7f9f9;
-  --foreground: #0b1013;
-  --surface: #ffffff;
-  --surface-muted: #eceff0;
-  --border-subtle: rgba(11, 16, 19, 0.14);
-  --accent: #0d7d74;
+  --background: #f6f3ef;
+  --foreground: #1b1612;
+  --surface: #fdfbf8;
+  --surface-muted: #ece7e1;
+  --border-subtle: rgba(27, 22, 18, 0.15);
+  --accent: #00756e;
   --accent-foreground: #ffffff;
-  --tag-background: rgba(13, 125, 116, 0.1);
-  --tag-foreground: #0a5f59;
-  --forest: #0b1013;
-  --fern: #0d7d74;
-  --header-solid: #f7f9f9;
+  --tag-background: rgba(0, 117, 110, 0.11);
+  --tag-foreground: #005d57;
+  --forest: #17110d;
+  --fern: #00756e;
+  --header-solid: #f6f3ef;
   /* shadcn/ui + Plate registry component tokens -- deliberately mapped onto
      the palette above rather than shadcn's default gray/blue scale, so
      components pulled from the Plate registry (components/story/editor/*,
      components/ui/*) match this site's look instead of the generic shadcn
      demo look. */
   --muted: var(--surface-muted);
-  --muted-foreground: #4a5658;
+  --muted-foreground: #6a635c;
   --popover: var(--surface);
   --popover-foreground: var(--foreground);
   --border: var(--border-subtle);
@@ -160,20 +171,20 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --background: #f7f9f9;
-  --foreground: #0b1013;
-  --surface: #ffffff;
-  --surface-muted: #eceff0;
-  --border-subtle: rgba(11, 16, 19, 0.14);
-  --accent: #0d7d74;
+  --background: #f6f3ef;
+  --foreground: #1b1612;
+  --surface: #fdfbf8;
+  --surface-muted: #ece7e1;
+  --border-subtle: rgba(27, 22, 18, 0.15);
+  --accent: #00756e;
   --accent-foreground: #ffffff;
-  --tag-background: rgba(13, 125, 116, 0.1);
-  --tag-foreground: #0a5f59;
-  --forest: #0b1013;
-  --fern: #0d7d74;
-  --header-solid: #f7f9f9;
+  --tag-background: rgba(0, 117, 110, 0.11);
+  --tag-foreground: #005d57;
+  --forest: #17110d;
+  --fern: #00756e;
+  --header-solid: #f6f3ef;
   --muted: var(--surface-muted);
-  --muted-foreground: #4a5658;
+  --muted-foreground: #6a635c;
   --popover: var(--surface);
   --popover-foreground: var(--foreground);
   --border: var(--border-subtle);
@@ -265,7 +276,10 @@ body {
 }
 .journiq-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.13);
+  /* Warm ink, not pure black: on the light rendition's warm ground
+     (#f6f3ef) a neutral-black shadow reads as a cold gray smudge. Same
+     alpha, same geometry -- only the hue is pulled onto the palette's ink. */
+  box-shadow: 0 10px 24px rgba(27, 22, 18, 0.13);
 }
 /* Applied by components/site-header.tsx only while on the home route and
    above the scroll threshold -- see that file for why the header itself
@@ -470,7 +484,7 @@ body {
   --drag-rotate: 0deg;
   border-radius: 28px;
   overflow: hidden;
-  box-shadow: 0 28px 78px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 28px 78px rgba(27, 22, 18, 0.55);
   transform-origin: 50% 96%;
   transform: translate3d(
       calc(var(--stack-x) + var(--drag-x)),

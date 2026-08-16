@@ -102,9 +102,9 @@ export function ContentImportPanel({
   }
 
   return (
-    <div className="rounded-md border border-black/10 p-4 dark:border-white/10">
+    <div className="rounded-md border border-border-subtle p-4">
       <h2 className="text-sm font-semibold">Import content</h2>
-      <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+      <p className="mt-1 text-xs text-muted-foreground">
         Paste plain text or rich HTML from the contributor&apos;s original
         submission. Preview the conversion before using it — this replaces the
         story body below.
@@ -136,27 +136,27 @@ export function ContentImportPanel({
         placeholder={
           format === "html" ? "<p>Pasted HTML…</p>" : "Pasted plain text…"
         }
-        className="mt-2 w-full rounded-md border border-black/15 px-3 py-2 font-mono text-xs dark:border-white/15 dark:bg-transparent"
+        className="mt-2 w-full rounded-md border border-border-subtle px-3 py-2 font-mono text-xs dark:bg-transparent"
       />
 
       <button
         type="button"
         onClick={handlePreview}
         disabled={converting || rawInput.trim().length === 0 || disabled}
-        className="mt-2 rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium disabled:opacity-60 dark:border-white/15"
+        className="mt-2 rounded-md border border-border-subtle px-3 py-1.5 text-sm font-medium disabled:opacity-60"
       >
         {converting ? "Converting…" : "Preview conversion"}
       </button>
 
       {error && (
-        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-2 text-sm text-destructive">
           {error}
         </p>
       )}
 
       {preview && (
         <div className="mt-4 space-y-3">
-          <div className="rounded-md border border-black/10 bg-black/[0.02] p-3 text-xs dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="rounded-md border border-border-subtle bg-black/[0.02] p-3 text-xs dark:bg-white/[0.03]">
             <p>{preview.report.blocksProduced} block(s) produced.</p>
             {preview.report.convertedTables > 0 && (
               <p>
@@ -194,7 +194,7 @@ export function ContentImportPanel({
             )}
           </div>
 
-          <div className="max-h-64 overflow-y-auto rounded-md border border-black/10 p-3 dark:border-white/10">
+          <div className="max-h-64 overflow-y-auto rounded-md border border-border-subtle p-3">
             <ContentBlockRenderer blocks={preview.blocks} />
           </div>
 
@@ -207,7 +207,7 @@ export function ContentImportPanel({
             {applying ? "Applying…" : "Use this content"}
           </button>
           {applyError && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="text-sm text-destructive">
               {applyError}
             </p>
           )}

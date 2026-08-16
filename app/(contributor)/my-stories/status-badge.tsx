@@ -14,7 +14,7 @@ const STATUS_STYLES: Record<string, string> = {
   pending_review: "bg-tag-background text-tag-foreground",
   changes_requested: "bg-accent/15 text-accent",
   published: "bg-fern/15 text-fern",
-  rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  rejected: "bg-destructive/12 text-destructive",
   archived: "bg-surface-muted text-foreground/45",
 };
 

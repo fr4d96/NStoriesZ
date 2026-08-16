@@ -27,7 +27,7 @@ export default async function SignInPage({
       {params.error === "invalid_link" && (
         <p
           role="alert"
-          className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+          className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           That link is invalid or has expired. Please try again.
         </p>

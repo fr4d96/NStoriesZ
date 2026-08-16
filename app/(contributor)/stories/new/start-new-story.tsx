@@ -45,7 +45,7 @@ export function StartNewStory() {
   if (error) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center sm:px-6">
-        <p role="alert" className="text-red-600 dark:text-red-400">
+        <p role="alert" className="text-destructive">
           {error}
         </p>
         <Link

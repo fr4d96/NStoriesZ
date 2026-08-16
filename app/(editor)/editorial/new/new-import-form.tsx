@@ -25,7 +25,7 @@ export function NewImportForm({
   return (
     <form action={formAction} className="mt-6 space-y-6">
       {state.error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="text-sm text-destructive">
           {state.error}
         </p>
       )}
@@ -40,7 +40,7 @@ export function NewImportForm({
           type="text"
           required
           maxLength={200}
-          className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
         />
       </div>
 
@@ -74,7 +74,7 @@ export function NewImportForm({
           <select
             name="existingContributorId"
             required
-            className="mt-3 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+            className="mt-3 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
           >
             {contributors.length === 0 && (
               <option value="">No contributors yet</option>
@@ -100,7 +100,7 @@ export function NewImportForm({
                 type="text"
                 required
                 maxLength={120}
-                className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
               />
             </div>
             <div>
@@ -114,7 +114,7 @@ export function NewImportForm({
                 id="new-contributor-attribution"
                 name="newContributorAttributionType"
                 defaultValue="display_name"
-                className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
               >
                 <option value="real_name">Real name</option>
                 <option value="display_name">Display name</option>

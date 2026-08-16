@@ -91,12 +91,12 @@ export function TagEditor({
             Locations -- kept local rather than shared, since it's three
             lines and this component has no other dependency on that file.
             Enforced on the preview page's submit gate, not here. */}
-        <span className="text-red-600 dark:text-red-400">
+        <span className="text-destructive">
           <span aria-hidden="true"> *</span>
           <span className="sr-only"> required</span>
         </span>
       </legend>
-      <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+      <p className="mt-1 text-xs text-muted-foreground">
         What was this trip about — the work, the places, the practicalities. Add
         your own if you don&apos;t see it. Up to {MAX_TAGS_PER_REVISION}.
       </p>
@@ -111,7 +111,7 @@ export function TagEditor({
                   type="button"
                   onClick={() => removeTag(index)}
                   aria-label={`Remove tag ${tag.name}`}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/15"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-surface-muted"
                 >
                   <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -156,7 +156,7 @@ export function TagEditor({
               if (selected.length > 0) removeTag(selected.length - 1);
             }
           }}
-          className="min-w-0 flex-1 rounded-md border border-black/15 px-3 py-2 text-sm disabled:opacity-60 sm:flex-none sm:w-64 dark:border-white/15 dark:bg-transparent"
+          className="min-w-0 flex-1 rounded-md border border-border-subtle px-3 py-2 text-sm disabled:opacity-60 sm:flex-none sm:w-64 dark:bg-transparent"
         />
         <datalist id={listId}>
           {unusedSuggestions.map((tag) => (
@@ -167,7 +167,7 @@ export function TagEditor({
           type="button"
           onClick={() => addTag(draft)}
           disabled={atCap || draft.trim() === ""}
-          className="rounded-md border border-black/15 px-3 py-2 text-sm font-medium disabled:opacity-50 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+          className="rounded-md border border-border-subtle px-3 py-2 text-sm font-medium disabled:opacity-50 hover:bg-surface-muted"
         >
           Add
         </button>
@@ -177,7 +177,7 @@ export function TagEditor({
         <p
           id={noticeId}
           role="status"
-          className="mt-1 text-xs text-black/60 dark:text-white/60"
+          className="mt-1 text-xs text-muted-foreground"
         >
           {notice}
         </p>

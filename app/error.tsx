@@ -19,7 +19,7 @@ export default function Error({
       <h1 className="text-2xl font-semibold tracking-tight">
         Something went wrong
       </h1>
-      <p className="mt-4 text-black/70 dark:text-white/70">
+      <p className="mt-4 text-muted-foreground">
         Please try again. If this keeps happening, contact us and mention this
         reference: {error.digest ?? "n/a"}.
       </p>

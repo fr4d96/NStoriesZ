@@ -13,7 +13,7 @@ export async function ReadinessNav() {
   const avatarEmoji = await getCurrentUserAvatarEmoji();
 
   return (
-    <header className="border-b border-black/10 dark:border-white/10">
+    <header className="border-b border-border-subtle">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           Kakinotes — Content Readiness

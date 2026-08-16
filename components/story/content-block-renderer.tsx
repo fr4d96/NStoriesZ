@@ -56,7 +56,7 @@ function MediaEmbed({
       <span
         aria-label="Loading image"
         style={{ ...dimensionStyle, aspectRatio: width ? undefined : "16 / 9" }}
-        className={`${frameClassName} flex items-center justify-center bg-black/5 text-black/40 dark:bg-white/5 dark:text-white/40`}
+        className={`${frameClassName} flex items-center justify-center bg-surface-muted text-muted-foreground`}
       >
         <Spinner className="h-6 w-6" />
       </span>
@@ -128,7 +128,7 @@ function buildComponents(media: ContentBlockMediaMap): Components {
     },
     blockquote({ children }) {
       return (
-        <blockquote className="border-l-2 border-black/20 pl-4 italic dark:border-white/20">
+        <blockquote className="border-l-2 border-border-subtle pl-4 italic">
           {children}
         </blockquote>
       );
@@ -168,14 +168,14 @@ function buildComponents(media: ContentBlockMediaMap): Components {
     },
     th({ children }) {
       return (
-        <th className="min-w-24 border border-black/10 p-2 text-left align-top font-semibold dark:border-white/10">
+        <th className="min-w-24 border border-border-subtle p-2 text-left align-top font-semibold">
           {children}
         </th>
       );
     },
     td({ children }) {
       return (
-        <td className="min-w-24 border border-black/10 p-2 align-top dark:border-white/10">
+        <td className="min-w-24 border border-border-subtle p-2 align-top">
           {children}
         </td>
       );
@@ -184,13 +184,13 @@ function buildComponents(media: ContentBlockMediaMap): Components {
       const isBlock = /language-/.test(className ?? "");
       if (isBlock) {
         return (
-          <code className="block overflow-x-auto rounded-md bg-black/5 p-3 font-mono text-sm dark:bg-white/10">
+          <code className="block overflow-x-auto rounded-md bg-surface-muted p-3 font-mono text-sm">
             {children}
           </code>
         );
       }
       return (
-        <code className="rounded bg-black/5 px-1 py-0.5 font-mono text-sm dark:bg-white/10">
+        <code className="rounded bg-surface-muted px-1 py-0.5 font-mono text-sm">
           {children}
         </code>
       );

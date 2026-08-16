@@ -24,7 +24,7 @@ export function ResetPasswordForm() {
           autoComplete="new-password"
           minLength={6}
           required
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
         />
       </div>
 
@@ -39,12 +39,12 @@ export function ResetPasswordForm() {
           autoComplete="new-password"
           minLength={6}
           required
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
         />
       </div>
 
       {state.error && (
-        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="text-sm text-destructive">
           {state.error}
         </p>
       )}

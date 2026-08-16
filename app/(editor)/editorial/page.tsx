@@ -81,14 +81,14 @@ export default async function EditorialDashboardPage({
 
       <form
         method="get"
-        className="mt-6 flex flex-wrap items-end gap-3 rounded-md border border-black/10 p-4 text-sm dark:border-white/10"
+        className="mt-6 flex flex-wrap items-end gap-3 rounded-md border border-border-subtle p-4 text-sm"
       >
         <label className="flex flex-col gap-1">
           Status
           <select
             name="status"
             defaultValue={filters.status ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             <option value="draft">Draft</option>
@@ -109,7 +109,7 @@ export default async function EditorialDashboardPage({
             name="search"
             defaultValue={filters.search ?? ""}
             placeholder="Title or slug"
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
         </label>
         <button
@@ -122,11 +122,11 @@ export default async function EditorialDashboardPage({
 
       <div className="mt-8" aria-live="polite">
         {loadError ? (
-          <p className="text-black/70 dark:text-white/70">
+          <p className="text-muted-foreground">
             Could not load the editorial queue right now.
           </p>
         ) : stories.length === 0 ? (
-          <p className="text-black/70 dark:text-white/70">
+          <p className="text-muted-foreground">
             Nothing matches these filters.{" "}
             <Link
               href="/editorial/new"
@@ -137,7 +137,7 @@ export default async function EditorialDashboardPage({
             .
           </p>
         ) : (
-          <ul className="divide-y divide-black/10 dark:divide-white/10">
+          <ul className="divide-y divide-border-subtle">
             {stories.map((story) => (
               <li
                 key={story.story_id}
@@ -148,7 +148,7 @@ export default async function EditorialDashboardPage({
                     <span className="font-medium">{story.slug}</span>
                     <StatusBadge status={story.lifecycle_status} />
                   </div>
-                  <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {story.assigned_editor_id ? "Assigned" : "Unclaimed"} —
                     updated{" "}
                     {new Date(story.updated_at).toLocaleDateString("en-NZ")}
@@ -171,9 +171,7 @@ export default async function EditorialDashboardPage({
       </div>
 
       <div className="mt-8 flex items-center justify-between text-sm">
-        <span className="text-black/60 dark:text-white/60">
-          {totalCount} total
-        </span>
+        <span className="text-muted-foreground">{totalCount} total</span>
         <div className="flex gap-3">
           {hasPrevPage && (
             <Link

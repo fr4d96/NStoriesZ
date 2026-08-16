@@ -11,7 +11,7 @@ export default function SignUpPage() {
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Create your account
       </h1>
-      <p className="mt-2 text-sm text-black/70 dark:text-white/70">
+      <p className="mt-2 text-sm text-muted-foreground">
         Kakinotes publishes real, personal experiences — not advice. You&apos;ll
         choose how your name appears before anything you write is public.
       </p>

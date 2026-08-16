@@ -105,7 +105,7 @@ function formatCamelCaseLabel(value: string): string {
  */
 function RequiredMark() {
   return (
-    <span className="text-red-600 dark:text-red-400">
+    <span className="text-destructive">
       <span aria-hidden="true"> *</span>
       <span className="sr-only"> required</span>
     </span>
@@ -549,7 +549,7 @@ export function StoryEditForm({
           {isNewStory ? "New Story" : "Edit Story"}
         </h1>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-black/60 dark:text-white/60" aria-live="polite">
+          <span className="text-muted-foreground" aria-live="polite">
             {saving ? "Saving…" : "Saved"}
           </span>
           <Link
@@ -579,7 +579,7 @@ export function StoryEditForm({
         </div>
       )}
       {saveError && !conflict && (
-        <p role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-4 text-sm text-destructive">
           {saveError}
         </p>
       )}
@@ -599,7 +599,7 @@ export function StoryEditForm({
               setTitle(e.target.value);
               scheduleSave({ title: e.target.value });
             }}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
           />
         </div>
 
@@ -616,7 +616,7 @@ export function StoryEditForm({
               setExcerpt(e.target.value);
               scheduleSave({ excerpt: e.target.value });
             }}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
           />
         </div>
 
@@ -679,7 +679,7 @@ export function StoryEditForm({
           {dateMode === "range" ? (
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <label className="flex items-center gap-2 text-sm">
-                <span className="text-black/60 dark:text-white/60">From</span>
+                <span className="text-muted-foreground">From</span>
                 <input
                   type="date"
                   value={tripStartDate}
@@ -687,12 +687,12 @@ export function StoryEditForm({
                     setTripStartDate(e.target.value);
                     scheduleSave({ tripStartDate: e.target.value });
                   }}
-                  className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+                  className="rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
                   aria-label="Trip start date"
                 />
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <span className="text-black/60 dark:text-white/60">To</span>
+                <span className="text-muted-foreground">To</span>
                 <input
                   type="date"
                   value={tripEndDate}
@@ -700,7 +700,7 @@ export function StoryEditForm({
                     setTripEndDate(e.target.value);
                     scheduleSave({ tripEndDate: e.target.value });
                   }}
-                  className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+                  className="rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
                   aria-label="Trip end date"
                 />
               </label>
@@ -715,7 +715,7 @@ export function StoryEditForm({
                 setTripYear(e.target.value);
                 scheduleSave({ tripYear: e.target.value });
               }}
-              className="mt-2 w-32 rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+              className="mt-2 w-32 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
               aria-label="Trip year"
             />
           )}
@@ -745,7 +745,7 @@ export function StoryEditForm({
               setTravelStyle(value);
               scheduleSave({ travelStyle: value });
             }}
-            className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
           >
             <option value="">Not specified</option>
             {travelStyles.map((style) => (
@@ -765,7 +765,7 @@ export function StoryEditForm({
                 setTravelStyle(e.target.value);
                 scheduleSave({ travelStyle: e.target.value });
               }}
-              className="mt-2 w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+              className="mt-2 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
               aria-label="Other travel style (type your own)"
             />
           )}
@@ -785,7 +785,7 @@ export function StoryEditForm({
               setExpenseDollars(e.target.value);
               scheduleSave({ expenseDollars: e.target.value });
             }}
-            className="mt-1 w-40 rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+            className="mt-1 w-40 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
           />
         </div>
 
@@ -801,7 +801,7 @@ export function StoryEditForm({
               onMatch={handleLocationMatch}
             />
             {locationSearchNotice && (
-              <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {locationSearchNotice}
               </p>
             )}
@@ -817,7 +817,7 @@ export function StoryEditForm({
                       destinationId: null,
                     })
                   }
-                  className="rounded-md border border-black/15 px-2 py-1.5 text-sm dark:border-white/15 dark:bg-transparent"
+                  className="rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
                 >
                   {regions.map((r) => (
                     <option key={r.id} value={r.id}>
@@ -830,7 +830,7 @@ export function StoryEditForm({
                   onChange={(e) =>
                     updateLocation(i, { destinationId: e.target.value || null })
                   }
-                  className="rounded-md border border-black/15 px-2 py-1.5 text-sm dark:border-white/15 dark:bg-transparent"
+                  className="rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
                 >
                   <option value="">Whole region</option>
                   {destinationsForRegion(loc.regionId).map((d) => (
@@ -842,7 +842,7 @@ export function StoryEditForm({
                 <button
                   type="button"
                   onClick={() => removeLocation(i)}
-                  className="text-sm text-red-600 underline underline-offset-2 dark:text-red-400"
+                  className="text-sm text-destructive underline underline-offset-2"
                 >
                   Remove
                 </button>
@@ -864,14 +864,14 @@ export function StoryEditForm({
           onChange={changeTags}
         />
 
-        <details className="rounded-md border border-black/10 dark:border-white/10">
+        <details className="rounded-md border border-border-subtle">
           <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
             Note to editors{" "}
-            <span className="font-normal text-black/50 dark:text-white/50">
+            <span className="font-normal text-muted-foreground">
               (optional, private, never published)
             </span>
           </summary>
-          <div className="border-t border-black/10 p-3 dark:border-white/10">
+          <div className="border-t border-border-subtle p-3">
             <label htmlFor="edit-note" className="sr-only">
               Note to editors
             </label>
@@ -884,16 +884,16 @@ export function StoryEditForm({
                 setContributorNote(e.target.value);
                 scheduleSave({ contributorNote: e.target.value });
               }}
-              className="w-full rounded-md border border-black/15 px-3 py-2 dark:border-white/15 dark:bg-transparent"
+              className="w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
             />
           </div>
         </details>
 
-        <details className="rounded-md border border-black/10 dark:border-white/10">
+        <details className="rounded-md border border-border-subtle">
           <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
             Images{initialMedia.length > 0 ? ` (${initialMedia.length})` : ""}
           </summary>
-          <div className="border-t border-black/10 p-3 dark:border-white/10">
+          <div className="border-t border-border-subtle p-3">
             <ImageUploadManager
               storyId={storyId}
               revisionId={revisionId}
@@ -907,7 +907,7 @@ export function StoryEditForm({
           </div>
         </details>
 
-        <div className="flex justify-end border-t border-black/10 pt-6 dark:border-white/10">
+        <div className="flex justify-end border-t border-border-subtle pt-6">
           <Link
             href={`/stories/${storyId}/preview`}
             className="journiq-button bg-accent text-sm text-accent-foreground"

@@ -82,14 +82,14 @@ export default async function ModerationStoriesQueuePage({
 
       <form
         method="get"
-        className="mt-6 grid grid-cols-2 gap-3 rounded-md border border-black/10 p-4 text-sm sm:grid-cols-4 dark:border-white/10"
+        className="mt-6 grid grid-cols-2 gap-3 rounded-md border border-border-subtle p-4 text-sm sm:grid-cols-4"
       >
         <label className="flex flex-col gap-1">
           Status
           <select
             name="status"
             defaultValue={filters.status ?? "submitted"}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="submitted">Submitted (actionable)</option>
             <option value="recently_reviewed">Recently reviewed</option>
@@ -100,7 +100,7 @@ export default async function ModerationStoriesQueuePage({
           <select
             name="sourceKind"
             defaultValue={filters.sourceKind ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             <option value="self_service">Self-service</option>
@@ -112,7 +112,7 @@ export default async function ModerationStoriesQueuePage({
           <select
             name="regionId"
             defaultValue={filters.regionId ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             {regions.map((r) => (
@@ -127,7 +127,7 @@ export default async function ModerationStoriesQueuePage({
           <select
             name="consentMethod"
             defaultValue={filters.consentMethod ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             <option value="account">Account</option>
@@ -143,7 +143,7 @@ export default async function ModerationStoriesQueuePage({
             type="date"
             name="dateFrom"
             defaultValue={filters.dateFrom ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -152,7 +152,7 @@ export default async function ModerationStoriesQueuePage({
             type="date"
             name="dateTo"
             defaultValue={filters.dateTo ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           />
         </label>
         <div className="flex items-end">
@@ -167,15 +167,15 @@ export default async function ModerationStoriesQueuePage({
 
       <div className="mt-8" aria-live="polite">
         {loadError ? (
-          <p className="rounded-md border border-black/10 bg-black/5 p-6 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="rounded-md border border-border-subtle bg-surface-muted p-6 text-sm">
             Could not load the queue right now. Please try again.
           </p>
         ) : rows.length === 0 ? (
-          <p className="rounded-md border border-black/10 bg-black/5 p-6 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="rounded-md border border-border-subtle bg-surface-muted p-6 text-sm">
             Nothing matches these filters.
           </p>
         ) : (
-          <ul className="divide-y divide-black/10 dark:divide-white/10">
+          <ul className="divide-y divide-border-subtle">
             {rows.map((row) => (
               <li
                 key={row.revision_id}
@@ -184,12 +184,12 @@ export default async function ModerationStoriesQueuePage({
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{row.title}</span>
-                    <span className="rounded-full bg-black/10 px-2 py-0.5 text-xs dark:bg-white/10">
+                    <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs">
                       {SUBMISSION_KIND_LABELS[row.submission_kind] ??
                         row.submission_kind}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     /{row.slug}
                     {row.submitted_at
                       ? ` — submitted ${new Date(row.submitted_at).toLocaleString("en-NZ")}`
@@ -209,9 +209,7 @@ export default async function ModerationStoriesQueuePage({
       </div>
 
       <div className="mt-8 flex items-center justify-between text-sm">
-        <span className="text-black/60 dark:text-white/60">
-          {totalCount} total
-        </span>
+        <span className="text-muted-foreground">{totalCount} total</span>
         <div className="flex gap-3">
           {hasPrevPage && (
             <Link

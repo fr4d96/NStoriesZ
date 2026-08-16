@@ -22,7 +22,7 @@ export default async function ResetPasswordPage() {
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Link expired
         </h1>
-        <p className="mt-4 text-sm text-black/70 dark:text-white/70">
+        <p className="mt-4 text-sm text-muted-foreground">
           This password reset link is invalid or has already been used.
         </p>
         <p className="mt-4 text-sm">

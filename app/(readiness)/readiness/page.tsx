@@ -104,7 +104,7 @@ export default async function ReadinessDashboardPage({
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         Content readiness
       </h1>
-      <p className="mt-2 max-w-2xl text-sm text-black/60 dark:text-white/60">
+      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
         An operational checklist for the founding catalogue, not legal advice.
         Nothing here changes a story&apos;s publication state — it only shows
         where each story stands.
@@ -115,14 +115,12 @@ export default async function ReadinessDashboardPage({
           {METRIC_LABELS.map((m) => (
             <div
               key={m.key}
-              className="rounded-md border border-black/10 p-3 text-center dark:border-white/10"
+              className="rounded-md border border-border-subtle p-3 text-center"
             >
               <div className="text-xl font-semibold">
                 {String((metrics as Record<string, unknown>)[m.key] ?? 0)}
               </div>
-              <div className="text-xs text-black/60 dark:text-white/60">
-                {m.label}
-              </div>
+              <div className="text-xs text-muted-foreground">{m.label}</div>
             </div>
           ))}
         </div>
@@ -130,14 +128,14 @@ export default async function ReadinessDashboardPage({
 
       <form
         method="get"
-        className="mt-8 grid grid-cols-2 gap-3 rounded-md border border-black/10 p-4 text-sm sm:grid-cols-3 dark:border-white/10"
+        className="mt-8 grid grid-cols-2 gap-3 rounded-md border border-border-subtle p-4 text-sm sm:grid-cols-3"
       >
         <label className="flex flex-col gap-1">
           Source
           <select
             name="sourceKind"
             defaultValue={filters.sourceKind ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             <option value="self_submitted">Self-service</option>
@@ -149,7 +147,7 @@ export default async function ReadinessDashboardPage({
           <select
             name="lifecycleStatus"
             defaultValue={filters.lifecycleStatus ?? ""}
-            className="rounded-md border border-black/15 px-2 py-1 dark:border-white/15 dark:bg-transparent"
+            className="rounded-md border border-border-subtle px-2 py-1 dark:bg-transparent"
           >
             <option value="">Any</option>
             <option value="draft">Draft</option>
@@ -175,11 +173,11 @@ export default async function ReadinessDashboardPage({
 
       <div className="mt-8" aria-live="polite">
         {loadError ? (
-          <p className="rounded-md border border-black/10 bg-black/5 p-6 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="rounded-md border border-border-subtle bg-surface-muted p-6 text-sm">
             Could not load the readiness queue right now. Please try again.
           </p>
         ) : rows.length === 0 ? (
-          <p className="rounded-md border border-black/10 bg-black/5 p-6 text-sm dark:border-white/10 dark:bg-white/5">
+          <p className="rounded-md border border-border-subtle bg-surface-muted p-6 text-sm">
             Nothing matches these filters.
           </p>
         ) : (
@@ -187,14 +185,14 @@ export default async function ReadinessDashboardPage({
             {rows.map((row) => (
               <li
                 key={row.story_id}
-                className="rounded-md border border-black/10 p-4 dark:border-white/10"
+                className="rounded-md border border-border-subtle p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <span className="font-medium">
                       {row.title ?? "(untitled)"}
                     </span>{" "}
-                    <span className="text-xs text-black/60 dark:text-white/60">
+                    <span className="text-xs text-muted-foreground">
                       /{row.slug} · {row.source_kind} · {row.lifecycle_status}
                     </span>
                   </div>
@@ -207,7 +205,7 @@ export default async function ReadinessDashboardPage({
                     </Link>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-black/60 dark:text-white/60">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Contributor: {row.contributor_display_name} (
                   {row.contributor_linked ? "linked" : "unlinked"}) —{" "}
                   {row.attribution_type}
@@ -232,7 +230,7 @@ export default async function ReadinessDashboardPage({
                 </div>
 
                 {row.last_moderation_reason && (
-                  <p className="mt-2 text-xs text-black/60 dark:text-white/60">
+                  <p className="mt-2 text-xs text-muted-foreground">
                     Last moderation note: {row.last_moderation_reason}
                   </p>
                 )}
@@ -252,9 +250,7 @@ export default async function ReadinessDashboardPage({
       </div>
 
       <div className="mt-8 flex items-center justify-between text-sm">
-        <span className="text-black/60 dark:text-white/60">
-          {totalCount} total
-        </span>
+        <span className="text-muted-foreground">{totalCount} total</span>
         <div className="flex gap-3">
           {hasPrevPage && (
             <Link

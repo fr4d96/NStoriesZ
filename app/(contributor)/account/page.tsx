@@ -57,7 +57,7 @@ export default async function AccountPage() {
           absence of the row, not by a one-shot query parameter, so it also
           catches anyone who skipped the step and came back later. */}
       {!contributor && (
-        <div className="mt-6 rounded-md border border-black/15 bg-surface-muted p-4 text-sm dark:border-white/15">
+        <div className="mt-6 rounded-md border border-border-subtle bg-surface-muted p-4 text-sm">
           <p className="font-medium">Set your contributor identity to start</p>
           <p className="mt-1 text-foreground/70">
             It&apos;s how your stories are attributed, and you need one before

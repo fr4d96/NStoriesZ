@@ -14,10 +14,7 @@ export function ForgotPasswordForm() {
 
   if (state.success) {
     return (
-      <p
-        role="status"
-        className="mt-8 text-sm text-black/70 dark:text-white/70"
-      >
+      <p role="status" className="mt-8 text-sm text-muted-foreground">
         {state.success}
       </p>
     );
@@ -35,7 +32,7 @@ export function ForgotPasswordForm() {
           type="email"
           autoComplete="email"
           required
-          className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
         />
       </div>
 
@@ -47,7 +44,7 @@ export function ForgotPasswordForm() {
         {pending ? "Sending…" : "Send reset link"}
       </button>
 
-      <p className="text-sm text-black/70 dark:text-white/70">
+      <p className="text-sm text-muted-foreground">
         <Link href="/sign-in" className="hover:underline">
           Back to sign in
         </Link>

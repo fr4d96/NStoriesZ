@@ -327,13 +327,13 @@ export function ImageUploadManager({
           className={`flex w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors ${
             isDragging
               ? "border-accent bg-accent/5"
-              : "border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10"
+              : "border-border-subtle hover:bg-surface-muted"
           }`}
         >
           <span className="text-sm font-medium">
             Drag and drop images here, or click to browse
           </span>
-          <span className="text-sm text-black/60 dark:text-white/60">
+          <span className="text-sm text-muted-foreground">
             Up to {MAX_IMAGES_PER_REVISION} images, JPEG/PNG/WebP, 15 MB each.
           </span>
         </label>
@@ -358,8 +358,8 @@ export function ImageUploadManager({
               key={u.key}
               className={`flex items-center gap-1.5 ${
                 u.progress === "error"
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-black/70 dark:text-white/70"
+                  ? "text-destructive"
+                  : "text-muted-foreground"
               }`}
             >
               {u.progress !== "error" && <Spinner className="h-3.5 w-3.5" />}
@@ -377,7 +377,7 @@ export function ImageUploadManager({
       )}
 
       {inlineMediaIds.size > 0 && (
-        <p className="text-sm text-black/60 dark:text-white/60">
+        <p className="text-sm text-muted-foreground">
           {inlineMediaIds.size === 1
             ? "1 image placed in your story text isn't shown here — remove it from the text to manage it below again."
             : `${inlineMediaIds.size} images placed in your story text aren't shown here — remove them from the text to manage them below again.`}
@@ -398,9 +398,9 @@ export function ImageUploadManager({
             return (
               <li
                 key={item.mediaId}
-                className="space-y-2 rounded-md border border-black/10 p-2 dark:border-white/10"
+                className="space-y-2 rounded-md border border-border-subtle p-2"
               >
-                <div className="relative aspect-square overflow-hidden rounded bg-black/5 dark:bg-white/5">
+                <div className="relative aspect-square overflow-hidden rounded bg-surface-muted">
                   {thumbnails[item.mediaId] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
                     <img
@@ -409,12 +409,12 @@ export function ImageUploadManager({
                       className="h-full w-full object-cover"
                     />
                   ) : item.processingState === "failed" ? (
-                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-black/50 dark:text-white/50">
+                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
                       {PROCESSING_LABELS[item.processingState]}
                     </div>
                   ) : (
                     <div
-                      className="flex h-full w-full items-center justify-center text-black/40 dark:text-white/40"
+                      className="flex h-full w-full items-center justify-center text-muted-foreground"
                       aria-label={
                         PROCESSING_LABELS[item.processingState] ??
                         item.processingState
@@ -457,7 +457,7 @@ export function ImageUploadManager({
                       updateCaption(item.mediaId, { altText: e.target.value })
                     }
                     placeholder="Alt text (required)"
-                    className="w-full rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+                    className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
                   />
                 )}
 
@@ -468,7 +468,7 @@ export function ImageUploadManager({
                     updateCaption(item.mediaId, { caption: e.target.value })
                   }
                   placeholder="Caption (optional)"
-                  className="w-full rounded border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+                  className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
                 />
 
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -506,7 +506,7 @@ export function ImageUploadManager({
                   <button
                     type="button"
                     onClick={() => detach(item.mediaId)}
-                    className="text-red-600 underline underline-offset-2 dark:text-red-400"
+                    className="text-destructive underline underline-offset-2"
                   >
                     Remove
                   </button>

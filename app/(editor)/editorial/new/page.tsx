@@ -17,7 +17,7 @@ export default async function NewEditorialImportPage() {
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
         New Editorial Import
       </h1>
-      <p className="mt-2 text-sm text-black/60 dark:text-white/60">
+      <p className="mt-2 text-sm text-muted-foreground">
         Start a founding-catalogue import for an existing or new contributor
         record. You&apos;ll add the story content, images, and attribution
         details on the next page.

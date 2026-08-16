@@ -41,7 +41,7 @@ export default async function EditorialEditPage({
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Awaiting contributor review
         </h1>
-        <p className="mt-2 text-black/70 dark:text-white/70">
+        <p className="mt-2 text-muted-foreground">
           This draft has been sent to the linked contributor for review and is
           frozen until they approve, request changes, or decline it.
         </p>
@@ -66,7 +66,7 @@ export default async function EditorialEditPage({
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Not editable right now
         </h1>
-        <p className="mt-2 text-black/70 dark:text-white/70">
+        <p className="mt-2 text-muted-foreground">
           This story&apos;s current revision is{" "}
           {draft.revision_status.replace(/_/g, " ")} and can&apos;t be edited
           from this page.

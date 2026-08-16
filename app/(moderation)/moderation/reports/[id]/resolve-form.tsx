@@ -59,14 +59,14 @@ export function ResolveReportForm({
             role={state.error ? "alert" : "status"}
             className={
               state.error
-                ? "text-sm text-red-700 dark:text-red-400"
+                ? "text-sm text-destructive"
                 : "text-sm text-green-800 dark:text-green-400"
             }
           >
             {message}
           </p>
         )}
-        <p className="mt-2 text-sm text-black/60 dark:text-white/60">
+        <p className="mt-2 text-sm text-muted-foreground">
           This report is already {currentStatus} and cannot be reopened --
           resolve_report() rejects any further transition once closed.
         </p>
@@ -85,7 +85,7 @@ export function ResolveReportForm({
           onChange={(e) =>
             setStatus(e.target.value as "reviewing" | "resolved" | "dismissed")
           }
-          className="mt-1 block rounded-md border border-black/15 px-2 py-1 text-sm dark:border-white/15 dark:bg-transparent"
+          className="mt-1 block rounded-md border border-border-subtle px-2 py-1 text-sm dark:bg-transparent"
         >
           <option value="reviewing">Mark as reviewing</option>
           <option value="resolved">Resolve</option>
@@ -103,7 +103,7 @@ export function ResolveReportForm({
               ? "Required for this category when closing a report (e.g. what was verified, what action was taken)."
               : "Optional"
           }
-          className="mt-1 w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
         />
         {noteRequired && (
           <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">
@@ -119,7 +119,7 @@ export function ResolveReportForm({
         {pending ? "Saving…" : "Save"}
       </button>
       {state.error && (
-        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+        <p role="alert" className="text-sm text-destructive">
           {state.error}
         </p>
       )}

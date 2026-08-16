@@ -35,7 +35,7 @@ export function VerifyForm({
 
   return (
     <details className="mt-2 text-xs">
-      <summary className="cursor-pointer text-black/60 dark:text-white/60">
+      <summary className="cursor-pointer text-muted-foreground">
         {lastVerifiedAt
           ? `Last verified ${new Date(lastVerifiedAt).toLocaleDateString("en-NZ")} (desktop: ${lastVerifiedDesktop ? "yes" : "no"}, mobile: ${lastVerifiedMobile ? "yes" : "no"})`
           : "Not yet verified live"}
@@ -54,17 +54,17 @@ export function VerifyForm({
           name="note"
           rows={2}
           placeholder="Optional note"
-          className="w-full rounded-md border border-black/15 px-2 py-1 text-xs dark:border-white/15 dark:bg-transparent"
+          className="w-full rounded-md border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
         />
         <button
           type="submit"
           disabled={pending}
-          className="w-fit rounded-md border border-black/15 px-2 py-1 text-xs font-medium disabled:opacity-60 dark:border-white/15"
+          className="w-fit rounded-md border border-border-subtle px-2 py-1 text-xs font-medium disabled:opacity-60"
         >
           {pending ? "Recording…" : "Record verification"}
         </button>
         {state.error && (
-          <p role="alert" className="text-red-600 dark:text-red-400">
+          <p role="alert" className="text-destructive">
             {state.error}
           </p>
         )}

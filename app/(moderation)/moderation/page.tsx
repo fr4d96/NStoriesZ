@@ -28,13 +28,13 @@ export default function ModerationLandingPage() {
           >
             Stories queue
           </Link>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+          <p className="mt-1 text-sm text-muted-foreground">
             Submitted revisions awaiting a decision, plus recently reviewed
             ones.
           </p>
         </li>
       </ul>
-      <p className="mt-10 text-sm text-black/50 dark:text-white/50">
+      <p className="mt-10 text-sm text-muted-foreground">
         A dedicated reports-triage view is planned for a later stage — for now,
         a story&apos;s open reports appear inline on its own review page.
       </p>

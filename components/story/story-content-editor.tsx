@@ -79,14 +79,14 @@ export const StoryContentEditor = forwardRef<
 
   if (!editable) {
     return (
-      <div className="rounded-md border border-black/15 px-3 py-2 dark:border-white/15">
+      <div className="rounded-md border border-border-subtle px-3 py-2">
         <ContentBlockRenderer blocks={initialContent} />
       </div>
     );
   }
 
   return (
-    <div className="rounded-md border border-black/15 dark:border-white/15">
+    <div className="rounded-md border border-border-subtle">
       <MarkdownEditor
         ref={editorRef}
         initialValue={storyContentText(initialContent)}

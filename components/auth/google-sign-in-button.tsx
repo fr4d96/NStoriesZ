@@ -61,24 +61,24 @@ export function GoogleSignInButton({ next = "/account" }: { next?: string }) {
 
   return (
     <div>
-      <div className="my-5 flex items-center gap-3 text-xs font-medium text-black/40 dark:text-white/40">
-        <span className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+      <div className="my-5 flex items-center gap-3 text-xs font-medium text-muted-foreground">
+        <span className="h-px flex-1 bg-surface-muted" />
         or
-        <span className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+        <span className="h-px flex-1 bg-surface-muted" />
       </div>
 
       <button
         type="button"
         onClick={handleClick}
         disabled={pending}
-        className="flex w-full items-center justify-center gap-2.5 rounded-md border border-black/20 px-3 py-2 text-sm font-medium transition-colors hover:bg-black/5 disabled:opacity-60 dark:border-white/20 dark:hover:bg-white/10"
+        className="flex w-full items-center justify-center gap-2.5 rounded-md border border-border-subtle px-3 py-2 text-sm font-medium transition-colors hover:bg-surface-muted disabled:opacity-60"
       >
         <GoogleGlyph />
         {pending ? "Redirecting…" : "Continue with Google"}
       </button>
 
       {error && (
-        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-2 text-sm text-destructive">
           {error}
         </p>
       )}

@@ -59,7 +59,7 @@ export default async function ReportDetailPage({
     return (
       <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Report detail</h1>
-        <p className="mt-4 text-sm text-black/70 dark:text-white/70">
+        <p className="mt-4 text-sm text-muted-foreground">
           This page needs to be reached from the reports queue, which supplies
           the story context this report belongs to.
         </p>
@@ -93,7 +93,7 @@ export default async function ReportDetailPage({
       <h1 className="mt-4 text-2xl font-semibold tracking-tight sm:text-3xl">
         {CATEGORY_LABELS[report.category] ?? report.category}
       </h1>
-      <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+      <p className="mt-1 text-sm text-muted-foreground">
         Reported {new Date(report.created_at).toLocaleString("en-NZ")} — status:{" "}
         {report.status}
       </p>
@@ -107,21 +107,21 @@ export default async function ReportDetailPage({
         </Link>
       </div>
 
-      <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+      <section className="mt-6 rounded-md border border-border-subtle p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Reporter details
         </h2>
-        <p className="mt-2 text-sm text-black/70 dark:text-white/70">
+        <p className="mt-2 text-sm text-muted-foreground">
           {report.details || "No additional details were provided."}
         </p>
       </section>
 
       {(report.handled_by || report.handled_at) && (
-        <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+        <section className="mt-6 rounded-md border border-border-subtle p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Handled
           </h2>
-          <p className="mt-2 text-sm text-black/70 dark:text-white/70">
+          <p className="mt-2 text-sm text-muted-foreground">
             {report.handled_at
               ? new Date(report.handled_at).toLocaleString("en-NZ")
               : "—"}
@@ -130,25 +130,20 @@ export default async function ReportDetailPage({
         </section>
       )}
 
-      <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+      <section className="mt-6 rounded-md border border-border-subtle p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Internal notes (staff only — never shown to the reporter)
         </h2>
         {notes.length === 0 ? (
-          <p className="mt-2 text-sm text-black/50 dark:text-white/50">
+          <p className="mt-2 text-sm text-muted-foreground">
             No internal notes yet.
           </p>
         ) : (
           <ul className="mt-3 space-y-2 text-sm">
             {notes.map((n) => (
-              <li
-                key={n.id}
-                className="border-b border-black/5 pb-2 dark:border-white/5"
-              >
-                <p className="text-black/70 dark:text-white/70">
-                  {n.internal_note}
-                </p>
-                <span className="text-xs text-black/50 dark:text-white/50">
+              <li key={n.id} className="border-b border-border-subtle pb-2">
+                <p className="text-muted-foreground">{n.internal_note}</p>
+                <span className="text-xs text-muted-foreground">
                   {new Date(n.created_at).toLocaleString("en-NZ")}
                 </span>
               </li>
@@ -157,8 +152,8 @@ export default async function ReportDetailPage({
         )}
       </section>
 
-      <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+      <section className="mt-6 rounded-md border border-border-subtle p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Resolution
         </h2>
         <ResolveReportForm

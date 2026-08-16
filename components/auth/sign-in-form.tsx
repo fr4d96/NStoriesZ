@@ -28,7 +28,7 @@ export function SignInForm({ next }: { next: string }) {
             type="email"
             autoComplete="email"
             required
-            className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
           />
         </div>
 
@@ -42,12 +42,12 @@ export function SignInForm({ next }: { next: string }) {
             type="password"
             autoComplete="current-password"
             required
-            className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
           />
         </div>
 
         {state.error && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          <p role="alert" className="text-sm text-destructive">
             {state.error}
           </p>
         )}
@@ -60,12 +60,12 @@ export function SignInForm({ next }: { next: string }) {
           {pending ? "Signing in…" : "Sign in"}
         </button>
 
-        <p className="text-sm text-black/70 dark:text-white/70">
+        <p className="text-sm text-muted-foreground">
           <Link href="/forgot-password" className="hover:underline">
             Forgot your password?
           </Link>
         </p>
-        <p className="text-sm text-black/70 dark:text-white/70">
+        <p className="text-sm text-muted-foreground">
           No account?{" "}
           <Link href="/sign-up" className="hover:underline">
             Sign up

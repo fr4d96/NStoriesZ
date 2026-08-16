@@ -34,9 +34,9 @@ export function WhatsPublicSummary({
   const captionedImageCount = imageCount - decorativeImageCount;
 
   return (
-    <div className="rounded-md border border-black/10 p-4 text-sm dark:border-white/10">
+    <div className="rounded-md border border-border-subtle p-4 text-sm">
       <h2 className="text-sm font-semibold">What will be public</h2>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-black/70 dark:text-white/70">
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
         <li>
           Your name will show as: <strong>{attributionValue}</strong> (
           {attributionLabel})
@@ -58,7 +58,7 @@ export function WhatsPublicSummary({
           </li>
         )}
       </ul>
-      <p className="mt-2 text-xs text-black/60 dark:text-white/60">
+      <p className="mt-2 text-xs text-muted-foreground">
         Internal editor and moderator notes are never shown publicly. You can
         request removal or correction at any time — see{" "}
         <a href="/copyright" className="underline underline-offset-2">

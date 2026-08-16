@@ -51,7 +51,7 @@ export function PreviewGallery({ media }: { media: PreviewableMediaItem[] }) {
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
       {sorted.map((item) => (
         <li key={item.mediaId} className="space-y-1">
-          <div className="aspect-square overflow-hidden rounded-md bg-black/5 dark:bg-white/5">
+          <div className="aspect-square overflow-hidden rounded-md bg-surface-muted">
             {urls[item.mediaId] ? (
               // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL
               <img
@@ -60,12 +60,12 @@ export function PreviewGallery({ media }: { media: PreviewableMediaItem[] }) {
                 className="h-full w-full object-cover"
               />
             ) : errors[item.mediaId] ? (
-              <div className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-black/50 dark:text-white/50">
+              <div className="flex h-full w-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
                 {errors[item.mediaId]}
               </div>
             ) : (
               <div
-                className="flex h-full w-full items-center justify-center text-black/40 dark:text-white/40"
+                className="flex h-full w-full items-center justify-center text-muted-foreground"
                 aria-label="Loading image"
               >
                 <Spinner className="h-6 w-6" />
@@ -73,9 +73,7 @@ export function PreviewGallery({ media }: { media: PreviewableMediaItem[] }) {
             )}
           </div>
           {item.caption && (
-            <p className="text-xs text-black/60 dark:text-white/60">
-              {item.caption}
-            </p>
+            <p className="text-xs text-muted-foreground">{item.caption}</p>
           )}
         </li>
       ))}

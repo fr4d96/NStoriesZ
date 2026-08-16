@@ -110,39 +110,35 @@ export default async function ModerationReviewPage({
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             {detail.title}
           </h1>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
+          <p className="mt-1 text-sm text-muted-foreground">
             /{detail.slug} — revision #{detail.revision_number} (
             {detail.revision_status}){isReplacement ? " — replacement" : ""}
           </p>
         </div>
       </div>
 
-      <section className="mt-8 rounded-md border border-black/10 p-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+      <section className="mt-8 rounded-md border border-border-subtle p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Attribution, consent &amp; image rights
         </h2>
         <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-black/50 dark:text-white/50">Attribution</dt>
+            <dt className="text-muted-foreground">Attribution</dt>
             <dd>
               {detail.attribution_value ?? "—"} (
               {detail.attribution_type ?? "unknown"})
             </dd>
           </div>
           <div>
-            <dt className="text-black/50 dark:text-white/50">Consent valid</dt>
+            <dt className="text-muted-foreground">Consent valid</dt>
             <dd>{detail.consent_valid ? "Yes" : "No"}</dd>
           </div>
           <div>
-            <dt className="text-black/50 dark:text-white/50">
-              Confirmation method
-            </dt>
+            <dt className="text-muted-foreground">Confirmation method</dt>
             <dd>{detail.confirmation_method ?? "—"}</dd>
           </div>
           <div>
-            <dt className="text-black/50 dark:text-white/50">
-              Image rights confirmed
-            </dt>
+            <dt className="text-muted-foreground">Image rights confirmed</dt>
             <dd>
               {detail.image_rights_confirmed_at
                 ? new Date(detail.image_rights_confirmed_at).toLocaleString(
@@ -152,15 +148,11 @@ export default async function ModerationReviewPage({
             </dd>
           </div>
           <div>
-            <dt className="text-black/50 dark:text-white/50">
-              Identifiable people
-            </dt>
+            <dt className="text-muted-foreground">Identifiable people</dt>
             <dd>{detail.identifiable_people_state ?? "—"}</dd>
           </div>
           <div>
-            <dt className="text-black/50 dark:text-white/50">
-              All media processed
-            </dt>
+            <dt className="text-muted-foreground">All media processed</dt>
             <dd>{detail.media_processed ? "Yes" : "No"}</dd>
           </div>
         </dl>
@@ -170,23 +162,23 @@ export default async function ModerationReviewPage({
         // Collapsed by default -- a moderator lands here to read the story
         // first, not to see thumbnails before anything else; opening this
         // is a deliberate choice, not the first thing on the page.
-        <details className="mt-6 rounded-md border border-black/10 dark:border-white/10">
-          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+        <details className="mt-6 rounded-md border border-border-subtle">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Media ({media.length})
           </summary>
-          <div className="border-t border-black/10 p-4 dark:border-white/10">
+          <div className="border-t border-border-subtle p-4">
             <PreviewGallery media={media} />
             <ul className="mt-3 space-y-2 text-sm">
               {media.map((m) => (
                 <li
                   key={m.mediaId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-black/10 px-3 py-2 dark:border-white/10"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-border-subtle px-3 py-2"
                 >
                   <span>
                     {m.isCover ? "Cover — " : ""}
                     {m.caption || m.altText || "(no caption)"}
                   </span>
-                  <span className="text-xs text-black/50 dark:text-white/50">
+                  <span className="text-xs text-muted-foreground">
                     {m.processingState}
                   </span>
                 </li>
@@ -197,15 +189,15 @@ export default async function ModerationReviewPage({
       )}
 
       <section className="mt-6">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           {isReplacement
             ? "Submitted revision (replacement)"
             : "Submitted revision"}
         </h2>
         {isReplacement ? (
           <div className="mt-3 grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="rounded-md border border-black/10 p-4 dark:border-white/10">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-black/50 dark:text-white/50">
+            <div className="rounded-md border border-border-subtle p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Currently published
               </h3>
               <p className="mt-2 text-lg font-semibold">
@@ -218,7 +210,7 @@ export default async function ModerationReviewPage({
                     media={publishedContentMedia}
                   />
                 ) : (
-                  <p className="text-sm text-black/50">
+                  <p className="text-sm text-muted-foreground">
                     Could not render published content.
                   </p>
                 )}
@@ -233,7 +225,7 @@ export default async function ModerationReviewPage({
                 {parsedContent ? (
                   <PreviewContentBody blocks={parsedContent} media={media} />
                 ) : (
-                  <p className="text-sm text-black/50">
+                  <p className="text-sm text-muted-foreground">
                     Could not render submitted content.
                   </p>
                 )}
@@ -241,11 +233,11 @@ export default async function ModerationReviewPage({
             </div>
           </div>
         ) : (
-          <div className="mt-3 rounded-md border border-black/10 p-4 dark:border-white/10">
+          <div className="mt-3 rounded-md border border-border-subtle p-4">
             {parsedContent ? (
               <PreviewContentBody blocks={parsedContent} media={media} />
             ) : (
-              <p className="text-sm text-black/50">
+              <p className="text-sm text-muted-foreground">
                 Could not render submitted content.
               </p>
             )}
@@ -255,7 +247,7 @@ export default async function ModerationReviewPage({
 
       {openReports.length > 0 && (
         <section className="mt-6 rounded-md border border-red-300 p-4 dark:border-red-700">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-red-700 dark:text-red-400">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-destructive">
             Open reports ({openReports.length})
           </h2>
           <ul className="mt-3 space-y-2 text-sm">
@@ -266,15 +258,13 @@ export default async function ModerationReviewPage({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{r.category}</span>
-                  <span className="text-xs text-black/50 dark:text-white/50">
+                  <span className="text-xs text-muted-foreground">
                     {r.status} —{" "}
                     {new Date(r.created_at).toLocaleDateString("en-NZ")}
                   </span>
                 </div>
                 {r.details && (
-                  <p className="mt-1 text-black/70 dark:text-white/70">
-                    {r.details}
-                  </p>
+                  <p className="mt-1 text-muted-foreground">{r.details}</p>
                 )}
               </li>
             ))}
@@ -282,12 +272,12 @@ export default async function ModerationReviewPage({
         </section>
       )}
 
-      <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+      <section className="mt-6 rounded-md border border-border-subtle p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Moderation history
         </h2>
         {moderationHistory.length === 0 ? (
-          <p className="mt-2 text-sm text-black/50 dark:text-white/50">
+          <p className="mt-2 text-sm text-muted-foreground">
             No prior moderation decisions.
           </p>
         ) : (
@@ -295,16 +285,16 @@ export default async function ModerationReviewPage({
             {moderationHistory.map((h) => (
               <li
                 key={h.action_id}
-                className="border-b border-black/5 pb-2 dark:border-white/5"
+                className="border-b border-border-subtle pb-2"
               >
                 <span className="font-medium">
                   {h.previous_status} → {h.new_status}
                 </span>{" "}
-                <span className="text-black/50 dark:text-white/50">
+                <span className="text-muted-foreground">
                   {new Date(h.created_at).toLocaleString("en-NZ")}
                 </span>
                 {h.user_facing_reason && (
-                  <p className="mt-1 text-black/70 dark:text-white/70">
+                  <p className="mt-1 text-muted-foreground">
                     {h.user_facing_reason}
                   </p>
                 )}
@@ -314,28 +304,23 @@ export default async function ModerationReviewPage({
         )}
       </section>
 
-      <section className="mt-6 rounded-md border border-black/10 p-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+      <section className="mt-6 rounded-md border border-border-subtle p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Editorial history
         </h2>
         {editorialHistory.length === 0 ? (
-          <p className="mt-2 text-sm text-black/50 dark:text-white/50">
+          <p className="mt-2 text-sm text-muted-foreground">
             No editorial preparation history.
           </p>
         ) : (
           <ul className="mt-3 space-y-2 text-sm">
             {editorialHistory.map((h) => (
-              <li
-                key={h.id}
-                className="border-b border-black/5 pb-2 dark:border-white/5"
-              >
+              <li key={h.id} className="border-b border-border-subtle pb-2">
                 <span className="font-medium">{h.action_type}</span>{" "}
-                <span className="text-black/50 dark:text-white/50">
+                <span className="text-muted-foreground">
                   {new Date(h.created_at).toLocaleString("en-NZ")}
                 </span>
-                <p className="mt-1 text-black/70 dark:text-white/70">
-                  {h.summary}
-                </p>
+                <p className="mt-1 text-muted-foreground">{h.summary}</p>
               </li>
             ))}
           </ul>

@@ -14,28 +14,23 @@ export function EditorialHistoryPanel({
   history: EditorialHistoryRow[];
 }) {
   return (
-    <section className="rounded-md border border-black/10 p-4 dark:border-white/10">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-black/60 dark:text-white/60">
+    <section className="rounded-md border border-border-subtle p-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         Editorial history
       </h2>
       {history.length === 0 ? (
-        <p className="mt-2 text-sm text-black/50 dark:text-white/50">
+        <p className="mt-2 text-sm text-muted-foreground">
           No editorial preparation history yet.
         </p>
       ) : (
         <ul className="mt-3 space-y-2 text-sm">
           {history.map((h) => (
-            <li
-              key={h.id}
-              className="border-b border-black/5 pb-2 dark:border-white/5"
-            >
+            <li key={h.id} className="border-b border-border-subtle pb-2">
               <span className="font-medium">{h.action_type}</span>{" "}
-              <span className="text-black/50 dark:text-white/50">
+              <span className="text-muted-foreground">
                 {new Date(h.created_at).toLocaleString("en-NZ")}
               </span>
-              <p className="mt-1 text-black/70 dark:text-white/70">
-                {h.summary}
-              </p>
+              <p className="mt-1 text-muted-foreground">{h.summary}</p>
             </li>
           ))}
         </ul>

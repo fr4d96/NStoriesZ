@@ -15,10 +15,7 @@ export function SignUpForm() {
 
   if (state.success) {
     return (
-      <p
-        role="status"
-        className="mt-8 text-sm text-black/70 dark:text-white/70"
-      >
+      <p role="status" className="mt-8 text-sm text-muted-foreground">
         {state.success}
       </p>
     );
@@ -37,7 +34,7 @@ export function SignUpForm() {
             type="text"
             autoComplete="name"
             maxLength={120}
-            className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
           />
         </div>
 
@@ -51,7 +48,7 @@ export function SignUpForm() {
             type="email"
             autoComplete="email"
             required
-            className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
           />
         </div>
 
@@ -66,12 +63,12 @@ export function SignUpForm() {
             autoComplete="new-password"
             minLength={6}
             required
-            className="mt-1 w-full rounded-md border border-black/20 px-3 py-2 dark:border-white/20"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
           />
         </div>
 
         {state.error && (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          <p role="alert" className="text-sm text-destructive">
             {state.error}
           </p>
         )}
@@ -84,7 +81,7 @@ export function SignUpForm() {
           {pending ? "Creating account…" : "Create account"}
         </button>
 
-        <p className="text-sm text-black/70 dark:text-white/70">
+        <p className="text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link href="/sign-in" className="hover:underline">
             Sign in

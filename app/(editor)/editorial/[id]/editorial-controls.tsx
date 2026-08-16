@@ -53,7 +53,7 @@ export function EditorialControls({
             type="button"
             onClick={handleMarkReady}
             disabled={markReadyPending}
-            className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium disabled:opacity-60 dark:border-white/15"
+            className="rounded-md border border-border-subtle px-3 py-1.5 text-sm font-medium disabled:opacity-60"
           >
             {markReadyPending
               ? "Sending…"
@@ -63,13 +63,13 @@ export function EditorialControls({
         <button
           type="button"
           onClick={() => setShowOfflineForm((v) => !v)}
-          className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium dark:border-white/15"
+          className="rounded-md border border-border-subtle px-3 py-1.5 text-sm font-medium"
         >
           Submit with offline confirmation
         </button>
       </div>
       {markReadyMessage && (
-        <p role="status" className="text-sm text-black/70 dark:text-white/70">
+        <p role="status" className="text-sm text-muted-foreground">
           {markReadyMessage}
         </p>
       )}
@@ -99,7 +99,7 @@ export function EditorialControls({
               <select
                 id="confirmation-method"
                 name="confirmationMethod"
-                className="mt-1 rounded-md border border-black/15 px-2 py-1 text-sm dark:border-white/15 dark:bg-transparent"
+                className="mt-1 rounded-md border border-border-subtle px-2 py-1 text-sm dark:bg-transparent"
               >
                 <option value="email">Email</option>
                 <option value="written_message">Written message</option>
@@ -117,7 +117,7 @@ export function EditorialControls({
               <select
                 id="identifiable-people"
                 name="identifiablePeopleState"
-                className="mt-1 rounded-md border border-black/15 px-2 py-1 text-sm dark:border-white/15 dark:bg-transparent"
+                className="mt-1 rounded-md border border-border-subtle px-2 py-1 text-sm dark:bg-transparent"
               >
                 <option value="not_applicable">
                   Not applicable (no photos, or none identifiable)
@@ -139,10 +139,7 @@ export function EditorialControls({
               {offlinePending ? "Submitting…" : "Submit for moderation"}
             </button>
             {offlineState.error && (
-              <p
-                role="alert"
-                className="text-sm text-red-700 dark:text-red-400"
-              >
+              <p role="alert" className="text-sm text-destructive">
                 {offlineState.error}
               </p>
             )}
@@ -158,7 +155,7 @@ export function EditorialControls({
         </div>
       )}
 
-      <details className="rounded-md border border-black/10 p-3 dark:border-white/10">
+      <details className="rounded-md border border-border-subtle p-3">
         <summary className="cursor-pointer text-sm font-medium">
           Log an evidence note (does not authorize publication)
         </summary>
@@ -170,25 +167,22 @@ export function EditorialControls({
             rows={3}
             required
             placeholder="e.g. contributor confirmed by phone call on 2026-08-04, ref ticket #123"
-            className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+            className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
           />
           <button
             type="submit"
             disabled={notePending}
-            className="rounded-md border border-black/15 px-3 py-1.5 text-sm font-medium disabled:opacity-60 dark:border-white/15"
+            className="rounded-md border border-border-subtle px-3 py-1.5 text-sm font-medium disabled:opacity-60"
           >
             {notePending ? "Logging…" : "Log note"}
           </button>
           {noteState.error && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="text-sm text-destructive">
               {noteState.error}
             </p>
           )}
           {noteState.success && (
-            <p
-              role="status"
-              className="text-sm text-black/70 dark:text-white/70"
-            >
+            <p role="status" className="text-sm text-muted-foreground">
               {noteState.success}
             </p>
           )}

@@ -176,16 +176,16 @@ export function LocationSearch({
         onFocus={() => results.length > 0 && setOpen(true)}
         placeholder="Search for a city, town, or region…"
         autoComplete="off"
-        className="w-full rounded-md border border-black/15 px-3 py-2 text-sm dark:border-white/15 dark:bg-transparent"
+        className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
       />
       {open && results.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full rounded-md border border-black/15 bg-white text-sm shadow-lg dark:border-white/15 dark:bg-neutral-900">
+        <ul className="absolute z-10 mt-1 w-full rounded-md border border-border-subtle bg-surface text-sm shadow-lg">
           {results.map((result) => (
             <li key={result.place_id}>
               <button
                 type="button"
                 onClick={() => handleSelect(result)}
-                className="block w-full px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10"
+                className="block w-full px-3 py-2 text-left hover:bg-surface-muted"
               >
                 {result.display_name}
               </button>
@@ -194,11 +194,11 @@ export function LocationSearch({
         </ul>
       )}
       {status === "error" && (
-        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+        <p className="mt-1 text-xs text-destructive">
           Place search failed — use the dropdowns below instead.
         </p>
       )}
-      <p className="mt-1 text-xs text-black/40 dark:text-white/40">
+      <p className="mt-1 text-xs text-muted-foreground">
         Search by{" "}
         <a
           href="https://www.openstreetmap.org/copyright"
