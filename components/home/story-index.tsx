@@ -227,7 +227,7 @@ function IndexEntry({
           {String(position + 1).padStart(2, "0")}
         </span>
 
-        <div className="hidden overflow-hidden rounded-md bg-surface-muted md:block">
+        <div className="hidden overflow-hidden rounded-md border border-border-subtle bg-surface-muted md:block">
           {coverUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- public bucket URLs are content-addressed, not a Next.js image-optimizable source list
             <img

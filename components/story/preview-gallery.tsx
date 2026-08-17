@@ -51,7 +51,7 @@ export function PreviewGallery({ media }: { media: PreviewableMediaItem[] }) {
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
       {sorted.map((item) => (
         <li key={item.mediaId} className="space-y-1">
-          <div className="aspect-square overflow-hidden rounded-md bg-surface-muted">
+          <div className="aspect-square overflow-hidden rounded-md border border-border-subtle bg-surface-muted">
             {urls[item.mediaId] ? (
               // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL
               <img

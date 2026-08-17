@@ -272,7 +272,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                     href={`/stories/${story.id}/preview`}
                     tabIndex={-1}
                     aria-hidden="true"
-                    className="block h-12 w-16 overflow-hidden rounded-md bg-surface-muted sm:h-14 sm:w-20"
+                    className="block h-12 w-16 overflow-hidden rounded-md border border-border-subtle bg-surface-muted sm:h-14 sm:w-20"
                   >
                     <StoryCoverThumbnail
                       mediaId={story.coverMediaId}

@@ -48,8 +48,8 @@ function MediaEmbed({
     ? { width: `${width}px`, maxWidth: "100%" }
     : undefined;
   const frameClassName = width
-    ? "my-4 inline-block h-auto rounded-md object-contain"
-    : "my-4 block max-h-[32rem] w-full rounded-md object-contain";
+    ? "my-4 inline-block h-auto rounded-md border border-border-subtle object-contain"
+    : "my-4 block max-h-[32rem] w-full rounded-md border border-border-subtle object-contain";
 
   if (resolved === "loading") {
     return (

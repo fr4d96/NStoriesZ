@@ -3,10 +3,33 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-17 (My Stories / New Story are header links on contributor routes only; on
-public pages they live in the profile-icon dropdown — see "2026-08-17" below).
+Last updated: 2026-08-17 (every story thumbnail/photo frame gets a themed border, so images stop
+blending into the ground in both themes — see "2026-08-17, part 2" below).
 
-**2026-08-17 — My Stories / New Story leave the public header nav.**
+**2026-08-17, part 2 — Border every image frame.**
+
+Every place a real photo (or its placeholder/loading state) renders had inconsistent framing: some
+card wrappers had `border border-border-subtle`, most had none, and one — the inline story-body
+image in `content-block-renderer.tsx`, the actual story-reading experience — had no border at all,
+so a photo close in tone to the page ground (a common case in both the near-black dark ground and
+the warm light one) had no visible edge. Added `border border-border-subtle` — the one token-driven
+border colour in the system, already correct in both themes — to every image "frame" element (the
+`overflow-hidden`/`rounded-*` wrapper, or the `<img>` itself where there is no wrapper):
+`my-stories-view.tsx`'s list-view thumbnail (the grid-view one already had it), `story-index.tsx`'s
+catalogue thumbnail, `story-card.tsx` and `featured-story-slide.tsx`'s photo panes (as a directional
+`border-b`/`sm:border-r` rather than a full box, since the outer card already carries a full border
+and doubling it on the shared edge would look wrong), `preview-gallery.tsx`, `image-upload-manager.tsx`
+(previously the `<li>`'s own border was inset by padding and never actually touched the photo), and
+`content-block-renderer.tsx`'s `frameClassName` (applied to both the loaded `<img>` and the
+"loading" spinner placeholder, so the frame doesn't pop into existence only once the image resolves).
+`story-gallery.tsx` already had this and was left alone.
+
+**Live-verified** in both themes: the landing catalogue, `/stories` cards, a story's inline body
+image, and the signed-in My Stories list view — the border is visible as a hairline against both the
+warm light ground and the near-black dark ground, exactly the two cases the request named.
+`npm run verify`: 320 tests (unchanged), 0 lint errors, build clean.
+
+**2026-08-17, part 1 — My Stories / New Story leave the public header nav.**
 
 `SiteHeader` (rendered by both `app/(public)/layout.tsx` and `app/(auth)/layout.tsx`) no longer
 renders `ContributorNavLinks` for signed-in visitors. On public pages the primary nav bar is back to

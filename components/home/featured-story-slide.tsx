@@ -31,7 +31,7 @@ export function FeaturedStorySlide({
 
   return (
     <article className="group relative grid h-full grid-rows-[minmax(0,34%)_minmax(0,1fr)] overflow-hidden rounded-[28px] border border-border-subtle bg-surface shadow-lg sm:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] sm:grid-rows-1">
-      <div className="relative min-h-0 overflow-hidden bg-surface-muted">
+      <div className="relative min-h-0 overflow-hidden border-b border-border-subtle bg-surface-muted sm:border-r sm:border-b-0">
         {coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- public bucket URLs are content-addressed, not a Next.js image-optimizable source list
           <img

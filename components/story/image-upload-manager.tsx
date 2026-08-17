@@ -400,7 +400,7 @@ export function ImageUploadManager({
                 key={item.mediaId}
                 className="space-y-2 rounded-md border border-border-subtle p-2"
               >
-                <div className="relative aspect-square overflow-hidden rounded bg-surface-muted">
+                <div className="relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
                   {thumbnails[item.mediaId] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
                     <img
