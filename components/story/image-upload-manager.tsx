@@ -436,159 +436,182 @@ export function ImageUploadManager({
       )}
 
       {visibleMedia.length > 0 && (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {visibleMedia.map((item, index) => {
-            // Prompt 7: same-story duplicate-image warning -- compares
-            // sha256 hashes of already-processed derivatives (never a
-            // storage path) already present in `media` (the full,
-            // unfiltered list -- a duplicate placed inline still counts).
-            const duplicateCount = item.sha256
-              ? media.filter((m) => m.sha256 === item.sha256).length
-              : 1;
-            const isDuplicate = duplicateCount > 1;
-            return (
-              <li
-                key={item.mediaId}
-                className="space-y-2 rounded-md border border-border-subtle p-2"
+        <details className="group" open>
+          <summary className="cursor-pointer list-none text-sm font-medium">
+            <span className="inline-flex items-center gap-1">
+              <svg
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90"
               >
-                <div className="js-image-thumb relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
-                  {thumbnails[item.mediaId] ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
-                    <img
-                      src={thumbnails[item.mediaId]}
-                      alt={item.altText ?? ""}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : item.processingState === "failed" ? (
-                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
-                      {PROCESSING_LABELS[item.processingState]}
-                    </div>
-                  ) : (
-                    <div
-                      className="flex h-full w-full items-center justify-center text-muted-foreground"
-                      aria-label={
-                        PROCESSING_LABELS[item.processingState] ??
-                        item.processingState
+                <path
+                  d="M7 5l6 5-6 5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {visibleMedia.length === 1
+                ? "1 uploaded image"
+                : `${visibleMedia.length} uploaded images`}
+            </span>
+          </summary>
+          <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {visibleMedia.map((item, index) => {
+              // Prompt 7: same-story duplicate-image warning -- compares
+              // sha256 hashes of already-processed derivatives (never a
+              // storage path) already present in `media` (the full,
+              // unfiltered list -- a duplicate placed inline still counts).
+              const duplicateCount = item.sha256
+                ? media.filter((m) => m.sha256 === item.sha256).length
+                : 1;
+              const isDuplicate = duplicateCount > 1;
+              return (
+                <li
+                  key={item.mediaId}
+                  className="space-y-2 rounded-md border border-border-subtle p-2"
+                >
+                  <div className="js-image-thumb relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
+                    {thumbnails[item.mediaId] ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
+                      <img
+                        src={thumbnails[item.mediaId]}
+                        alt={item.altText ?? ""}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : item.processingState === "failed" ? (
+                      <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
+                        {PROCESSING_LABELS[item.processingState]}
+                      </div>
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center text-muted-foreground"
+                        aria-label={
+                          PROCESSING_LABELS[item.processingState] ??
+                          item.processingState
+                        }
+                      >
+                        <Spinner className="h-6 w-6" />
+                      </div>
+                    )}
+                    {item.isCover && (
+                      <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+                        Cover
+                      </span>
+                    )}
+                  </div>
+
+                  {isDuplicate && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Possible duplicate — matches another image in this story.
+                    </p>
+                  )}
+
+                  <label className="flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={item.decorative}
+                      onChange={(e) =>
+                        updateCaption(item.mediaId, {
+                          decorative: e.target.checked,
+                        })
                       }
-                    >
-                      <Spinner className="h-6 w-6" />
-                    </div>
+                    />
+                    Decorative (no alt text needed)
+                  </label>
+
+                  {!item.decorative && (
+                    <input
+                      type="text"
+                      value={item.altText ?? ""}
+                      onChange={(e) =>
+                        updateCaption(item.mediaId, { altText: e.target.value })
+                      }
+                      placeholder="Alt text (required)"
+                      className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
+                    />
                   )}
-                  {item.isCover && (
-                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-                      Cover
-                    </span>
-                  )}
-                </div>
 
-                {isDuplicate && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Possible duplicate — matches another image in this story.
-                  </p>
-                )}
-
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={item.decorative}
-                    onChange={(e) =>
-                      updateCaption(item.mediaId, {
-                        decorative: e.target.checked,
-                      })
-                    }
-                  />
-                  Decorative (no alt text needed)
-                </label>
-
-                {!item.decorative && (
                   <input
                     type="text"
-                    value={item.altText ?? ""}
+                    value={item.caption ?? ""}
                     onChange={(e) =>
-                      updateCaption(item.mediaId, { altText: e.target.value })
+                      updateCaption(item.mediaId, { caption: e.target.value })
                     }
-                    placeholder="Alt text (required)"
+                    placeholder="Caption (optional)"
                     className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
                   />
-                )}
 
-                <input
-                  type="text"
-                  value={item.caption ?? ""}
-                  onChange={(e) =>
-                    updateCaption(item.mediaId, { caption: e.target.value })
-                  }
-                  placeholder="Caption (optional)"
-                  className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
-                />
-
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {onInsertIntoEditor && (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {onInsertIntoEditor && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          // Reads this tile's own current on-screen width
+                          // (the grid is responsive -- 2 or 3 columns
+                          // depending on viewport) rather than a hardcoded
+                          // number, so "same size as the Images section"
+                          // stays true at whatever width it's actually
+                          // showing right now.
+                          const thumb = e.currentTarget
+                            .closest("li")
+                            ?.querySelector<HTMLElement>(".js-image-thumb");
+                          const width = thumb
+                            ? Math.round(thumb.getBoundingClientRect().width)
+                            : DEFAULT_EMBED_WIDTH;
+                          onInsertIntoEditor(item.mediaId, width);
+                        }}
+                        className="font-medium text-accent underline underline-offset-2"
+                      >
+                        Add to story
+                      </button>
+                    )}
+                    {!item.isCover && (
+                      <button
+                        type="button"
+                        onClick={() => setCover(item.mediaId)}
+                        className="underline underline-offset-2"
+                      >
+                        Set as cover
+                      </button>
+                    )}
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          reorder(item.mediaId, visibleMedia[index - 1].mediaId)
+                        }
+                        className="underline underline-offset-2"
+                      >
+                        Move up
+                      </button>
+                    )}
+                    {index < visibleMedia.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          reorder(item.mediaId, visibleMedia[index + 1].mediaId)
+                        }
+                        className="underline underline-offset-2"
+                      >
+                        Move down
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={(e) => {
-                        // Reads this tile's own current on-screen width
-                        // (the grid is responsive -- 2 or 3 columns
-                        // depending on viewport) rather than a hardcoded
-                        // number, so "same size as the Images section"
-                        // stays true at whatever width it's actually
-                        // showing right now.
-                        const thumb = e.currentTarget
-                          .closest("li")
-                          ?.querySelector<HTMLElement>(".js-image-thumb");
-                        const width = thumb
-                          ? Math.round(thumb.getBoundingClientRect().width)
-                          : DEFAULT_EMBED_WIDTH;
-                        onInsertIntoEditor(item.mediaId, width);
-                      }}
-                      className="font-medium text-accent underline underline-offset-2"
+                      onClick={() => detach(item.mediaId)}
+                      className="text-destructive underline underline-offset-2"
                     >
-                      Add to story
+                      Remove
                     </button>
-                  )}
-                  {!item.isCover && (
-                    <button
-                      type="button"
-                      onClick={() => setCover(item.mediaId)}
-                      className="underline underline-offset-2"
-                    >
-                      Set as cover
-                    </button>
-                  )}
-                  {index > 0 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        reorder(item.mediaId, visibleMedia[index - 1].mediaId)
-                      }
-                      className="underline underline-offset-2"
-                    >
-                      Move up
-                    </button>
-                  )}
-                  {index < visibleMedia.length - 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        reorder(item.mediaId, visibleMedia[index + 1].mediaId)
-                      }
-                      className="underline underline-offset-2"
-                    >
-                      Move down
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => detach(item.mediaId)}
-                    className="text-destructive underline underline-offset-2"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
       )}
     </div>
   );
