@@ -41,21 +41,40 @@ describe("profileUpdateSchema", () => {
 });
 
 describe("createOwnContributorSchema", () => {
+  const base = {
+    displayName: "Casey C.",
+    attributionType: "pseudonym" as const,
+    publicProfileEnabled: false,
+  };
+
   it("accepts a valid attribution type", () => {
-    expect(
-      createOwnContributorSchema.safeParse({
-        displayName: "Casey C.",
-        attributionType: "pseudonym",
-      }).success,
-    ).toBe(true);
+    expect(createOwnContributorSchema.safeParse(base).success).toBe(true);
   });
 
   it("rejects an attribution type outside the allowed enum", () => {
     expect(
       createOwnContributorSchema.safeParse({
-        displayName: "Casey C.",
+        ...base,
         attributionType: "admin",
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects a malformed public slug", () => {
+    expect(
+      createOwnContributorSchema.safeParse({
+        ...base,
+        publicSlug: "Not A Slug!",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a well-formed public slug", () => {
+    expect(
+      createOwnContributorSchema.safeParse({
+        ...base,
+        publicSlug: "casey-nz-2024",
+      }).success,
+    ).toBe(true);
   });
 });

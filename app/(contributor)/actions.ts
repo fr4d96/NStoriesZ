@@ -6,12 +6,40 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import {
   profileUpdateSchema,
   createOwnContributorSchema,
+  type CreateOwnContributorInput,
 } from "@/lib/validation/profile";
 
 export type AccountFormState = {
   error?: string;
   success?: string;
 };
+
+/**
+ * Shared by createOwnContributorAction/updateOwnContributorAction: the same
+ * two rules list_public_contributors() (supabase/migrations/
+ * 20260805100300_public_contributor_functions.sql) enforces at read time —
+ * a public contributor needs a slug, and an anonymous one is never shown in
+ * the directory regardless of public_status — checked here too so the
+ * contributor gets an immediate, specific error instead of silently saving
+ * a "public" record that never actually appears anywhere.
+ */
+function checkContributorPublicVisibility(
+  data: CreateOwnContributorInput,
+): AccountFormState | null {
+  if (!data.publicProfileEnabled) return null;
+  if (!data.publicSlug) {
+    return {
+      error:
+        "Choose a public contributor URL before making your profile public.",
+    };
+  }
+  if (data.attributionType === "anonymous") {
+    return {
+      error: "An anonymous attribution can't have a public profile.",
+    };
+  }
+  return null;
+}
 
 export async function updateProfileAction(
   _prevState: AccountFormState,
@@ -83,11 +111,15 @@ export async function createOwnContributorAction(
   const parsed = createOwnContributorSchema.safeParse({
     displayName: formData.get("displayName"),
     attributionType: formData.get("attributionType"),
+    publicProfileEnabled: formData.get("publicProfileEnabled") === "on",
+    publicSlug: formData.get("publicSlug") ?? "",
   });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
+  const publicCheck = checkContributorPublicVisibility(parsed.data);
+  if (publicCheck) return publicCheck;
 
   const supabase = await createClient();
   // linked_user_id and created_by are always set from the server-known
@@ -99,10 +131,15 @@ export async function createOwnContributorAction(
     created_by: user.id,
     display_name: parsed.data.displayName,
     attribution_type: parsed.data.attributionType,
+    public_status: parsed.data.publicProfileEnabled ? "public" : "private",
+    public_slug: parsed.data.publicSlug || null,
   });
 
   if (error) {
     if (error.code === "23505") {
+      if (/public_slug/i.test(error.message)) {
+        return { error: "That contributor URL is already taken." };
+      }
       return { error: "You already have a contributor identity." };
     }
     return {
@@ -126,11 +163,15 @@ export async function updateOwnContributorAction(
   const parsed = createOwnContributorSchema.safeParse({
     displayName: formData.get("displayName"),
     attributionType: formData.get("attributionType"),
+    publicProfileEnabled: formData.get("publicProfileEnabled") === "on",
+    publicSlug: formData.get("publicSlug") ?? "",
   });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
+  const publicCheck = checkContributorPublicVisibility(parsed.data);
+  if (publicCheck) return publicCheck;
 
   const supabase = await createClient();
   // .eq("linked_user_id", user.id) plus RLS together prevent editing any
@@ -140,10 +181,15 @@ export async function updateOwnContributorAction(
     .update({
       display_name: parsed.data.displayName,
       attribution_type: parsed.data.attributionType,
+      public_status: parsed.data.publicProfileEnabled ? "public" : "private",
+      public_slug: parsed.data.publicSlug || null,
     })
     .eq("linked_user_id", user.id);
 
   if (error) {
+    if (error.code === "23505" && /public_slug/i.test(error.message)) {
+      return { error: "That contributor URL is already taken." };
+    }
     return {
       error: "Could not update your contributor identity. Please try again.",
     };

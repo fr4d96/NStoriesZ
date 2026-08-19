@@ -32,7 +32,7 @@ export default async function AccountPage() {
       .single(),
     supabase
       .from("contributors")
-      .select("display_name, attribution_type")
+      .select("display_name, attribution_type, public_status, public_slug")
       .eq("linked_user_id", user.id)
       .maybeSingle(),
     getCurrentUserRole(),
@@ -107,6 +107,8 @@ export default async function AccountPage() {
               ? {
                   displayName: contributor.display_name,
                   attributionType: contributor.attribution_type,
+                  publicProfileEnabled: contributor.public_status === "public",
+                  publicSlug: contributor.public_slug ?? "",
                 }
               : null
           }

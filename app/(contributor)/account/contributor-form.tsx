@@ -23,7 +23,12 @@ const attributionLabels: Record<
 export function ContributorForm({
   existing,
 }: {
-  existing: { displayName: string; attributionType: string } | null;
+  existing: {
+    displayName: string;
+    attributionType: string;
+    publicProfileEnabled: boolean;
+    publicSlug: string;
+  } | null;
 }) {
   const action = existing
     ? updateOwnContributorAction
@@ -71,6 +76,63 @@ export function ContributorForm({
           ))}
         </div>
       </fieldset>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="contributorPublicProfileEnabled"
+          name="publicProfileEnabled"
+          type="checkbox"
+          defaultChecked={existing?.publicProfileEnabled ?? false}
+          className="h-4 w-4 accent-accent"
+        />
+        <label
+          htmlFor="contributorPublicProfileEnabled"
+          className="text-sm font-medium"
+        >
+          List me in the Contributors directory
+        </label>
+      </div>
+
+      <div>
+        <label
+          htmlFor="contributorPublicSlug"
+          className="block text-sm font-medium"
+        >
+          Contributor page web address
+        </label>
+        <p className="mt-1 text-xs text-foreground/55">
+          This is separate from the &ldquo;Public profile web address&rdquo;
+          above — it controls whether you appear on{" "}
+          <a
+            href="/contributors"
+            className="underline underline-offset-2"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            /contributors
+          </a>{" "}
+          and get a byline page there. You also need at least one published
+          story, and &ldquo;Anonymous&rdquo; attribution can&apos;t be listed.
+        </p>
+        <div className="mt-2 flex overflow-hidden rounded-xl border border-border-subtle focus-within:border-accent">
+          <span className="flex items-center bg-surface-muted px-3 text-sm text-foreground/55">
+            /contributors/
+          </span>
+          <input
+            id="contributorPublicSlug"
+            name="publicSlug"
+            type="text"
+            maxLength={60}
+            defaultValue={existing?.publicSlug ?? ""}
+            placeholder="your-name"
+            className="w-full bg-surface px-3 py-2 focus:outline-none"
+          />
+        </div>
+        <p className="mt-1 text-xs text-foreground/55">
+          Required to list you in the directory. Lowercase letters, numbers, and
+          hyphens only.
+        </p>
+      </div>
 
       {state.error && (
         <p role="alert" className="text-sm text-destructive">

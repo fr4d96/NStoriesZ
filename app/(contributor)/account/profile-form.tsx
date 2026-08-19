@@ -7,6 +7,7 @@ import {
   type AccountFormState,
 } from "@/app/(contributor)/actions";
 import { AVATAR_EMOJI_OPTIONS, type AvatarEmoji } from "@/lib/avatar";
+import { COUNTRY_OPTIONS } from "@/lib/countries";
 
 const initialState: AccountFormState = {};
 
@@ -85,20 +86,21 @@ export function ProfileForm({
 
       <div>
         <label htmlFor="homeCountryCode" className="block text-sm font-medium">
-          Home country code
+          Home country
         </label>
-        <input
+        <select
           id="homeCountryCode"
           name="homeCountryCode"
-          type="text"
-          maxLength={2}
           required
           defaultValue={homeCountryCode}
-          className="mt-1 w-24 rounded-xl border border-border-subtle bg-surface px-3 py-2 uppercase focus:border-accent focus:outline-none"
-        />
-        <p className="mt-1 text-xs text-foreground/55">
-          2-letter code, e.g. MY.
-        </p>
+          className="mt-1 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 focus:border-accent focus:outline-none"
+        >
+          {COUNTRY_OPTIONS.map((country) => (
+            <option key={country.code} value={country.code}>
+              {country.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>
@@ -130,19 +132,30 @@ export function ProfileForm({
 
       <div>
         <label htmlFor="publicSlug" className="block text-sm font-medium">
-          Public profile URL
+          Public profile web address
         </label>
-        <input
-          id="publicSlug"
-          name="publicSlug"
-          type="text"
-          maxLength={60}
-          defaultValue={publicSlug}
-          className="mt-1 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 focus:border-accent focus:outline-none"
-        />
         <p className="mt-1 text-xs text-foreground/55">
-          Required to make your profile public. Nothing else is shown publicly
-          unless you enable the toggle above.
+          If you make your profile public above, this is the page where readers
+          can see your display name, bio, and published stories — nothing else
+          about your account is ever shown there.
+        </p>
+        <div className="mt-2 flex overflow-hidden rounded-xl border border-border-subtle focus-within:border-accent">
+          <span className="flex items-center bg-surface-muted px-3 text-sm text-foreground/55">
+            /contributors/
+          </span>
+          <input
+            id="publicSlug"
+            name="publicSlug"
+            type="text"
+            maxLength={60}
+            defaultValue={publicSlug}
+            placeholder="your-name"
+            className="w-full bg-surface px-3 py-2 focus:outline-none"
+          />
+        </div>
+        <p className="mt-1 text-xs text-foreground/55">
+          Required to make your profile public. Lowercase letters, numbers, and
+          hyphens only.
         </p>
       </div>
 

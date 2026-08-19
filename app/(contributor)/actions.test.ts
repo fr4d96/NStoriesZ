@@ -159,6 +159,40 @@ describe("createOwnContributorAction", () => {
 
     expect(result.error).toMatch(/already have a contributor identity/i);
   });
+
+  it("requires a public slug before listing in the directory", async () => {
+    mockGetCurrentUser.mockResolvedValue(user);
+
+    const result = await createOwnContributorAction(
+      {},
+      formData({
+        displayName: "Casey C.",
+        attributionType: "display_name",
+        publicProfileEnabled: "on",
+        publicSlug: "",
+      }),
+    );
+
+    expect(result.error).toMatch(/contributor url/i);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  it("rejects a public, anonymous attribution", async () => {
+    mockGetCurrentUser.mockResolvedValue(user);
+
+    const result = await createOwnContributorAction(
+      {},
+      formData({
+        displayName: "Casey C.",
+        attributionType: "anonymous",
+        publicProfileEnabled: "on",
+        publicSlug: "casey",
+      }),
+    );
+
+    expect(result.error).toMatch(/anonymous/i);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateOwnContributorAction", () => {
