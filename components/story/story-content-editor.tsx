@@ -11,22 +11,13 @@ import { ContentBlockRenderer } from "./content-block-renderer";
 import {
   MarkdownEditor,
   type MarkdownEditorHandle,
-  type ImageUploadContext,
 } from "./editor/markdown-editor";
-
-export type { ImageUploadContext } from "./editor/markdown-editor";
 
 export type StoryContentEditorProps = {
   initialContent: StoryContentBlock[];
   onChange: (blocks: StoryContentBlock[]) => void;
   editable?: boolean;
   ariaLabel?: string;
-  /**
-   * Enables the "Image" toolbar button. Omit in any context with nowhere
-   * to upload to (there is currently only one real caller,
-   * story-edit-form.tsx, which always has this).
-   */
-  imageUpload?: ImageUploadContext;
 };
 
 /**
@@ -39,6 +30,9 @@ export type StoryContentEditorProps = {
  */
 export type StoryContentEditorHandle = {
   replaceContent: (blocks: StoryContentBlock[]) => void;
+  /** Inserts an already-uploaded image's embed token at the cursor -- see
+   * MarkdownEditorHandle.insertMedia's own comment. */
+  insertMedia: (mediaId: string, width?: number) => void;
 };
 
 /**
@@ -56,13 +50,7 @@ export const StoryContentEditor = forwardRef<
   StoryContentEditorHandle,
   StoryContentEditorProps
 >(function StoryContentEditor(
-  {
-    initialContent,
-    onChange,
-    editable = true,
-    ariaLabel = "Story content",
-    imageUpload,
-  },
+  { initialContent, onChange, editable = true, ariaLabel = "Story content" },
   ref,
 ) {
   const editorRef = useRef<MarkdownEditorHandle>(null);
@@ -72,6 +60,9 @@ export const StoryContentEditor = forwardRef<
     () => ({
       replaceContent: (blocks: StoryContentBlock[]) => {
         editorRef.current?.replaceValue(storyContentText(blocks));
+      },
+      insertMedia: (mediaId: string, width?: number) => {
+        editorRef.current?.insertMedia(mediaId, width);
       },
     }),
     [],
@@ -93,7 +84,6 @@ export const StoryContentEditor = forwardRef<
         onChange={(text) => onChange(markdownToStoryContent(text))}
         editable={editable}
         ariaLabel={ariaLabel}
-        imageUpload={imageUpload}
       />
     </div>
   );

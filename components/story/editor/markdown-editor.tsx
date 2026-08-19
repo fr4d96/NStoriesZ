@@ -7,23 +7,22 @@ import { EditorView } from "@codemirror/view";
 import { EditorSelection } from "@codemirror/state";
 
 import {
-  MAX_IMAGES_PER_REVISION,
-  MAX_UPLOAD_BYTES,
-} from "@/lib/story/image-validation";
-import { getErrorMessage } from "@/lib/errors";
-import { mediaEmbedToken } from "@/lib/story/markdown-media";
-import { useToast } from "@/components/ui/toast";
+  mediaEmbedToken,
+  DEFAULT_EMBED_WIDTH,
+} from "@/lib/story/markdown-media";
 import { createMarkdownLiveExtensions } from "./markdown-live-decorations";
-
-export type ImageUploadContext = {
-  storyId: string;
-  revisionId: string;
-  versionRef: React.MutableRefObject<number>;
-  onVersionBumped: () => void;
-};
 
 export type MarkdownEditorHandle = {
   replaceValue: (text: string) => void;
+  /**
+   * Inserts an already-uploaded image's embed token at the cursor. Images
+   * are uploaded exclusively through image-upload-manager.tsx's "Images"
+   * panel now (never from within this editor -- see this file's removed
+   * ImageButton/ImageUploadContext, superseded by that panel's own "Add to
+   * story" action); this is the other half of that flow, called via
+   * StoryContentEditorHandle from story-edit-form.tsx.
+   */
+  insertMedia: (mediaId: string, width?: number) => void;
 };
 
 export type MarkdownEditorProps = {
@@ -31,8 +30,6 @@ export type MarkdownEditorProps = {
   onChange: (text: string) => void;
   editable?: boolean;
   ariaLabel?: string;
-  /** See ImageUploadContext -- the "Image" toolbar button only shows up if this is passed. */
-  imageUpload?: ImageUploadContext;
 };
 
 // --- Plain-text transforms the toolbar drives -----------------------------
@@ -108,11 +105,15 @@ export function insertTable(view: EditorView) {
   view.focus();
 }
 
-export function insertMediaToken(view: EditorView, mediaId: string) {
+export function insertMediaToken(
+  view: EditorView,
+  mediaId: string,
+  width?: number,
+) {
   const pos = view.state.selection.main.to;
   const needsLeadingNewline =
     pos > 0 && view.state.sliceDoc(pos - 1, pos) !== "\n";
-  const insert = `${needsLeadingNewline ? "\n" : ""}${mediaEmbedToken(mediaId)}\n`;
+  const insert = `${needsLeadingNewline ? "\n" : ""}${mediaEmbedToken(mediaId, width)}\n`;
   view.dispatch({
     changes: { from: pos, insert },
     selection: { anchor: pos + insert.length },
@@ -165,105 +166,7 @@ function MarkdownGuideLink() {
   );
 }
 
-const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-
-function ImageButton({
-  storyId,
-  revisionId,
-  versionRef,
-  onVersionBumped,
-  getView,
-}: ImageUploadContext & { getView: () => EditorView | null }) {
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const { showToast } = useToast();
-
-  async function handleFile(file: File) {
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-      setError("Use JPEG, PNG, or WebP.");
-      return;
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setError("File is too large (max 15 MB).");
-      return;
-    }
-
-    setError(null);
-    setUploading(true);
-    // Only feedback for this button before now was the toolbar icon
-    // switching to "…" -- easy to miss, and gave no signal at all once the
-    // upload finished (the inserted image widget itself starts as a
-    // spinner too, see markdown-live-decorations.ts, so nothing visibly
-    // changed at the moment of completion either). The toast is the
-    // unmissable signal for both ends of the same operation
-    // image-upload-manager.tsx already gives its own (separate) upload
-    // surface.
-    showToast(`Uploading ${file.name}…`);
-    const formData = new FormData();
-    formData.set("file", file);
-    formData.set("revisionId", revisionId);
-    formData.set("expectedVersion", String(versionRef.current));
-
-    try {
-      const response = await fetch(`/stories/${storyId}/edit/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      const body = (await response.json()) as {
-        mediaId?: string;
-        error?: string;
-      };
-      if (!response.ok || !body.mediaId) {
-        throw new Error(
-          body.error ??
-            `Upload failed (max ${MAX_IMAGES_PER_REVISION} images per story).`,
-        );
-      }
-      versionRef.current += 1;
-      onVersionBumped();
-      const view = getView();
-      if (view) insertMediaToken(view, body.mediaId);
-      showToast(`${file.name} uploaded.`);
-    } catch (err) {
-      const message = getErrorMessage(err, "Upload failed.");
-      setError(message);
-      showToast(`${file.name} failed to upload.`, "error");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  return (
-    <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={ACCEPTED_IMAGE_TYPES.join(",")}
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = "";
-          if (file) void handleFile(file);
-        }}
-      />
-      <ToolbarButton
-        title={error ?? "Insert image"}
-        disabled={uploading}
-        onClick={() => fileInputRef.current?.click()}
-        label={uploading ? "…" : "🖼"}
-      />
-    </>
-  );
-}
-
-function EditorToolbar({
-  getView,
-  imageUpload,
-}: {
-  getView: () => EditorView | null;
-  imageUpload?: ImageUploadContext;
-}) {
+function EditorToolbar({ getView }: { getView: () => EditorView | null }) {
   const run = (fn: (view: EditorView) => void) => () => {
     const view = getView();
     if (view) fn(view);
@@ -326,7 +229,6 @@ function EditorToolbar({
           label="▦"
           onClick={run((v) => insertTable(v))}
         />
-        {imageUpload && <ImageButton {...imageUpload} getView={getView} />}
       </div>
       <MarkdownGuideLink />
     </div>
@@ -339,13 +241,7 @@ export const MarkdownEditor = React.forwardRef<
   MarkdownEditorHandle,
   MarkdownEditorProps
 >(function MarkdownEditor(
-  {
-    initialValue,
-    onChange,
-    editable = true,
-    ariaLabel = "Story content",
-    imageUpload,
-  },
+  { initialValue, onChange, editable = true, ariaLabel = "Story content" },
   ref,
 ) {
   // Uncontrolled, like the Plate editor this replaces: `value` is only ever
@@ -366,6 +262,10 @@ export const MarkdownEditor = React.forwardRef<
           changes: { from: 0, to: view.state.doc.length, insert: text },
         });
       },
+      insertMedia: (mediaId: string, width?: number) => {
+        const view = getView();
+        if (view) insertMediaToken(view, mediaId, width ?? DEFAULT_EMBED_WIDTH);
+      },
     }),
     [getView],
   );
@@ -381,9 +281,7 @@ export const MarkdownEditor = React.forwardRef<
 
   return (
     <div>
-      {editable && (
-        <EditorToolbar getView={getView} imageUpload={imageUpload} />
-      )}
+      {editable && <EditorToolbar getView={getView} />}
       <div aria-label={ariaLabel} role="textbox" aria-multiline="true">
         <CodeMirror
           ref={cmRef}

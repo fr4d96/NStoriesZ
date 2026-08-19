@@ -640,12 +640,31 @@ export function StoryEditForm({
                 setContent(blocks);
                 scheduleSave({ content: blocks });
               }}
-              imageUpload={{
-                storyId,
-                revisionId,
-                versionRef,
-                onVersionBumped: bumpVersion,
-              }}
+            />
+          </div>
+        </div>
+
+        <div>
+          <span className="block text-sm font-medium">
+            Images{initialMedia.length > 0 ? ` (${initialMedia.length})` : ""}
+          </span>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Upload photos here, then use &ldquo;Add to story&rdquo; on any of
+            them to place it in your text above.
+          </p>
+          <div className="mt-2">
+            <ImageUploadManager
+              storyId={storyId}
+              revisionId={revisionId}
+              initialMedia={initialMedia}
+              versionRef={versionRef}
+              queue={queue}
+              onVersionBumped={bumpVersion}
+              inlineMediaIds={inlineMediaIds}
+              onMediaDetached={handleMediaDetached}
+              onInsertIntoEditor={(mediaId, width) =>
+                richTextEditorRef.current?.insertMedia(mediaId, width)
+              }
             />
           </div>
         </div>
@@ -885,24 +904,6 @@ export function StoryEditForm({
                 scheduleSave({ contributorNote: e.target.value });
               }}
               className="w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-            />
-          </div>
-        </details>
-
-        <details className="rounded-md border border-border-subtle">
-          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
-            Images{initialMedia.length > 0 ? ` (${initialMedia.length})` : ""}
-          </summary>
-          <div className="border-t border-border-subtle p-3">
-            <ImageUploadManager
-              storyId={storyId}
-              revisionId={revisionId}
-              initialMedia={initialMedia}
-              versionRef={versionRef}
-              queue={queue}
-              onVersionBumped={bumpVersion}
-              inlineMediaIds={inlineMediaIds}
-              onMediaDetached={handleMediaDetached}
             />
           </div>
         </details>

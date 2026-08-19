@@ -8,6 +8,7 @@ import {
   MAX_UPLOAD_BYTES,
 } from "@/lib/story/image-validation";
 import { getErrorMessage } from "@/lib/errors";
+import { DEFAULT_EMBED_WIDTH } from "@/lib/story/markdown-media";
 import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -60,6 +61,18 @@ export type ImageUploadManagerProps = {
    * longer carries.
    */
   onMediaDetached?: (mediaId: string) => void;
+  /**
+   * Places an uploaded image into the story text at the editor's cursor,
+   * via the "Add to story" button below -- the only way an image reaches
+   * the story text now that the editor toolbar's own upload-and-insert
+   * button has been removed (uploading happens here, exclusively). `width`
+   * is this tile's own on-screen pixel width at the moment of the click
+   * (see the button's onClick below) -- passed through so the inserted
+   * image starts out the same size as its thumbnail here, not a separate
+   * guessed default. Omitted in any context with no open editor to insert
+   * into.
+   */
+  onInsertIntoEditor?: (mediaId: string, width: number) => void;
 };
 
 const PROCESSING_LABELS: Record<string, string> = {
@@ -81,6 +94,7 @@ export function ImageUploadManager({
   onVersionBumped,
   inlineMediaIds,
   onMediaDetached,
+  onInsertIntoEditor,
 }: ImageUploadManagerProps) {
   const [media, setMedia] = useState<RevisionMediaItem[]>(
     [...initialMedia].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -377,8 +391,11 @@ export function ImageUploadManager({
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {uploading.map((u) => (
             <li key={u.key} className="space-y-1">
+              {/* A third the size of the finished-thumbnail tiles below --
+                  this is a transient status preview, not the actual gallery
+                  item, so it doesn't need to fill the same grid cell. */}
               <div
-                className={`relative aspect-square overflow-hidden rounded-md border-2 ${
+                className={`relative aspect-square w-1/3 overflow-hidden rounded-md border-2 ${
                   u.progress === "error"
                     ? "border-destructive"
                     : "border-border-subtle"
@@ -388,13 +405,8 @@ export function ImageUploadManager({
                 <img
                   src={u.previewUrl}
                   alt=""
-                  className={`h-full w-full object-cover ${u.progress === "error" ? "opacity-40" : "opacity-60"}`}
+                  className={`h-full w-full object-cover ${u.progress === "error" ? "opacity-40" : "opacity-90"}`}
                 />
-                {u.progress !== "error" && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-                    <Spinner className="h-6 w-6 text-white" />
-                  </div>
-                )}
               </div>
               <p
                 className={`truncate text-xs ${
@@ -439,7 +451,7 @@ export function ImageUploadManager({
                 key={item.mediaId}
                 className="space-y-2 rounded-md border border-border-subtle p-2"
               >
-                <div className="relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
+                <div className="js-image-thumb relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
                   {thumbnails[item.mediaId] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
                     <img
@@ -511,6 +523,29 @@ export function ImageUploadManager({
                 />
 
                 <div className="flex flex-wrap gap-2 text-xs">
+                  {onInsertIntoEditor && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        // Reads this tile's own current on-screen width
+                        // (the grid is responsive -- 2 or 3 columns
+                        // depending on viewport) rather than a hardcoded
+                        // number, so "same size as the Images section"
+                        // stays true at whatever width it's actually
+                        // showing right now.
+                        const thumb = e.currentTarget
+                          .closest("li")
+                          ?.querySelector<HTMLElement>(".js-image-thumb");
+                        const width = thumb
+                          ? Math.round(thumb.getBoundingClientRect().width)
+                          : DEFAULT_EMBED_WIDTH;
+                        onInsertIntoEditor(item.mediaId, width);
+                      }}
+                      className="font-medium text-accent underline underline-offset-2"
+                    >
+                      Add to story
+                    </button>
+                  )}
                   {!item.isCover && (
                     <button
                       type="button"

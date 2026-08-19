@@ -97,6 +97,22 @@ function storyStatusFlags(story: MyStoryWithCover) {
 }
 
 /**
+ * Where clicking the story itself (its thumbnail/title, not one of the
+ * explicit Edit/Preview/Review icon actions) should go: a plain draft goes
+ * straight to editing, anything past that (in review, published, or
+ * otherwise) goes to the read-only preview -- matching editable's own
+ * "current_draft_revision_id can actually be saved" rule would be more
+ * precise, but the simpler "draft vs everything else" split is what was
+ * asked for and covers the common case (edit while drafting, read
+ * afterward).
+ */
+function primaryStoryHref(story: MyStoryWithCover): string {
+  return story.lifecycle_status === "draft"
+    ? `/stories/${story.id}/edit`
+    : `/stories/${story.id}/preview`;
+}
+
+/**
  * A story action rendered as an icon-only Link -- Edit / Review / Preview.
  * `label` becomes both the visible tooltip (title) and the accessible name
  * (aria-label), since the icon alone carries no text for a screen reader.
@@ -315,10 +331,11 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
             const { awaitingApproval, editable, deletable } =
               storyStatusFlags(story);
             const title = story.title ?? "Untitled story";
+            const href = primaryStoryHref(story);
             return (
               <li key={story.id}>
                 <Link
-                  href={`/stories/${story.id}/preview`}
+                  href={href}
                   className="relative block aspect-square overflow-hidden rounded-md border border-border-subtle"
                 >
                   <StoryCoverThumbnail
@@ -380,6 +397,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
               storyStatusFlags(story);
             const updated = formatDate(story.updated_at);
             const title = story.title ?? "Untitled story";
+            const href = primaryStoryHref(story);
             return (
               <li key={story.id} className="nf-entry">
                 {/* One grid, two shapes. Mobile: [thumb | stacked content],
@@ -396,7 +414,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                   </span>
 
                   <Link
-                    href={`/stories/${story.id}/preview`}
+                    href={href}
                     tabIndex={-1}
                     aria-hidden="true"
                     className="block h-12 w-16 overflow-hidden rounded-md border border-border-subtle bg-surface-muted sm:h-14 sm:w-20"
@@ -411,7 +429,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
-                          href={`/stories/${story.id}/preview`}
+                          href={href}
                           className="font-medium hover:text-accent hover:underline underline-offset-2"
                         >
                           {title}

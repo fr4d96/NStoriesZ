@@ -11,7 +11,45 @@ import {
   MEDIA_EMBED_REGEX,
   clampEmbedWidth,
   mediaEmbedToken,
+  removeMediaEmbeds,
 } from "@/lib/story/markdown-media";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Same markup/animation as components/ui/spinner.tsx, rebuilt with raw DOM
+ * APIs since this widget isn't React -- Tailwind's `animate-spin` utility is
+ * already compiled into the app's global stylesheet (that component uses
+ * it), so referencing the class name here picks up the same CSS rather than
+ * duplicating an @keyframes definition.
+ */
+function buildSpinner(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "animate-spin cm-md-image-spinner");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("role", "status");
+  svg.setAttribute("aria-label", "Loading");
+
+  const circle = document.createElementNS(SVG_NS, "circle");
+  circle.setAttribute("cx", "12");
+  circle.setAttribute("cy", "12");
+  circle.setAttribute("r", "9");
+  circle.setAttribute("stroke", "currentColor");
+  circle.setAttribute("stroke-width", "3");
+  circle.setAttribute("class", "cm-md-image-spinner-track");
+
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", "M21 12a9 9 0 0 0-9-9");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "3");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("class", "cm-md-image-spinner-head");
+
+  svg.appendChild(circle);
+  svg.appendChild(path);
+  return svg;
+}
 
 /**
  * Bear.app-style "live preview": the raw Markdown text is never rewritten --
@@ -140,8 +178,19 @@ class MediaImageWidget extends WidgetType {
       return wrap;
     }
     if (!cached || cached === "loading") {
-      wrap.className = "cm-md-image-status";
-      wrap.textContent = "🖼 Loading image…";
+      // A small fixed-size box, not the image's eventual (often much
+      // larger) target width -- there's no image to fill that width with
+      // yet, just a spinner, so reserving the full final size read as an
+      // oversized empty frame. Same spinner-in-a-frame idea as
+      // image-upload-manager.tsx's loading tiles, scaled down to fit the
+      // spinner with a little breathing room instead of the image's size.
+      wrap.className = "cm-md-image-wrap";
+      const box = document.createElement("div");
+      box.className = "cm-md-image-loading-box";
+      box.setAttribute("role", "status");
+      box.setAttribute("aria-label", "Loading image…");
+      box.appendChild(buildSpinner());
+      wrap.appendChild(box);
       this.cache.request(this.mediaId, view);
       return wrap;
     }
@@ -153,6 +202,34 @@ class MediaImageWidget extends WidgetType {
     img.className = "cm-md-image";
     if (this.width) img.style.width = `${this.width}px`;
     wrap.appendChild(img);
+
+    // Removes just this image's embed token(s) from the document -- the
+    // underlying upload/attachment is untouched (same split as
+    // image-upload-manager.tsx's own "Remove", which instead fully detaches
+    // the media; this is the lighter "take it out of the text" action).
+    // Reuses removeMediaEmbeds() rather than a raw range delete so a
+    // now-empty line collapses the same way handleMediaDetached's cleanup
+    // already does for the Images panel's Remove button -- one strip
+    // implementation, not two that could drift apart.
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "cm-md-image-remove-button";
+    removeButton.setAttribute("aria-label", "Remove image from story");
+    removeButton.setAttribute("title", "Remove image from story");
+    removeButton.textContent = "×";
+    removeButton.addEventListener("mousedown", (e) => e.preventDefault());
+    removeButton.addEventListener("click", (e) => {
+      e.preventDefault();
+      const doc = view.state.doc.toString();
+      const stripped = removeMediaEmbeds(doc, this.mediaId);
+      if (stripped !== doc) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: stripped },
+        });
+      }
+      view.focus();
+    });
+    wrap.appendChild(removeButton);
 
     const handle = document.createElement("span");
     handle.className = "cm-md-image-resize-handle";
@@ -656,4 +733,48 @@ const markdownLiveTheme = EditorView.baseTheme({
     transition: "opacity 120ms ease",
   },
   ".cm-md-image-wrap:hover .cm-md-image-resize-handle": { opacity: "0.85" },
+  ".cm-md-image-remove-button": {
+    position: "absolute",
+    top: "4px",
+    right: "4px",
+    width: "20px",
+    height: "20px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0",
+    border: "none",
+    borderRadius: "4px",
+    lineHeight: "1",
+    fontSize: "14px",
+    color: "canvas",
+    // Fixed dark red, not currentColor-derived like the resize handle --
+    // this is a destructive action and should read as one regardless of
+    // theme, the same way every other delete affordance in the app
+    // (text-destructive) is a red distinct from ordinary UI chrome.
+    backgroundColor: "#7f1d1d",
+    boxShadow: "0 0 0 2px color-mix(in srgb, canvas 80%, transparent)",
+    cursor: "pointer",
+    opacity: "0",
+    transition: "opacity 120ms ease",
+  },
+  ".cm-md-image-wrap:hover .cm-md-image-remove-button": { opacity: "0.85" },
+  ".cm-md-image-remove-button:hover": { opacity: "1" },
+  ".cm-md-image-loading-box": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "56px",
+    height: "56px",
+    borderRadius: "6px",
+    border: "1px solid color-mix(in srgb, currentColor 20%, transparent)",
+    backgroundColor: "color-mix(in srgb, currentColor 8%, transparent)",
+    color: "color-mix(in srgb, currentColor 45%, transparent)",
+  },
+  ".cm-md-image-spinner": {
+    width: "24px",
+    height: "24px",
+  },
+  ".cm-md-image-spinner-track": { opacity: "0.25" },
+  ".cm-md-image-spinner-head": { opacity: "0.9" },
 });

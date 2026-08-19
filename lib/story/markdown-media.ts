@@ -15,6 +15,18 @@
 export const MIN_EMBED_WIDTH = 60;
 export const MAX_EMBED_WIDTH = 2000;
 
+/**
+ * Default display width (CSS px) for a freshly-uploaded inline image,
+ * matching the ~320px an aspect-square tile actually renders at in
+ * components/story/image-upload-manager.tsx's gallery grid (max-w-5xl
+ * container, grid-cols-3 with gaps, on desktop) -- so a newly inserted
+ * image starts out looking consistent with that panel instead of ballooning
+ * to the editor's full text-column width. Still just a starting point: the
+ * live editor's drag handle (markdown-live-decorations.ts) can resize it
+ * afterward, same as any embed with a stored `|width`.
+ */
+export const DEFAULT_EMBED_WIDTH = 320;
+
 export const MEDIA_EMBED_REGEX =
   /!\[\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\|(\d{2,4}))?\]\]/gi;
 

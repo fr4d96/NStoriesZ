@@ -71,4 +71,12 @@ describe("insertMediaToken", () => {
       "Some text\n![[11111111-1111-4111-8111-111111111111]]\n",
     );
   });
+
+  it("stores a given width as the ![[mediaId|width]] embed token", () => {
+    const view = viewWithDoc("Some text", 9);
+    insertMediaToken(view, "11111111-1111-4111-8111-111111111111", 320);
+    expect(view.state.doc.toString()).toBe(
+      "Some text\n![[11111111-1111-4111-8111-111111111111|320]]\n",
+    );
+  });
 });

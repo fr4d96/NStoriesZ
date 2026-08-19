@@ -114,6 +114,22 @@ describe("MyStoriesView", () => {
         ) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
+    // A plain draft's title/thumbnail links straight to editing, not preview.
+    expect(
+      screen.getByRole("link", { name: "Picking apples in Hawke's Bay" }),
+    ).toHaveAttribute(
+      "href",
+      "/stories/11111111-1111-4111-8111-111111111111/edit",
+    );
+  });
+
+  it("sends a non-draft story's title/thumbnail to preview, not edit", () => {
+    render(
+      <MyStoriesView
+        stories={[makeStory({ lifecycle_status: "published" })]}
+      />,
+    );
+
     expect(
       screen.getByRole("link", { name: "Picking apples in Hawke's Bay" }),
     ).toHaveAttribute(
