@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Fail-closed cleanup for e2e/editorial-upload.spec.ts and
-// e2e/content-import-body-size.spec.ts's own fixture data on the hosted
-// linked project -- neither spec cleans up after itself, since a failed
+// Fail-closed cleanup for e2e/editorial-upload.spec.ts,
+// e2e/content-import-body-size.spec.ts, and e2e/pdf-import.spec.ts's own
+// fixture data on the hosted linked project -- no spec cleans up after
+// itself, since a failed
 // run's data is sometimes useful to inspect. Mirrors
 // scripts/cleanup-abandoned-media-uploads.mjs's isolation pattern exactly:
 // dedicated SUPABASE_MAINTENANCE_* env vars, loaded only via an explicit
@@ -10,11 +11,12 @@
 // for anything destructive).
 //
 // Scoping: every story this cleanup touches has a slug starting with
-// 'e2e-editorial-upload-' or 'e2e-body-size-' (the exact title prefixes
-// both specs use), and every contributor it touches has a display_name
-// starting with 'E2E Editorial Contributor ' or 'E2E Body-Size Contributor '
-// -- both specs' own naming conventions, chosen specifically so this script
-// can find them without touching the fixed rls-test-*/real account pool.
+// 'e2e-editorial-upload-', 'e2e-body-size-', or 'e2e-pdf-import-' (the exact
+// title prefixes those specs use), and every contributor it touches has a
+// display_name starting with 'E2E Editorial Contributor ', 'E2E Body-Size
+// Contributor ', or 'E2E PDF Import Contributor ' -- each spec's own naming
+// convention, chosen specifically so this script can find them without
+// touching the fixed rls-test-*/real account pool.
 //
 // Storage cleanup goes through the REAL Storage API
 // (storage.from(bucket).remove([path])), never a raw `delete from
@@ -32,10 +34,15 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const STORY_SLUG_PREFIXES = ["e2e-editorial-upload-", "e2e-body-size-"];
+const STORY_SLUG_PREFIXES = [
+  "e2e-editorial-upload-",
+  "e2e-body-size-",
+  "e2e-pdf-import-",
+];
 const CONTRIBUTOR_NAME_PREFIXES = [
   "E2E Editorial Contributor ",
   "E2E Body-Size Contributor ",
+  "E2E PDF Import Contributor ",
 ];
 const PRIVATE_BUCKET = "story-images-private";
 const PUBLIC_BUCKET = "story-images-public";

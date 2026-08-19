@@ -6,9 +6,21 @@ import {
   createEditorialImportAction,
   type NewImportFormState,
 } from "./actions";
+import { TitleAndContributorFields } from "./contributor-fieldset";
+import { PdfImportPicker } from "./pdf-import-picker";
 
 const initialState: NewImportFormState = {};
 
+/**
+ * Stage 5 (docs/pdf-canva-import-plan.md) added the "PDF/Canva file" mode
+ * below, alongside the pre-existing blank-draft path (title + contributor,
+ * then paste/import the body text later inside the editor via
+ * components/story/content-import-panel.tsx). The two modes end up in
+ * different places by design: a blank draft still needs its content_json
+ * filled in from scratch, while a PDF import produces both the draft AND
+ * its (image-only, placeholder-text) content_json in one submit — see
+ * PdfImportPicker's own doc comment.
+ */
 export function NewImportForm({
   contributors,
 }: {
@@ -18,121 +30,60 @@ export function NewImportForm({
     createEditorialImportAction,
     initialState,
   );
-  const [mode, setMode] = useState<"existing" | "new">(
-    contributors.length > 0 ? "existing" : "new",
-  );
+  const [importMode, setImportMode] = useState<"blank" | "pdf">("blank");
 
   return (
-    <form action={formAction} className="mt-6 space-y-6">
-      {state.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {state.error}
-        </p>
-      )}
-
-      <div>
-        <label htmlFor="new-import-title" className="block text-sm font-medium">
-          Title
-        </label>
-        <input
-          id="new-import-title"
-          name="title"
-          type="text"
-          required
-          maxLength={200}
-          className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-        />
-      </div>
-
+    <div className="mt-6">
       <fieldset>
-        <legend className="text-sm font-medium">Contributor</legend>
+        <legend className="text-sm font-medium">Import type</legend>
         <div className="mt-1 flex gap-4 text-sm">
           <label className="flex items-center gap-1.5">
             <input
               type="radio"
-              name="contributorMode"
-              value="existing"
-              checked={mode === "existing"}
-              onChange={() => setMode("existing")}
-              disabled={contributors.length === 0}
+              name="importMode"
+              value="blank"
+              checked={importMode === "blank"}
+              onChange={() => setImportMode("blank")}
             />
-            Existing contributor
+            Blank draft (add text and images later)
           </label>
           <label className="flex items-center gap-1.5">
             <input
               type="radio"
-              name="contributorMode"
-              value="new"
-              checked={mode === "new"}
-              onChange={() => setMode("new")}
+              name="importMode"
+              value="pdf"
+              checked={importMode === "pdf"}
+              onChange={() => setImportMode("pdf")}
             />
-            New (unlinked) contributor
+            PDF / Canva file
           </label>
         </div>
-
-        {mode === "existing" ? (
-          <select
-            name="existingContributorId"
-            required
-            className="mt-3 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-          >
-            {contributors.length === 0 && (
-              <option value="">No contributors yet</option>
-            )}
-            {contributors.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.displayName} {c.isLinked ? "(linked)" : "(unlinked)"}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <div className="mt-3 space-y-3">
-            <div>
-              <label
-                htmlFor="new-contributor-name"
-                className="block text-sm font-medium"
-              >
-                Display name
-              </label>
-              <input
-                id="new-contributor-name"
-                name="newContributorDisplayName"
-                type="text"
-                required
-                maxLength={120}
-                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="new-contributor-attribution"
-                className="block text-sm font-medium"
-              >
-                Attribution type
-              </label>
-              <select
-                id="new-contributor-attribution"
-                name="newContributorAttributionType"
-                defaultValue="display_name"
-                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-              >
-                <option value="real_name">Real name</option>
-                <option value="display_name">Display name</option>
-                <option value="pseudonym">Pseudonym</option>
-                <option value="anonymous">Anonymous</option>
-              </select>
-            </div>
-          </div>
-        )}
       </fieldset>
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-60"
-      >
-        {pending ? "Creating…" : "Create Import Draft"}
-      </button>
-    </form>
+      {importMode === "blank" ? (
+        <form action={formAction} className="mt-6 space-y-6">
+          {state.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {state.error}
+            </p>
+          )}
+
+          <TitleAndContributorFields
+            contributors={contributors}
+            idPrefix="new-import"
+          />
+
+          <button
+            type="submit"
+            disabled={pending}
+            className="inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground disabled:opacity-60"
+          >
+            {pending ? "Creating…" : "Create Import Draft"}
+          </button>
+        </form>
+      ) : (
+        <PdfImportPicker contributors={contributors} />
+      )}
+    </div>
   );
 }

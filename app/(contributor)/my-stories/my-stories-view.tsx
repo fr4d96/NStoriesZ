@@ -1,10 +1,26 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
 import { StoryCoverThumbnail } from "./story-cover-thumbnail";
+import { deleteDraftStoryAction } from "./actions";
+import { useToast } from "@/components/ui/toast";
+import {
+  EditorialPencilIcon,
+  EyeIcon,
+  TrashIcon,
+  CheckCircleIcon,
+  CloseIcon,
+} from "@/components/icons";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
+
+// Shared 32px round hit-target for every per-story icon action (Edit,
+// Preview/Review, Delete and its confirm/cancel step) -- consistent size
+// and hover treatment whether the action is a Link or a button.
+const ACTION_ICON_CLASS =
+  "inline-flex h-8 w-8 items-center justify-center rounded-full hover:bg-surface-muted disabled:pointer-events-none disabled:opacity-60";
 
 type ViewMode = "grid" | "list";
 
@@ -73,7 +89,119 @@ function storyStatusFlags(story: MyStoryWithCover) {
   const inReview = story.lifecycle_status === "pending_review";
   const editable =
     Boolean(story.current_draft_revision_id) && !awaitingApproval && !inReview;
-  return { awaitingApproval, editable };
+  // Coarse client-side gate matching delete_draft_story()'s cheap
+  // precondition (lifecycle_status = 'draft' and never published) -- the
+  // RPC itself is the real safety boundary and additionally requires this
+  // story have no prior review history, which isn't visible from
+  // list_my_stories()'s columns; a story that fails that finer check surfaces
+  // the RPC's specific error via the confirm flow below instead of silently
+  // hiding the button.
+  const deletable =
+    story.lifecycle_status === "draft" && story.published_revision_id === null;
+  return { awaitingApproval, editable, deletable };
+}
+
+/**
+ * A story action rendered as an icon-only Link -- Edit / Review / Preview.
+ * `label` becomes both the visible tooltip (title) and the accessible name
+ * (aria-label), since the icon alone carries no text for a screen reader.
+ */
+function ActionIconLink({
+  href,
+  label,
+  className,
+  children,
+}: {
+  href: string;
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      title={label}
+      aria-label={label}
+      className={`${ACTION_ICON_CLASS} ${className ?? ""}`}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * Two-step inline delete (click the trash icon -> click check to confirm or
+ * X to cancel) rather than a native confirm() dialog, to match the rest of
+ * this page's controlled UI. Deletion is permanent -- delete_draft_story()
+ * hard-deletes the story row and everything under it (Engineering rule:
+ * only ever a never-published, never-submitted draft, so nothing public is
+ * at stake).
+ */
+function DeleteDraftAction({
+  story,
+  title,
+  className,
+}: {
+  story: MyStoryWithCover;
+  title: string;
+  className?: string;
+}) {
+  const router = useRouter();
+  const { showToast } = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleConfirm() {
+    setDeleting(true);
+    const result = await deleteDraftStoryAction(story.id, story.version);
+    if (result.ok) {
+      showToast(`"${title}" deleted.`);
+      router.refresh();
+      return;
+    }
+    setDeleting(false);
+    setConfirming(false);
+    showToast(result.error, "error");
+  }
+
+  if (confirming) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={deleting}
+          title={`Confirm delete ${title}`}
+          aria-label={`Confirm delete ${title}`}
+          className={`${ACTION_ICON_CLASS} text-destructive`}
+        >
+          <CheckCircleIcon className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          disabled={deleting}
+          title="Cancel"
+          aria-label="Cancel delete"
+          className={`${ACTION_ICON_CLASS} text-foreground/70`}
+        >
+          <CloseIcon className="h-4 w-4" />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setConfirming(true)}
+      title={`Delete ${title}`}
+      aria-label={`Delete ${title}`}
+      className={`${ACTION_ICON_CLASS} text-destructive ${className ?? ""}`}
+    >
+      <TrashIcon className="h-4 w-4" />
+    </button>
+  );
 }
 
 function GridIcon() {
@@ -170,6 +298,12 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
             </div>
           )}
           <Link
+            href="/stories/new/import"
+            className="journiq-button border border-border-subtle bg-transparent text-foreground"
+          >
+            Import PDF / Canva
+          </Link>
+          <Link
             href="/stories/new"
             className="journiq-button bg-accent text-accent-foreground"
           >
@@ -186,13 +320,22 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
             className="text-accent underline underline-offset-2"
           >
             Start your first one
+          </Link>{" "}
+          or{" "}
+          <Link
+            href="/stories/new/import"
+            className="text-accent underline underline-offset-2"
+          >
+            import a PDF/Canva export
           </Link>
           .
         </p>
       ) : view === "grid" ? (
         <ul className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
           {stories.map((story) => {
-            const { awaitingApproval, editable } = storyStatusFlags(story);
+            const { awaitingApproval, editable, deletable } =
+              storyStatusFlags(story);
+            const title = story.title ?? "Untitled story";
             return (
               <li key={story.id}>
                 <Link
@@ -208,32 +351,36 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                   </div>
                 </Link>
                 <div className="mt-2">
-                  <p className="truncate text-sm font-medium">
-                    {story.title ?? "Untitled story"}
-                  </p>
-                  <div className="mt-1.5 flex gap-3 text-xs font-bold">
+                  <p className="truncate text-sm font-medium">{title}</p>
+                  <div className="-ml-1.5 mt-1 flex flex-wrap items-center">
                     {editable && (
-                      <Link
+                      <ActionIconLink
                         href={`/stories/${story.id}/edit`}
-                        className="text-accent underline underline-offset-2"
+                        label={`Edit ${title}`}
+                        className="text-accent"
                       >
-                        Edit
-                      </Link>
+                        <EditorialPencilIcon className="h-4 w-4" />
+                      </ActionIconLink>
                     )}
                     {awaitingApproval ? (
-                      <Link
+                      <ActionIconLink
                         href={`/stories/${story.id}/preview`}
-                        className="text-accent underline underline-offset-2"
+                        label={`Review ${title}`}
+                        className="text-accent"
                       >
-                        Review
-                      </Link>
+                        <EyeIcon className="h-4 w-4" />
+                      </ActionIconLink>
                     ) : (
-                      <Link
+                      <ActionIconLink
                         href={`/stories/${story.id}/preview`}
-                        className="text-foreground/70 underline underline-offset-2"
+                        label={`Preview ${title}`}
+                        className="text-foreground/70"
                       >
-                        Preview
-                      </Link>
+                        <EyeIcon className="h-4 w-4" />
+                      </ActionIconLink>
+                    )}
+                    {deletable && (
+                      <DeleteDraftAction story={story} title={title} />
                     )}
                   </div>
                 </div>
@@ -250,7 +397,8 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
         // are the linked targets and the actions sit alongside.
         <ul className="mt-8">
           {stories.map((story, index) => {
-            const { awaitingApproval, editable } = storyStatusFlags(story);
+            const { awaitingApproval, editable, deletable } =
+              storyStatusFlags(story);
             const updated = formatDate(story.updated_at);
             const title = story.title ?? "Untitled story";
             return (
@@ -303,32 +451,35 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                       )}
                     </div>
 
-                    <div className="mt-2 flex gap-3 text-sm font-bold sm:mt-0">
+                    <div className="-ml-1.5 mt-1 flex items-center sm:mt-0">
                       {editable && (
-                        <Link
+                        <ActionIconLink
                           href={`/stories/${story.id}/edit`}
-                          className="text-accent underline underline-offset-2"
+                          label={`Edit ${title}`}
+                          className="text-accent"
                         >
-                          Edit
-                          <span className="sr-only"> {title}</span>
-                        </Link>
+                          <EditorialPencilIcon className="h-4 w-4" />
+                        </ActionIconLink>
                       )}
                       {awaitingApproval ? (
-                        <Link
+                        <ActionIconLink
                           href={`/stories/${story.id}/preview`}
-                          className="text-accent underline underline-offset-2"
+                          label={`Review ${title}`}
+                          className="text-accent"
                         >
-                          Review
-                          <span className="sr-only"> {title}</span>
-                        </Link>
+                          <EyeIcon className="h-4 w-4" />
+                        </ActionIconLink>
                       ) : (
-                        <Link
+                        <ActionIconLink
                           href={`/stories/${story.id}/preview`}
-                          className="text-foreground/70 underline underline-offset-2"
+                          label={`Preview ${title}`}
+                          className="text-foreground/70"
                         >
-                          Preview
-                          <span className="sr-only"> {title}</span>
-                        </Link>
+                          <EyeIcon className="h-4 w-4" />
+                        </ActionIconLink>
+                      )}
+                      {deletable && (
+                        <DeleteDraftAction story={story} title={title} />
                       )}
                     </div>
                   </div>

@@ -183,6 +183,27 @@ export async function withdrawUnstartedSubmission(storyId: string) {
   if (error) throw error;
 }
 
+/**
+ * Permanently deletes a self-service story, via delete_draft_story()
+ * (supabase/migrations/20260819090000_delete_draft_story.sql). The RPC
+ * itself enforces the real safety boundary — only a story that has never
+ * left plain-draft status (no submission, no review history, never
+ * published) can be deleted this way; anything else fails with a clear
+ * Postgres error that surfaces through `error` below unchanged.
+ */
+export async function deleteDraftStory(
+  storyId: string,
+  expectedVersion: number,
+): Promise<void> {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("delete_draft_story", {
+    p_story_id: storyId,
+    p_expected_version: expectedVersion,
+  });
+  if (error) throw error;
+}
+
 export async function requestEditorialChanges(storyId: string, note: string) {
   await requireUser();
   const supabase = await createClient();

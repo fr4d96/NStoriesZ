@@ -1,5 +1,6 @@
 import path from "node:path";
 import { test, expect } from "@playwright/test";
+import { signInUi } from "./helpers/sign-in";
 
 /**
  * Three-tier proof of the Server Action body-size margin (round-6 plan
@@ -62,11 +63,7 @@ const ABOVE_FRAMEWORK_CEILING = "a".repeat(3_000_000);
 async function signInAsEditorAndOpenAnEditorialDraft(
   page: import("@playwright/test").Page,
 ) {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(EDITOR_EMAIL!);
-  await page.getByLabel("Password").fill(EDITOR_PASSWORD!);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
+  await signInUi(page, EDITOR_EMAIL!, EDITOR_PASSWORD!);
 
   const runId = Math.random().toString(36).slice(2, 8);
   await page.goto("/editorial/new");

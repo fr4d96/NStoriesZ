@@ -107,7 +107,10 @@ describe("SiteHeader", () => {
 
   it("opens the sign-in modal from the header button instead of navigating", () => {
     render(<SiteHeader />);
-    expect(screen.getByText("sign-in-form")).not.toBeVisible();
+    // Not merely hidden: AuthModal mounts its children only while open, so
+    // the real SignInForm's id="email"/id="password" fields never duplicate
+    // the ones on the real /sign-in page. See auth-modal.tsx's comment.
+    expect(screen.queryByText("sign-in-form")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -170,6 +173,7 @@ describe("SiteHeader", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    expect(screen.queryByText("sign-in-form")).not.toBeVisible();
+    // Unmounted, not just hidden — same reasoning as the open test above.
+    expect(screen.queryByText("sign-in-form")).toBeNull();
   });
 });

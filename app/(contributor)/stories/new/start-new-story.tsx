@@ -24,6 +24,12 @@ import { Spinner } from "@/components/ui/spinner";
  * component, no explicit action call) was deliberately avoided: Next.js
  * Link prefetching could then create a story every time this route's link
  * scrolls into view, not only on an actual click.
+ *
+ * Kept as the zero-click default for `/stories/new` -- every existing entry
+ * point ("New Story" in the header/nav/my-stories, e2e tests) expects an
+ * immediate redirect to a real draft's edit page. The PDF/Canva import
+ * option lives at the separate `/stories/new/import` route
+ * (pdf-import-picker.tsx) instead of replacing this behavior in place.
  */
 export function StartNewStory() {
   const [error, setError] = useState<string | null>(null);

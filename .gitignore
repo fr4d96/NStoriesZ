@@ -32,6 +32,9 @@ test-results/
 # vercel
 .vercel
 
+# throwaway local exploration output (not source, not test fixtures)
+/scratch/
+
 # debug logs
 npm-debug.log*
 yarn-debug.log*

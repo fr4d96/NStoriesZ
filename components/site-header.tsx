@@ -13,9 +13,12 @@ import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
 import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
 import { createClient } from "@/lib/supabase/client";
 
-// Home-page anchors must match the section ids in app/(public)/page.tsx.
+// "Destinations" is a home-page anchor and must match the section id in
+// app/(public)/page.tsx. "Stories" and "Contributors" link to their own
+// real browsing pages rather than sections on the home page.
 const primaryNav = [
-  { href: "/#index", label: "Storiesss" },
+  { href: "/stories", label: "Stories" },
+  { href: "/contributors", label: "Contributors" },
   { href: "/#match", label: "Destinations" },
   { href: "/about", label: "About" },
 ];
@@ -148,36 +151,42 @@ export function SiteHeader() {
           aria-label="Primary"
           className="ml-auto hidden items-center gap-6 text-sm font-bold md:flex"
         >
-          {primaryNav.map((item) => (
-            <Link key={item.href} href={item.href} className="journiq-nav-link">
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+          <div className="flex items-center gap-6">
+            {primaryNav.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="journiq-nav-link"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
 
-        <div className="hidden items-center gap-2 md:flex">
-          <ThemeToggle inverted={inverted} />
-          {signedIn ? (
-            <UserAvatarMenu emoji={avatarEmoji} inverted={inverted} />
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setAuthModal("sign-in")}
-                className={`rounded-full border px-4 py-2 text-sm font-bold ${signInToneClasses}`}
-              >
-                Sign in
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthModal("sign-up")}
-                className="rounded-full bg-accent px-4 py-2 text-sm font-black text-accent-foreground"
-              >
-                Share your story
-              </button>
-            </>
-          )}
-        </div>
+          <div className="flex items-center gap-2">
+            <ThemeToggle inverted={inverted} />
+            {signedIn ? (
+              <UserAvatarMenu emoji={avatarEmoji} inverted={inverted} />
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAuthModal("sign-in")}
+                  className={`rounded-full border px-4 py-2 text-sm font-bold ${signInToneClasses}`}
+                >
+                  Sign in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthModal("sign-up")}
+                  className="rounded-full bg-accent px-4 py-2 text-sm font-black text-accent-foreground"
+                >
+                  Share your story
+                </button>
+              </>
+            )}
+          </div>
+        </nav>
 
         <div className="ml-auto flex items-center gap-2 md:hidden">
           <ThemeToggle inverted={inverted} />

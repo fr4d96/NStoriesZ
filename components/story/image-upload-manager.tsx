@@ -28,6 +28,11 @@ type UploadingItem = {
   fileName: string;
   progress: "uploading" | "processing" | "error";
   error?: string;
+  /** Local object URL for the file being uploaded, so the tile can show the
+   * actual image (dimmed, with a centered spinner over it) instead of a
+   * blank placeholder while the real upload/processing is in flight.
+   * Revoked once the item leaves `uploading` (see handleFiles/removeUploading). */
+  previewUrl: string;
 };
 
 export type ImageUploadManagerProps = {
@@ -87,6 +92,17 @@ export function ImageUploadManager({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
+  // Revokes every local preview URL this component ever created (including
+  // ones for errored items that never leave `uploading`, since those have
+  // no other removal point) once the panel itself unmounts.
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const urls = previewUrlsRef.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+    };
+  }, []);
+
   // Mint (or re-mint) a signed thumbnail URL for every processed image not
   // already showing one. Signed URLs expire after 120 seconds
   // (lib/story/image-pipeline.ts) — a short authoring session doesn't need
@@ -132,6 +148,8 @@ export function ImageUploadManager({
 
     for (const file of toUpload) {
       const key = `${file.name}-${file.size}-${Date.now()}`;
+      const previewUrl = URL.createObjectURL(file);
+      previewUrlsRef.current.add(previewUrl);
       // Fast client-side pre-checks — UX feedback only. Every real safety
       // decision (true format, dimensions, decode success) happens
       // server-side in lib/story/image-pipeline.ts; nothing here is trusted.
@@ -143,6 +161,7 @@ export function ImageUploadManager({
             fileName: file.name,
             progress: "error",
             error: "Use JPEG, PNG, or WebP.",
+            previewUrl,
           },
         ]);
         continue;
@@ -155,6 +174,7 @@ export function ImageUploadManager({
             fileName: file.name,
             progress: "error",
             error: "File is too large (max 15 MB).",
+            previewUrl,
           },
         ]);
         continue;
@@ -162,7 +182,7 @@ export function ImageUploadManager({
 
       setUploading((prev) => [
         ...prev,
-        { key, fileName: file.name, progress: "uploading" },
+        { key, fileName: file.name, progress: "uploading", previewUrl },
       ]);
 
       const formData = new FormData();
@@ -191,6 +211,8 @@ export function ImageUploadManager({
         // exactly one on success (see the migration's own guarantee).
         versionRef.current += 1;
         onVersionBumped();
+        URL.revokeObjectURL(previewUrl);
+        previewUrlsRef.current.delete(previewUrl);
         setUploading((prev) => prev.filter((u) => u.key !== key));
         await refresh();
         showToast(`${file.name} uploaded.`);
@@ -352,25 +374,42 @@ export function ImageUploadManager({
       </div>
 
       {uploading.length > 0 && (
-        <ul className="space-y-1 text-sm">
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {uploading.map((u) => (
-            <li
-              key={u.key}
-              className={`flex items-center gap-1.5 ${
-                u.progress === "error"
-                  ? "text-destructive"
-                  : "text-muted-foreground"
-              }`}
-            >
-              {u.progress !== "error" && <Spinner className="h-3.5 w-3.5" />}
-              <span>
-                {u.fileName} —{" "}
+            <li key={u.key} className="space-y-1">
+              <div
+                className={`relative aspect-square overflow-hidden rounded-md border-2 ${
+                  u.progress === "error"
+                    ? "border-destructive"
+                    : "border-border-subtle"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL for the file being uploaded, not an optimizable static asset */}
+                <img
+                  src={u.previewUrl}
+                  alt=""
+                  className={`h-full w-full object-cover ${u.progress === "error" ? "opacity-40" : "opacity-60"}`}
+                />
+                {u.progress !== "error" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                    <Spinner className="h-6 w-6 text-white" />
+                  </div>
+                )}
+              </div>
+              <p
+                className={`truncate text-xs ${
+                  u.progress === "error"
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+                }`}
+                title={u.fileName}
+              >
                 {u.progress === "error"
                   ? u.error
                   : u.progress === "uploading"
                     ? "Uploading…"
                     : "Processing…"}
-              </span>
+              </p>
             </li>
           ))}
         </ul>

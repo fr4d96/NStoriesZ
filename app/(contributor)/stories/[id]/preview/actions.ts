@@ -77,8 +77,10 @@ export async function submitOwnConsentAction(
   // contributor where they can see it move: My Stories, which already shows
   // a status badge for `pending_review`/`awaiting_contributor_approval`
   // (components/story/status-badge.tsx). redirect() throws internally, so
-  // this never returns a state the form could render.
-  redirect("/my-stories");
+  // this never returns a state the form could render -- the `toast` query
+  // param carries the confirmation across the redirect instead
+  // (app/(contributor)/my-stories/submission-toast.tsx picks it up).
+  redirect("/my-stories?toast=submitted");
 }
 
 export async function requestEditorialChangesAction(

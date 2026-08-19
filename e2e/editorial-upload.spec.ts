@@ -1,5 +1,6 @@
 import path from "node:path";
 import { test, expect } from "@playwright/test";
+import { signInUi } from "./helpers/sign-in";
 
 /**
  * Real, end-to-end proof of the multipart upload Route Handler
@@ -57,11 +58,7 @@ test.describe("editorial image upload (real Route Handler, real hosted project)"
   }) => {
     const runId = Math.random().toString(36).slice(2, 8);
 
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(EDITOR_EMAIL!);
-    await page.getByLabel("Password").fill(EDITOR_PASSWORD!);
-    await page.getByRole("button", { name: "Sign in" }).click();
-    await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
+    await signInUi(page, EDITOR_EMAIL!, EDITOR_PASSWORD!);
 
     await page.goto("/editorial/new");
     await page.getByLabel("Title").fill(`e2e-editorial-upload-${runId}`);

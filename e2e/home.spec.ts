@@ -18,8 +18,6 @@ test("home page loads with title, heading, and working public nav", async ({
     { name: "Stories", href: "/stories" },
     { name: "Contributors", href: "/contributors" },
     { name: "About", href: "/about" },
-    { name: "Sign in", href: "/sign-in" },
-    { name: "Sign up", href: "/sign-up" },
   ];
 
   for (const link of navLinks) {
@@ -33,6 +31,16 @@ test("home page loads with title, heading, and working public nav", async ({
     const navResponse = await page.request.get(link.href);
     expect(navResponse.status()).toBeLessThan(400);
   }
+
+  // Sign in / Share your story are buttons that open the header's auth
+  // modal (components/site-header.tsx), not plain links -- the real
+  // /sign-in and /sign-up pages still exist and are covered separately by
+  // e2e/auth.spec.ts.
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  await expect(nav.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(
+    nav.getByRole("button", { name: "Share your story" }),
+  ).toBeVisible();
 });
 
 test("featured-story stack carousel is present and its cards link to real stories", async ({
@@ -82,7 +90,11 @@ test("destination quiz walks through to a result linking into /stories", async (
   }
 
   const quiz = quizSection;
-  for (let i = 0; i < 4; i += 1) {
+  // Bounded generously above the quiz's actual question count (5, see
+  // components/home/destination-quiz.tsx's QUESTIONS array) -- the loop
+  // itself already stops as soon as no more answer buttons are rendered
+  // (i.e. the result screen is showing).
+  for (let i = 0; i < 10; i += 1) {
     const answers = quiz.getByTestId("quiz-answer");
     if ((await answers.count()) === 0) break;
     await answers.first().click();

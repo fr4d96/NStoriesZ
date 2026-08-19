@@ -1,6 +1,7 @@
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { signInUi } from "./helpers/sign-in";
 
 /**
  * Prompt 6 Stage 3: real, UI-level proof of the reports-triage workspace --
@@ -76,14 +77,6 @@ async function signInRpcClient(
   const { error } = await client.auth.signInWithPassword({ email, password });
   if (error) throw error;
   return client;
-}
-
-async function signInUi(page: Page, email: string, password: string) {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
 }
 
 /** Creates and submits a self-service revision, returning its ids. */

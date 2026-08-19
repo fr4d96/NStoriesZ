@@ -650,6 +650,20 @@ Rules, enforced by convention (no script does these automatically):
 - `npm run verify` = format:check + lint + typecheck + test + build (non-destructive, no server).
   `npm run verify:full` adds the Playwright run, reusing the build `verify` already produced
   (Playwright's `webServer` is `npm run start` only — never rebuilds) so nothing builds twice.
+- **Server-side modules with native, WASM, or self-resolving dependencies MUST have Playwright
+  coverage — Vitest cannot substitute, and a green `next build` proves nothing.** Vitest imports
+  such a module directly in plain Node and never touches Next's bundler at all; `next build` can
+  compile cleanly while the emitted chunk fails the moment a request actually reaches it. This is
+  not hypothetical: the PDF/Canva importer shipped with 384 passing Vitest tests and a green build
+  while both of its Route Handlers threw at runtime under Turbopack, because
+  `require.resolve("pdfjs-dist/package.json")` is a bundler-visible call that Turbopack rewrites to
+  its own module identifier instead of a filesystem path (full account in
+  [docs/implementation-status.md](implementation-status.md), "2026-08-18 — PDF/Canva import:
+  Turbopack fix"). Playwright is the only layer here that runs the real production build, so it is
+  the only layer that can catch this class of bug. `e2e/pdf-import.spec.ts` is the pattern to copy:
+  it asserts a real `200` and real rendered bytes from the route, and it was verified to fail when
+  the fix is reverted. The packages this applies to today are `pdfjs-dist`, `@napi-rs/canvas`, and
+  `sharp` (see `next.config.ts`'s `serverExternalPackages`).
 - **RLS is now live-verified, not just reviewed.** Every policy in the Prompt 2 migrations was
   manually reviewed against the anonymous/owner/other-user/editor/moderator/admin matrix, and then
   the schema was pushed to a real linked Supabase project (`ybhydepjaantkngngvuf`) and exercised

@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { signInUi } from "./helpers/sign-in";
 
 /**
  * Prompt 4 Sub-phase 5: real, UI-level (browser-driven) proof that one
@@ -68,14 +69,6 @@ const FIXTURE_PATH = path.join(
   "tiny.png",
 );
 
-async function signIn(page: Page, email: string, password: string) {
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
-}
-
 test.describe("cross-contributor UI-level access denial", () => {
   test.skip(
     !hasOwnerOtherCredentials,
@@ -91,7 +84,7 @@ test.describe("cross-contributor UI-level access denial", () => {
     // --- Step 1: owner creates a draft through the real UI ---
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
-    await signIn(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
+    await signInUi(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
 
     // /stories/new (2026-08-16) skips the old separate working-title page
     // entirely -- it creates a title-only "Untitled story" draft itself and
@@ -160,7 +153,7 @@ test.describe("cross-contributor UI-level access denial", () => {
     // --- Step 2: a second, fully independent browser context signs in as `other` ---
     const otherContext = await browser.newContext();
     const otherPage = await otherContext.newPage();
-    await signIn(otherPage, OTHER_EMAIL!, OTHER_PASSWORD!);
+    await signInUi(otherPage, OTHER_EMAIL!, OTHER_PASSWORD!);
 
     // --- Step 3: `other` navigates directly to owner's /edit page ---
     const editResponse = await otherPage.goto(`/stories/${storyId}/edit`);
@@ -224,7 +217,7 @@ test.describe("cross-contributor UI-level access denial", () => {
 
     const editorContext = await browser.newContext();
     const editorPage = await editorContext.newPage();
-    await signIn(editorPage, EDITOR_EMAIL!, EDITOR_PASSWORD!);
+    await signInUi(editorPage, EDITOR_EMAIL!, EDITOR_PASSWORD!);
 
     await editorPage.goto("/editorial/new");
     await editorPage
@@ -273,7 +266,7 @@ test.describe("cross-contributor UI-level access denial", () => {
     // independently runnable. ---
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
-    await signIn(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
+    await signInUi(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
     // /stories/new (2026-08-16) creates its own "Untitled story" draft and
     // redirects straight to the edit page -- this case only needs a real
     // story to exist (its title is never asserted on below), so nothing
@@ -303,7 +296,7 @@ test.describe("cross-contributor UI-level access denial", () => {
     // sub-phase). ---
     const otherContext = await browser.newContext();
     const otherPage = await otherContext.newPage();
-    await signIn(otherPage, OTHER_EMAIL!, OTHER_PASSWORD!);
+    await signInUi(otherPage, OTHER_EMAIL!, OTHER_PASSWORD!);
 
     const response = await otherPage.goto(
       `/editorial/${editorialStoryId}/edit`,

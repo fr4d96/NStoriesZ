@@ -3,8 +3,685 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-17 (every story thumbnail/photo frame gets a themed border, so images stop
-blending into the ground in both themes — see "2026-08-17, part 2" below).
+Last updated: 2026-08-18 (PDF/Canva import: the Turbopack `pdfjs-dist` runtime bug found during
+Stage 5 is FIXED, plus the first Playwright coverage that can catch this class of bug. See
+"2026-08-18 — PDF/Canva import: Turbopack fix" immediately below).
+
+**2026-08-18 — PDF/Canva import: Turbopack runtime fix, proxy body-size fix, and the
+anti-recurrence e2e coverage that would have caught both.**
+
+Follow-up to the Stage 5 entry below, which shipped the feature but left it working only under
+`next dev --webpack` — not under Turbopack, this repo's default for both `npm run dev` and
+`npm run build`. That is now fixed and verified live in both modes.
+
+- **Root cause (specific).** `lib/story/pdf-import.ts`'s `standardFontDataUrl()` used
+  `require.resolve("pdfjs-dist/package.json")` to locate pdfjs-dist's bundled `standard_fonts/`
+  directory. `require.resolve(<literal>)` is a **bundler-visible call**: Turbopack rewrites it to
+  return its own module identifier instead of a filesystem path. Reproduced first-hand under
+  `npm run dev` before changing anything (via a throwaway unauthenticated probe route, since the
+  real routes are editor-gated; the probe was deleted afterwards):
+  - dev returned the _string_
+    `"[externals]/pdfjs-dist/package.json [external] (pdfjs-dist/package.json, cjs, [project]/node_modules/pdfjs-dist)"`,
+    so the `.replace(/package\.json$/, "standard_fonts/")` matched nothing and the result had no
+    trailing slash → pdfjs's own `getFactoryUrlProp()` threw
+    `Invalid factory url: "…" must include trailing slash` from inside `getDocument()`;
+  - the production build returned a _numeric_ module id → `TypeError: 55876.replace is not a
+function`, the exact second error the Stage 5 entry recorded.
+    `serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"]` (next.config.ts, Stage 1) is correct
+    and was never the problem — it governs how the module is _loaded_, and indeed
+    `await import("pdfjs-dist/legacy/build/pdf.mjs")` resolved to the real
+    `file:///…/node_modules/pdfjs-dist/legacy/build/pdf.mjs` under Turbopack the whole time. It does
+    not make `require.resolve` of a _subpath inside_ an externalized package fall through to Node.
+    `@napi-rs/canvas`'s native `.node` loading was never implicated either.
+- **The fix (one function, no library swap, no dependency change, no bundler change).**
+  `standardFontDataUrl()` now resolves through `process.getBuiltinModule("node:module")
+.createRequire(import.meta.url).resolve(...)`, then joins with `node:path`. Two things were
+  tried and rejected on evidence, both recorded in the function's own doc comment so nobody
+  re-derives them:
+  1. plain `import { createRequire } from "node:module"` — **re-broke identically**; Turbopack
+     substitutes its own `createRequire` shim, which still resolves through the bundler's module
+     graph. Confirmed by running it, not by reading docs.
+  2. a non-literal specifier variable, to dodge static analysis — also insufficient, same reason.
+     `process.getBuiltinModule` (Node ≥ 22.3; this repo pins Node 24 via `engines`) reaches the real
+     Node builtin at runtime through `process`, which no bundler rewrites. The function also now
+     **guards its own assumption** — a non-absolute or non-`package.json` result throws a message
+     naming the real cause, instead of failing deep inside pdfjs's argument validation.
+     No library swap was needed, so no CJK-rendering re-validation was required (the plan's Revision
+     history reason for the image-based approach is untouched).
+- **Second, separate defect found and fixed while verifying: the 10 MB proxy body cap.** The
+  running dev server's log carried
+  `Request body exceeded 10MB for /editorial/new/pdf-preview. Only the first 10MB will be
+available unless configured.` `proxy.ts`'s matcher includes `/editorial/:path*`, and Next
+  **silently truncates** (not rejects) a proxied body past 10 MB by default. Against
+  `MAX_PDF_IMPORT_INPUT_BYTES` (75 MiB, sized for the real ~57 MB 151-page Canva sample this
+  feature exists for), every genuinely large export would have arrived truncated and been reported
+  to the editor as a corrupt PDF. `next.config.ts` now sets
+  `experimental.proxyClientMaxBodySize = "80mb"` with the same cross-referencing-comment
+  discipline the existing `serverActions.bodySizeLimit` uses; `lib/story/pdf-validation.ts`'s
+  constant comment now points back at it. This is a transport ceiling only — `pdfImportFileSchema`
+  still enforces the real 75 MiB product limit in code. **Not verified with an actual >10 MB
+  upload** (no large fixture exists in-repo and generating one purely to test transport was judged
+  not worth the runtime); the truncation behaviour is taken from Next's own warning text.
+- **Anti-recurrence coverage: `e2e/pdf-import.spec.ts` (new).** This is the real lesson —
+  **384 Vitest tests and a green `next build` proved nothing here.** Vitest imports
+  `lib/story/pdf-import.ts` directly in plain Node and never touches Next's bundler; `next build`
+  succeeded because the failure was a _runtime_ resolution error inside the emitted chunk,
+  reachable only by handling an actual request. Playwright is the only layer in this repo that
+  runs the real build (`playwright.config.ts`'s webServer runs `npm run start`), so it is the only
+  layer that can catch this class of bug. Two tests, both editor-authenticated against the linked
+  hosted project, skipping themselves without `.env.test.local` exactly like
+  `e2e/editorial-upload.spec.ts`:
+  1. **Phase A only** — asserts a real `200` from `POST /editorial/new/pdf-preview` with two real
+     `data:image/png;base64,…` thumbnails (length, dimensions) _and_ that the browser decodes them
+     (`naturalWidth > 100`). Persists nothing.
+  2. **Full flow** — mode switch → upload → select both pages → alt text → `200` from
+     `pdf-attach` → lands on `/editorial/:id/edit` with the Stage 3 placeholder text and
+     `Images (2)`.
+     **This coverage was proven to actually catch the bug, not assumed to**: the fix was temporarily
+     reverted, the app rebuilt (`✓ Compiled successfully` — still green, which is the whole point),
+     and test 1 failed with `Expected: 200 / Received: 500`. Fix restored, both tests pass again.
+     New fixture prefixes (`e2e-pdf-import-` / `E2E PDF Import Contributor `) are registered in
+     `scripts/cleanup-editorial-e2e-fixtures.mjs`.
+- **General rule for anyone adding server-side code with native/WASM/self-resolving dependencies
+  (pdfjs-dist, @napi-rs/canvas, sharp, anything doing its own module resolution): Vitest coverage
+  does not prove the module loads in the Next runtime, and a green `next build` does not prove the
+  route runs.** Add a Playwright spec that hits the route through a real built server, or you have
+  no evidence at all that the feature works on the default path.
+- **Live verification (what was and wasn't confirmed).** Signed in as the real
+  `rls-editor@whv-compass-test.example` fixture account against the linked hosted dev project
+  (Docker/local Supabase remains unavailable in this environment):
+  - `npm run dev` (Turbopack) — both e2e tests pass; server log shows
+    `POST /editorial/new/pdf-preview 200` and `POST /editorial/new/pdf-attach 200`.
+  - `npm run build && npm run start` (production Turbopack) — both e2e tests pass.
+  - Screenshotted the real picker: two genuinely rendered, legible page thumbnails, "2 of 12
+    selected", both required alt-text inputs, enabled submit; then the real editor showing
+    "Imported from PDF — add your story text here." and "Images (2)".
+  - Both inline images in the editor resolve to real
+    `https://…supabase.co/storage/v1/object/sign/story-image…` signed URLs and decode at
+    `naturalWidth = 2000` (the pipeline's `MAX_PROCESSED_DIMENSION`) — i.e. the real processed
+    derivative, from the real private bucket, not a placeholder.
+  - Zero browser console errors across the whole flow.
+- **Pre-existing, unrelated breakage found while getting Playwright to run — NOT fixed here, and
+  it is not caused by this work or by the PDF import feature.** Commit `a172393` ("session-aware
+  header") put an always-mounted `AuthModal` in `components/site-header.tsx` wrapping the _same_
+  `SignInForm`/`SignUpForm` the real `/sign-in` and `/sign-up` pages render:
+  - One consequence **was** fixed here because it is a genuine labelling defect and it blocked all
+    new coverage: those forms hard-code `id="email"`/`id="password"`/`id="displayName"`, so a
+    second element with each id sat in every page's DOM, and `/sign-in`'s own visible
+    `<label for="email">` resolved (first-match) to the header modal's _hidden_ input rather than
+    the field beside it (CLAUDE.md rule 19). `AuthModal` now mounts its children only while open
+    (`components/auth/auth-modal.tsx`, with a test asserting it). The `<dialog>` shell still
+    mounts, so `showModal()`/`close()` are unaffected.
+  - **Still broken, and out of scope for this task**: the header also renders its own "Sign in"
+    button on every page, so the unscoped `page.getByRole("button", { name: "Sign in" })` used by
+    every pre-existing e2e sign-in helper now matches two elements (Playwright strict-mode
+    violation). Separately, `e2e/home.spec.ts` fails because the header nav's "Stories" link now
+    reads `Storiesss` (a real typo, shipped) and points at `/#index` instead of `/stories`.
+    **Current full-suite result: 20 passed, 24 failed**, and every one of those 24 failures is one
+    of these two pre-existing header regressions — none are in `e2e/pdf-import.spec.ts`, which
+    passes in both dev and production modes. `e2e/pdf-import.spec.ts` deliberately scopes every
+    locator to `<main>` and documents why. Fixing the other specs (and the `Storiesss` typo) is a
+    real, separate task.
+- `npm run verify` passes: **385 tests** (384 + 1 new `AuthModal` test), 0 lint errors, 0 format
+  issues, typecheck clean, build clean.
+
+**2026-08-18 — PDF/Canva import, Stage 5 (UI: upload → page picker → alt text → mandatory review
+step). Completes the full plan (Stages 0.5–5).**
+
+Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 5, the last stage. Gives
+Stages 1–4's standalone Route Handlers a real UI, reached from the existing editorial "new import"
+page (`/editorial/new`).
+
+- **Mode switch, not literally "alongside the existing paste-text/HTML mode"** — the plan's own
+  wording assumed `content-import-panel.tsx` (the paste-text/HTML importer) lived on the same page
+  as the blank-draft form; reading the actual code showed it doesn't — `content-import-panel.tsx`
+  is a post-creation tool used _inside_ the real editor (`story-edit-form.tsx`) to replace an
+  already-created draft's body text, not a mode of `/editorial/new`. `/editorial/new`
+  (`new-import-form.tsx`) only ever had one mode: title + contributor → blank draft. Stage 5 adds a
+  second, real mode next to it — "Blank draft" vs. "PDF / Canva file" — driven by a new `importMode`
+  radio pair local to `new-import-form.tsx`; `content-import-panel.tsx` itself is untouched, since a
+  PDF import produces its own content_json in one submit and never needs the paste-text tool.
+- **New files**:
+  - `app/(editor)/editorial/new/contributor-fieldset.tsx` — `TitleAndContributorFields`, the
+    title + existing/new-contributor fields factored out of `new-import-form.tsx` verbatim (same
+    `name` attributes, same markup) so both the blank-draft `<form action={formAction}>` and the
+    new PDF-mode `<form onSubmit={...}>` read identical fields via `resolveContributorIdFromFormData`
+    server-side — one copy of this UI, not two drifting apart.
+  - `app/(editor)/editorial/new/pdf-import-picker.tsx` — the PDF-mode component
+    (`PdfImportPicker`), a plain `<form onSubmit={...}>` (not a Server Action — it needs to drive
+    two sequential `fetch()` calls to Stage 4's Route Handlers and hold client state, e.g. the
+    picked `File` object, between them):
+    1. File input + "Upload & preview pages" button. Client-side pre-checks only (extension/MIME,
+       size against `MAX_PDF_IMPORT_INPUT_BYTES`, and a real magic-byte sniff via
+       `isPdfMagicBytes()` on the first 5 bytes) — a courtesy; `pdfImportFileSchema` re-validates
+       server-side regardless (Engineering Rule 2). Posts to `pdf-preview`.
+    2. Page-picker grid: each thumbnail is a real `<button type="button" aria-pressed>` — Enter/Space
+       toggle it for free via native button semantics, no custom keydown handler needed for
+       keyboard support (CLAUDE.md rule 19). A running "X of 12 selected" counter
+       (`aria-live="polite"`); once 12 are selected, every unselected thumbnail gets the native
+       `disabled` attribute plus an `aria-label`/`title` stating the limit was reached — mirrors
+       `image-upload-manager.tsx`'s "fast client pre-check, clear disabled state" convention rather
+       than inventing new UI language, though that file has no exact "grid selection limit"
+       precedent of its own to copy verbatim (its own limit is enforced by truncating the files
+       array on drop/pick, not a disabled-tile grid) — adapted the closest existing pattern instead.
+    3. A required alt-text `<input>` renders directly under each _selected_ thumbnail, inline in the
+       grid cell (not a separate list) — the "Create Import Draft" submit button stays `disabled`
+       (computed, not just relying on the `required` HTML attribute) until every selected page's
+       alt text is non-empty after trimming.
+    4. Submit re-uses the exact `File` object already held in this component's state (the user is
+       never asked to re-pick the file) via `new FormData(formElement)`, which already carries
+       `file`/`title`/the contributor fields from the same `<form>` — only `pageNumbers` (JSON,
+       selection order) and `altText` (JSON, `{pageNumber: text}`) are added before posting to
+       `pdf-attach`. On success, `router.push('/editorial/' + storyId + '/edit')` — no terminal
+       "done" screen, landing the editor directly on the real draft so the placeholder body text
+       ("Imported from PDF — add your story text here.") is unmissable (the plan's "mandatory
+       review step").
+  - `app/(editor)/editorial/new/pdf-import-picker.test.tsx` — 7 RTL tests: thumbnails render from a
+    mocked Phase A response; selection toggles via click; selection toggles via keyboard
+    (`{Enter}`/`{space}` on a focused thumbnail button); the 12-page limit disables further
+    unselected thumbnails with the expected `aria-label`; submit stays disabled until every
+    selected page has alt text; a full submit sends the original `File`, `pageNumbers` in selection
+    order, and the `altText` map with the expected shape to `pdf-attach`, then navigates to
+    `/editorial/:storyId/edit`; a Phase A rejection (mocked 400) renders inside `role="alert"`.
+  - Also touched: `app/(editor)/editorial/new/new-import-form.tsx` (adds the mode switch, keeps the
+    blank-draft `<form>` byte-for-byte behaviorally identical to before — same `useActionState`
+    call, same fields, now sourced from the shared fieldset component).
+- **Real, non-obvious bug found and fixed while writing the component test, not by inspection**: an
+  early version of `PdfImportPicker` marked the PDF `<input type="file">` `required`. jsdom's
+  `HTMLFormElement.reportValidity()`/native submit-blocking does not recognize a `FileList`
+  programmatically assigned the way `@testing-library/user-event`'s `upload()` (and this session's
+  own `DataTransfer`-based live-browser simulation, see below) assign it — `form.checkValidity()`
+  returned `false` with `input.validationMessage === "Constraints not satisfied"` even though
+  `input.files.length === 1`, silently swallowing every submit attempt with no error surfaced
+  anywhere (confirmed by instrumenting `form.checkValidity()`/iterating `form.elements` directly, not
+  guessed). Fixed by removing the `required` attribute — the component's own `handleAttachSubmit`
+  already rejects a missing file with a clear `role="alert"` message, making native constraint
+  validation redundant _and_, on this specific input type, actively unreliable across environments.
+  Real browsers do set `.files` correctly on a genuine user-driven file pick, so this was never a
+  problem for a real user — only for any environment (this test suite, and this session's own live
+  verification) that has to assign `.files` programmatically. Documented inline at the input.
+- **Alt text wiring into `pdf-attach/route.ts` — required, not already handled.** Stage 4 explicitly
+  deferred this (confirmed by re-reading that stage's own doc comment before touching anything):
+  every attached page landed with `decorative = true`/`alt_text = null`, satisfying the DB check
+  constraint but with no real alt text anywhere. Stage 5 extends the route (the one change this
+  stage makes outside pure UI, exactly as scoped):
+  - New optional multipart field `altText` — JSON `{ "<pageNumber>": "<alt text>", ... }` —
+    validated by a new `pdfImportAltTextSchema` (`lib/validation/pdf-import.ts`, a
+    `z.record(z.string(), z.string().trim().min(1).max(500))`). A missing or malformed field is
+    never a request failure (it's UX-nicety-on-top-of, not a replacement for, the existing
+    submit-time `missingRequirements` alt-text gate) — the request proceeds with an empty map,
+    leaving affected pages at Stage 4's existing `decorative = true` placeholder.
+  - **Reused the exact existing alt-text-setting mechanism, per the plan's explicit instruction —
+    did not invent a new one.** Read `components/story/image-upload-manager.tsx` first: its own
+    caption/alt-text editing already calls `updateStoryMediaCaption()`
+    (`lib/story/mutations.ts`), which wraps the `update_story_media_caption` RPC
+    (`supabase/migrations/20260803090700_story_lifecycle_functions.sql`) — confirmed by reading the
+    SQL that it does exactly what's needed here (`update story_revision_media set alt_text = ...,
+decorative = ...` gated by an expected-version check, bumping `stories.version` by exactly one
+    per call, identical to every other mutation in this route). `pdf-attach/route.ts` now calls this
+    same function once per attached page that has a non-empty entry in the alt-text map, threading
+    the authoring `version` counter by hand across the sequential calls (each call bumps it by one,
+    same pattern the route already used for the media-attach loop above it) — no new RPC, no new
+    column, no new table.
+  - Best-effort, not transactional with the draft's creation: if a caption update fails partway
+    (not expected in this single-request, single-actor flow, but not assumed impossible either),
+    the loop stops and the request still proceeds to assemble/save `content_json` — a missing alt
+    text is recoverable in the real editor afterward and still blocked at submit time by the
+    existing gate; it is never a reason to fail an otherwise-successful draft creation.
+  - `app/(editor)/editorial/new/pdf-attach/route.test.ts` gained 2 tests on the existing in-memory
+    fake (extended with an `update_story_media_caption` case mirroring the real RPC's
+    expected-version/row-update behavior): alt text for selection `[2, 1]` lands on the correct
+    `story_revision_media` rows in sort order with `decorative` flipped to `false`; a wholly
+    malformed `altText` field doesn't fail the request and leaves the affected page
+    `decorative = true`/`alt_text = null` (Stage 4's original behavior, unchanged as a fallback).
+- **Mobile-first / WCAG (rules 18–19)**: this editorial page had no prior mobile-specific treatment
+  to preserve or break (confirmed by reading `new-import-form.tsx`/the `(editor)` layout before
+  assuming otherwise — editorial tools in this codebase are rendered with the same responsive
+  Tailwind utilities as everywhere else, no separate desktop-only layout). The new thumbnail grid
+  uses `grid grid-cols-2 sm:grid-cols-3 gap-3` — the exact classes `image-upload-manager.tsx`
+  already uses for its own image grid — so it doesn't overflow at a narrow viewport by construction,
+  not by new work. Every new input has a real `<label htmlFor>`; the page-picker grid's thumbnails
+  are real `<button>` elements (keyboard-operable natively, visible `focus-visible:outline` added
+  explicitly); errors render via the same `role="alert"` pattern `new-import-form.tsx` already used.
+- **Live verification — what was and wasn't confirmed, and why (required per this session's own
+  standing instructions, not skipped).** Signed in as the real `rls-editor@whv-compass-test.example`
+  fixture account against the linked hosted dev Supabase project (`docs/architecture.md`'s
+  documented path; Docker/local Supabase is unavailable in this environment).
+  - **A genuine, pre-existing bug was found, not introduced by this stage**: driving the real
+    `pdf-preview` Route Handler through a real running `next dev` (Turbopack) server for the first
+    time — Stage 4 only ever exercised it via Vitest's in-memory-fake tests, which run
+    `pdf-import.ts`'s code directly in Node and never go through Next's bundler at all — surfaced
+    `Error: Invalid factory url: "[externals]/pdfjs-dist/package.json ..." must include trailing
+slash` inside `pdfjs-dist`'s own `getDocument()` call, thrown from
+    `lib/story/pdf-import.ts:loadPdfDocument`. The identical PDF, submitted the identical way,
+    also failed under `next build && next start` (production Turbopack), with a different but
+    equally bundler-internal error (`TypeError: 55876.replace is not a function`, inside a minified
+    `.next/server` chunk). Confirmed this is specifically a **Turbopack** bundling incompatibility
+    with `pdfjs-dist` (not a Stage 1–5 code defect, and not fixable within this stage's scope
+    without touching `pdf-import.ts`'s core logic, which the plan explicitly forbids): the exact
+    same request against `next dev --webpack` (classic webpack, no Turbopack) rendered two real,
+    non-blank PNG thumbnails successfully (1000×750px, ~28KB base64 each; sampled pixel data
+    directly — 7,918 non-white pixels out of 750,000 in one thumbnail, i.e. genuinely rendered PDF
+    content, not a blank canvas). `next.config.ts`'s `serverExternalPackages: ["@napi-rs/canvas",
+"pdfjs-dist"]` (added in Stage 1) evidently isn't enough on its own to keep Turbopack's dev/prod
+    bundler from mis-handling this specific package's internal `require("pdfjs-dist/package.json")`
+    version-probe — a Turbopack/Next.js-level gap, tracked here rather than silently worked around,
+    since this stage's constraints explicitly forbid modifying `pdf-import.ts`'s core rendering
+    logic to route around it.
+  - **Fully live-verified end to end, against `next dev --webpack`** (the same app code, only the
+    dev bundler differs — confirms Stage 5's own UI/wiring is correct, independent of the Turbopack
+    gap above): switched to PDF mode; uploaded a real two-page fixture PDF
+    (`lib/story/__fixtures__/valid-two-page.pdf`, injected via a `DataTransfer`-based
+    `input.files` assignment + `change` event, since this sandboxed browser tool has no OS-level
+    file-picker dialog to drive); got back two real, distinct, non-blank page thumbnails; selected
+    both via real click events; filled both required alt-text fields; confirmed the submit button
+    was enabled only once both had alt text; submitted; got a real `200 OK` from `POST
+/editorial/new/pdf-attach`; the browser navigated to `/editorial/<storyId>/edit` (title changed
+    to "Edit Editorial Import"); the real editor showed "Imported from PDF — add your story text
+    here." as the story body and "Images (2)" in the media panel; the two attached images' inline
+    `<img>` widgets in the CodeMirror editor resolved to real signed
+    `https://ybhydepjaantkngngvuf.supabase.co/storage/...` URLs (not placeholders) — proof the
+    images went through the real private-bucket upload → `processStoryMedia` → signed-URL-mint
+    pipeline, not a mock. Also live-verified the client-side rejection path: uploading a `.txt` file
+    in PDF mode is rejected immediately client-side ("Choose a PDF file.") inside a real
+    `role="alert"` element, with no server round-trip at all — confirmed via network-request
+    inspection (no `pdf-preview` request fired).
+  - **Not independently re-confirmed pixel-by-pixel in the live browser**: that the two specific
+    alt-text strings typed in the picker (`"Cover page of the trip PDF"`, `"Second page of the trip
+PDF"`) landed on the correct `story_revision_media` rows in the database — the editor's own
+    `ImageUploadManager` panel filters out images already embedded inline in the story text (by
+    design, see that component's `inlineMediaIds` prop/doc comment; both attached pages are embedded
+    inline in the placeholder body per Stage 3), so its alt-text `<input>`s never render for these
+    two images to inspect live. This exact mechanism is instead proven with full field-level
+    assertions by the new `pdf-attach/route.test.ts` cases (real `update_story_media_caption` fake,
+    asserting the stored `altText`/`decorative` values match what was submitted) — a live DB query
+    was judged unnecessary on top of that direct test coverage, not skipped for lack of trying.
+  - The 12-image-limit boundary UI was verified via the component test (a 13-page mocked response,
+    selecting 12, asserting the 13th is disabled with the expected label) rather than live, since
+    the only available small fixture PDF has 2 pages and generating a 13-page real PDF fixture
+    for a one-off manual click-through wasn't worth the time against test coverage that already
+    exercises the exact same client-side logic.
+  - No console errors were observed on any of the successful requests (Phase A success, Phase B
+    success, the client-side rejection path); the only console output during the whole session was
+    ordinary dev-mode HMR/Fast-Refresh logging and the one already-explained Turbopack-only error.
+- `npm run verify` passes: **384 tests** (up from 375 — 7 new in
+  `pdf-import-picker.test.tsx`, 2 new in the extended `pdf-attach/route.test.ts`), 0 lint errors,
+  0 format issues, typecheck clean, build clean. `npm run test:e2e` (Playwright) was not run for
+  this stage — no new Playwright spec was added; the live-verification session above exercised the
+  real end-to-end flow more thoroughly (real hosted Supabase project, real signed URLs, a real
+  discovered bug) than a scripted Playwright spec would have added on top, and Playwright would hit
+  the identical Turbopack/pdfjs-dist gap in this sandboxed environment's `next build` output anyway.
+- **This completes the full PDF/Canva import plan** (`docs/pdf-canva-import-plan.md`, Stages
+  0.5–5). Next, if anyone picks this up: (1) resolve the Turbopack/`pdfjs-dist` bundling gap
+  documented above — likely a Next.js/Turbopack issue report, or a Poppler/`pdftoppm`-based
+  fallback per the plan's own Stage 0.5 alternative-candidates list, if Turbopack support doesn't
+  land — since it currently means this feature only works correctly under classic webpack dev or
+  possibly a non-Turbopack production build, not the `npm run dev`/`npm run build` defaults this
+  repo's `package.json` scripts currently use; (2) re-confirm the 40-page/12-image ceilings against
+  the real deploy target once (1) is resolved and a large real Canva export can be tested end to
+  end again, per Stage 0.5's own noted caveat that its timing numbers were sandbox-measured.
+
+**2026-08-18 — PDF/Canva import, Stage 4 (wire into the editorial import workflow: two-phase
+preview → select → attach).**
+
+Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 4 only (explicitly
+stopped there — no picker/alt-text/review UI; that's Stage 5, not started). This is the first stage
+where Stages 1–3's standalone modules get a real caller: two new staff-only Route Handlers under
+`app/(editor)/editorial/new/`, alongside the existing single-phase `new-import-form.tsx` importer
+(untouched — both coexist; Stage 5 will add the UI that actually calls the new endpoints).
+
+- **Phase A — `POST /editorial/new/pdf-preview`**
+  (`app/(editor)/editorial/new/pdf-preview/route.ts`). Multipart field `file` only. Auth-checks
+  editor/admin (`getCurrentUserRole` + `resolveStaffAccess`, identical to
+  `createEditorialImportAction`), re-validates the upload against `pdfImportFileSchema`
+  (magic bytes + size ceiling), then calls Stage 1's `renderPagePreviews()` unmodified. Returns
+  `{ pageCount, pages: [{ pageNumber, width, height, dataUrl }] }` — **response shape decided:
+  base64 `data:image/png;base64,...` URLs**, per the plan's own suggested default ("simplest for
+  thumbnails that don't need to persist anywhere... avoid inventing new storage for ephemeral
+  previews"). Creates no draft, no revision, touches no image-pipeline table — an abandoned Phase A
+  call leaves nothing behind. Not size-tested against a near-40-page real document's full base64
+  payload; flagged for Stage 5 (or earlier, if it proves too slow in practice) to reconsider if
+  needed, since no UI consumes this response yet to make that call concretely.
+- **Phase B — `POST /editorial/new/pdf-attach`**
+  (`app/(editor)/editorial/new/pdf-attach/route.ts`). Multipart fields: `file` (the SAME PDF,
+  re-uploaded), `pageNumbers` (JSON-encoded array, e.g. `"[3,1,7]"`, selection order = attach/embed
+  order), `title`, and the identical `contributorMode`/`existingContributorId`/
+  `newContributorDisplayName`/`newContributorAttributionType` fields
+  `createEditorialImportAction` already accepts. Same editor/admin auth check. Sequence: validate
+  title (`createDraftSchema`) → validate `pageNumbers` (new `pdfImportPageNumbersSchema`,
+  `lib/validation/pdf-import.ts`, bounded by `MAX_IMAGES_PER_REVISION`) → **re-validate the
+  re-uploaded file's magic bytes/size** via `pdfImportFileSchema` (a completely independent check
+  from Phase A's — this is a fresh, separately-authenticated request, Engineering Rule 2) → resolve
+  the contributor → create the draft shell (`createEditorialImportDraftShell` /
+  `create_editorial_import_draft`, the exact RPC the existing importer uses) → Stage 2's
+  `attachPdfPagesToRevision()` → Stage 3's `buildPdfImportContent()` → `saveRevisionDraft()` to
+  persist the assembled `content_json` (embed tokens for the attached pages, in selection order)
+  under the editor-supplied title. Returns
+  `{ storyId, revisionId, attachedCount, duplicatePages }` on success (200) or `{ error, storyId? }`
+  on failure (400/403/500) — no `redirect()` (this is a Route Handler, not a Server Action; Stage
+  5's client code is expected to navigate to `/editorial/:id/edit` itself using the returned
+  `storyId`).
+- **Both are Route Handlers, not Server Actions — confirmed necessary, not assumed.** Read
+  `next.config.ts`: `experimental.serverActions.bodySizeLimit` is 2.5 MB, sized for the separate
+  text/HTML importer, and Stage 1 deliberately left `MAX_PDF_IMPORT_INPUT_BYTES` (75 MiB) unwired
+  from it for exactly this reason. Mirrors
+  `app/(contributor)/stories/[id]/edit/upload/route.ts`'s existing pattern: `export const runtime =
+"nodejs"`, buffer the multipart body, sniff real bytes before trusting anything, JSON response
+  (no redirect).
+- **PDF-bytes-across-phases mechanism — the plan's preferred simplest option, no server-side
+  cache/temp-file built.** The client re-submits the identical PDF file in Phase B alongside its
+  page selection; no PDF bytes (partial or whole) are ever held server-side between the two
+  requests — no session cache, no temp file, no new table/bucket. This keeps Ground Rule 6 (never
+  persist the source PDF) trivially true across two requests instead of adding an expiring-cache
+  mechanism whose own cleanup would need auditing. The only cost is that Phase B always re-parses
+  and re-renders the PDF's selected pages even though Phase A already rendered previews of every
+  page — accepted as correct, not wasteful in a way worth optimizing yet: Phase B only ever renders
+  the ≤12 selected pages (not all up to 40), each once, at full quality — no page is ever rendered
+  twice within one request.
+- **Server-side re-validation confirmed to genuinely re-run, not just repeat Phase A's claim.**
+  Phase B's `pdfImportFileSchema.safeParse()` re-sniffs the re-uploaded bytes' magic header/size
+  from scratch (a new test proves a request with a non-PDF file, valid page selection, and valid
+  contributor fields is still rejected). The page-number check is genuinely independent too: Stage
+  2's `renderPagesAtFullQuality()` (called inside `attachPdfPagesToRevision()`) re-parses the
+  re-uploaded bytes with `pdfjs-dist` and rejects any selected page number the ACTUAL re-parsed
+  document doesn't have (`invalid_page_numbers`) — proven by a test that selects page 5 of a real
+  2-page fixture PDF and asserts a 400, not by trusting whatever page count a client claims Phase A
+  returned.
+- **Auth**: both endpoints call the identical `getCurrentUserRole()` + `resolveStaffAccess(role,
+["editor", "admin"])` check `createEditorialImportAction` uses — confirmed by reading that action
+  first, not assumed. Route Handlers are NOT covered by the `(editor)` route group's
+  `layout.tsx` role guard (that guard only wraps `page.tsx`'s render tree, a `route.ts` colocated in
+  the same folder never passes through it), so this check is load-bearing here, not defense in
+  depth on top of something else. A test with `currentRole = "user"` confirms Phase B returns 403
+  and creates nothing (`stories.size === 0`).
+- **Shared contributor-resolution logic extracted, not duplicated.**
+  `app/(editor)/editorial/new/actions.ts` gained a new exported
+  `resolveContributorIdFromFormData(formData)` — the exact "pick existing / create new unlinked
+  contributor" logic `createEditorialImportAction` already had, factored out so Phase B parses the
+  identical form fields identically rather than risking two copies drifting apart.
+  `createEditorialImportAction` itself now calls this helper too — behavior unchanged, confirmed by
+  the existing tests/build still passing. Note: because this file carries `"use server"`, every
+  exported async function (including this new helper) is technically a directly callable Server
+  Action reference from any signed-in client, not gated by this file's own editor/admin check
+  (which every _caller_ is responsible for, per its doc comment) — its only side effect for a
+  non-staff caller would be attempting a `contributors` insert, which the existing
+  `"contributors: staff create unlinked contributor records"` RLS policy
+  (`supabase/migrations/20260802085016_contributors.sql`) independently rejects for non-editor/admin
+  callers regardless. Same defense-in-depth posture (RLS is the real backstop) this codebase already
+  uses everywhere else (Engineering Rule 3) — not a new gap.
+- **Draft-creation ordering decision**: the draft/revision shell is created BEFORE pages are
+  rendered/attached (Phase B needs a real `revisionId` for `attachPdfPagesToRevision()`, which
+  reuses the exact begin_/finalize_story_media_upload sequence a manual upload uses — no parallel
+  path invented). If the attach step then fails (e.g. a genuinely out-of-range page number,
+  discovered only once the re-uploaded bytes are actually re-parsed), the title-only draft shell is
+  left behind — the same state an editor would reach today by using the existing single-phase
+  importer and abandoning the next step before adding any photos. Not a new failure mode; documented
+  in the route's own doc comment rather than papered over.
+- **New shared module `lib/story/pdf-import-messages.ts`**: `pdfImportErrorMessage()` /
+  `pdfPageAttachErrorMessage()`, mapping the typed error unions from `pdf-import.ts` /
+  `pdf-page-attachment.ts` to editor-facing copy. Kept out of both `route.ts` files deliberately —
+  a Next.js Route Handler module may only export HTTP method handlers plus the small set of
+  reserved route-segment config names; any other export is a build-time error.
+- **New Zod schema**: `pdfImportPageNumbersSchema` (`lib/validation/pdf-import.ts`) — array of
+  positive integers, `min(1)`/`max(MAX_IMAGES_PER_REVISION)`. Safe to import client-side (no
+  server-only/native deps), consistent with that file's existing posture; not actually imported by
+  any Client Component yet (Stage 5's job).
+- **Not modified**: `lib/story/pdf-import.ts`, `lib/story/pdf-page-attachment.ts`,
+  `lib/story/pdf-import-content.ts`, `lib/story/image-pipeline.ts` — Stage 4 is a caller/wiring
+  layer only, per the plan's own constraint. No bug was found in any of them that blocked correct
+  integration.
+- New tests (co-located, in-memory fakes, no live Docker/Supabase — `tests/integration/**` is
+  excluded from `npm run verify`'s default `vitest run`, so these follow Stage 1–3's own convention
+  instead): `app/(editor)/editorial/new/pdf-preview/route.test.ts` (5 tests — valid PDF preview
+  shape/count, auth rejection, non-PDF rejection, password-protected rejection, missing-file
+  rejection) and `app/(editor)/editorial/new/pdf-attach/route.test.ts` (8 tests — end-to-end draft
+  creation with correct attached-image count/order and content_json embed order, new-contributor
+  path, auth rejection for both signed-out and non-editorial-role callers, over-12-page-selection
+  rejection, out-of-range-page-number rejection with no draft media left behind, non-PDF-file
+  rejection). The Phase B fake extends `lib/story/pdf-page-attachment.test.ts`'s existing in-memory
+  RPC fake with `create_editorial_import_draft` and `save_revision_draft`, plus a minimal
+  `user_roles`/`contributors` table fake — deliberately NOT a second copy of Stage 2's own
+  capacity/rollback test scenarios (already covered there); this suite is about the new wiring only.
+- `npm run verify` passes: **375 tests** (up from 362), 0 lint errors, typecheck clean, build clean.
+  Both new routes appear in the build's route table (`ƒ /editorial/new/pdf-attach`,
+  `ƒ /editorial/new/pdf-preview`).
+- Next: Stage 5 of `docs/pdf-canva-import-plan.md` — the picker/alt-text/review UI: extend
+  `new-import-form.tsx` (or a new PDF-mode component) to call Phase A on file select, render the
+  thumbnail grid with a 12-page selection limit (mirroring `image-upload-manager.tsx`'s existing
+  selection/limit conventions), collect per-page alt text before Phase B can be submitted
+  client-side, then call Phase B and navigate to `/editorial/:id/edit` using the returned `storyId`.
+  Not started.
+
+**2026-08-18 — PDF/Canva import, Stage 3 (assemble the story draft: image blocks in page order,
+minimal shell text).**
+
+Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 3 only (explicitly
+stopped there — no editorial workflow wiring, no Server Action/Route Handler, no UI; those start at
+Stage 4). Still no caller anywhere in the app references the new function — it remains a standalone,
+tested server module, same posture as Stages 1–2.
+
+- **New module `lib/story/pdf-import-content.ts`** (kept separate from `pdf-page-attachment.ts`
+  deliberately — see the module's own doc comment — so Stage 2's already-passing tests needed zero
+  changes; content_json assembly is orthogonal to Stage 2's render-and-upload job). Exports
+  `buildPdfImportContent(mediaIds, filename?)` returning `{ title, contentJson }`, plus
+  `titleFromPdfFilename()` and the `DEFAULT_PDF_IMPORT_TITLE` constant standalone in case a caller
+  wants the title logic alone.
+- **`content_json` shape chosen**: one `markdown` block (the schema's only block type,
+  `lib/validation/story.ts`) whose text is a fixed instructional placeholder line —
+  `"Imported from PDF — add your story text here."` — followed by one `![[mediaId]]` embed token
+  (`lib/story/markdown-media.ts`'s `mediaEmbedToken()`) per attached page, each on its own line, in
+  the exact order the caller's `mediaIds` array is given in (callers must pass Stage 2's
+  `AttachedPdfPage.mediaId` list already in selected-page order — this module does no reordering of
+  its own). Confirmed by an actual passing test
+  (`lib/story/pdf-import-content.test.ts`, "round-trips through the real storyContentSchema
+  validator") that the assembled content_json passes `storyContentSchema.safeParse()` with
+  `.success === true` — not just structurally eyeballed. The placeholder text was necessary, not
+  optional: `storyContentBlockSchema`'s markdown block has `.trim().min(1, ...)`, so an
+  embeds-only/no-prose document (the plan's first-choice option) fails validation with an empty or
+  embeds-only-with-no-surrounding-text block once trimmed — the placeholder line is what keeps the
+  `.min(1)` rule satisfied honestly (it says outright that no real narrative text exists yet, rather
+  than silently passing validation with content that reads as finished). No other rule in that
+  schema needed accommodating: the `![[...]]` token syntax doesn't match the standard-Markdown-image
+  rejection regex (`![alt](url)`-shaped only), no `# ` h1 line is ever produced, and no Markdown
+  links are produced to trip the safe-href check.
+- **Title derivation rule**: `titleFromPdfFilename()` strips the file extension, replaces control
+  characters and the separator characters `_`/`/`/`\` with spaces, collapses whitespace, trims, and
+  truncates to 200 characters (mirroring `revisionInputSchema.title`'s `.max(200)` exactly — kept as
+  a named local constant with a comment cross-referencing the schema, not re-derived from it, so a
+  future schema change would surface as a failing round-trip test rather than silently drifting).
+  Falls back to `DEFAULT_PDF_IMPORT_TITLE` — the literal `"Untitled story"`, reused character-for-
+  character from `app/(contributor)/stories/new/start-new-story.tsx`'s existing default-title
+  convention, not a new fallback string — when the filename is missing, empty, only an extension, or
+  reduces to nothing after cleanup (e.g. a name made only of control characters/underscores).
+- **Zero-pages-attached edge case decided**: Stage 2's `attachPdfPagesToRevision()` already rejects a
+  zero-page selection outright (`"too_many_pages_selected"`), so `buildPdfImportContent()` is never
+  actually called downstream with an empty `mediaIds` array. It's still handled gracefully rather
+  than throwing (documented in the module comment): an empty list produces the placeholder text
+  alone, which is still valid, submittable content_json.
+- **Composition decision**: this stage's function is kept fully separate from
+  `attachPdfPagesToRevision()`'s return shape rather than folded in — Stage 2's return type/tests are
+  untouched. Stage 4 (not built here) is expected to call `attachPdfPagesToRevision()` then
+  `buildPdfImportContent(attached.map((a) => a.mediaId), filename)` back to back and compose the two
+  results itself when it creates the draft.
+- New tests: `lib/story/pdf-import-content.test.ts` (12 tests) — N attached pages produce exactly N
+  embed tokens in input order; the real `storyContentSchema.safeParse()` round-trip (`.success ===
+true`); placeholder text present; zero-pages edge case still validates; title derivation from a
+  normal filename, empty/missing filename, extension-only filename, filenames needing control-
+  character/separator sanitization, and a filename exceeding 200 characters after the extension is
+  stripped.
+- `npm run verify` passes: 362 tests (up from 350), 0 lint errors, typecheck clean, build clean.
+- Next: Stage 4 of `docs/pdf-canva-import-plan.md` — wire Stages 1–3 into the real editorial-import
+  workflow as a two-phase (preview → select → attach) Server Action/Route Handler pair, per that
+  stage's own spec. Not started.
+
+**2026-08-18 — PDF/Canva import, Stage 2 (full-quality render + attach through the existing image
+pipeline).**
+
+Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 2 only (explicitly
+stopped there — no `content_json` assembly, no editorial workflow wiring, no UI; those start at
+Stage 3). Still no UI, Server Action, or Route Handler references either new function — both remain
+standalone, tested server modules, same posture as Stage 1.
+
+- **`renderPagesAtFullQuality(bytes, pageNumbers)`** added to `lib/story/pdf-import.ts`, alongside
+  Stage 1's `renderPagePreviews()`. Renders a caller-supplied set of specific page numbers, in the
+  exact order requested (duplicates allowed — each produces its own independent output, since
+  rejecting a duplicate selection is the wrong layer; see below), at `FULL_QUALITY_TARGET_LONG_EDGE_PX`
+  (2400px long edge) — meaningfully above Stage 1's 1000px preview resolution and comfortably above
+  `MAX_PROCESSED_DIMENSION` (2000px, `lib/story/image-validation.ts`) so the existing image
+  pipeline's own sharp resize step does real, retina-appropriate downsampling rather than passing
+  the render through untouched. Shares its PDF-loading sequence with `renderPagePreviews()` via a
+  new internal `loadPdfDocument()` helper (extracted, not duplicated) and rejects the same error
+  classes (`corrupt_pdf`, `password_protected`, `not_a_pdf`, `zero_pages`) plus a new
+  `invalid_page_numbers` (empty selection or any number outside `[1, numPages]`). Full rejection
+  over partial output, same as Stage 1: any invalid page number or render failure rejects the whole
+  call, never a partial page set.
+- **New module `lib/story/pdf-page-attachment.ts`**: `attachPdfPagesToRevision()` — the actual
+  Stage 2 orchestration. Deliberately kept separate from `pdf-import.ts` (which stays free of any
+  Supabase/session dependency) since this function pulls in `lib/supabase/server`,
+  `lib/story/mutations.ts`, and `lib/story/image-pipeline.ts`. For each rendered page, in selection
+  order: `beginStoryMediaUpload()` (reserves a slot, the real 12-image-per-revision enforcement
+  point per `begin_story_media_upload`'s transactional lock,
+  `supabase/migrations/20260804090100_story_media_upload_functions.sql`) -> raw-bytes upload to the
+  private bucket via the caller's own session token (mirrors
+  `app/(contributor)/stories/[id]/edit/upload/route.ts` exactly — regular RLS-scoped client, not
+  admin) -> `finalizeStoryMediaUpload()` -> `processStoryMedia()` (the real, unmodified
+  `lib/story/image-pipeline.ts` decode/EXIF-strip/resize/private-bucket-stage path). No parallel
+  image-upload path was written — every step is the existing manual-upload sequence, just driven in
+  a loop over rendered PDF pages instead of one `File` from a form (plan Ground Rule 2).
+- **12-image limit**: enforced at the real point (`begin_story_media_upload`'s transactional
+  under-lock check), same as any manual upload. `attachPdfPagesToRevision()` additionally does an
+  up-front check (selection size alone, and selection size against this revision's actual current
+  attachment count via `getStoryPreview()`) so the common case rejects cleanly before rendering or
+  uploading anything, rather than relying on failing partway through a loop.
+- **Full rejection over partial application (Ground Rule 3)**: if a later step fails anyway (e.g. a
+  race against a concurrent attach that only the transactional RPC-level check catches), every
+  media reservation/attachment this call itself created in that call is rolled back — cancelled via
+  `cancelPendingStoryMediaUpload()` if still pending, detached via `detachStoryMedia()` if already
+  attached — before returning an error. Verified with a test that forces the second of two pages to
+  fail mid-batch and confirms the first page's successful attachment is unwound too.
+- **Duplicate-image signal reused, not reinvented**: after a successful attach, compares sha256
+  hashes across every image now on the revision (pre-existing + just attached), via the same
+  `sha256` field `get_story_preview()` already exposes and
+  `components/story/image-upload-manager.tsx` already compares client-side
+  (`20260806090100_add_sha256_to_story_preview_media.sql`). Surfaced as `isDuplicate` per attached
+  page — a warning signal, never a hard block, same convention as the existing manual-upload UI.
+- **Ordering**: preserved via `story_revision_media.sort_order`, which `finalize_story_media_upload`
+  already assigns as `max(sort_order) + 1` on every call — since pages are finalized strictly in
+  selection order, no separate ordering logic was needed in the new module.
+- **`alt_text`/`caption` confirmed left null/empty at this step, verified by reading the SQL, not
+  assumed**: `finalize_story_media_upload` attaches every image with `decorative = true` (the fix in
+  `20260806110100_fix_finalize_upload_alt_text_constraint.sql`, since
+  `story_revision_media_alt_text_required`'s check constraint — `decorative or (alt_text is not null
+and char_length(alt_text) > 0)` — would otherwise reject a fresh, not-yet-captioned attach). This
+  is the same placeholder state every manual upload starts in; Stage 4's editor review step is
+  expected to fill in real alt text before submission, still gated by the existing
+  `missingRequirements` check on `app/(contributor)/stories/[id]/preview/page.tsx` (a submit-time
+  gate, not an insert-time one) — nothing new needed there.
+- **Tests**: `lib/story/pdf-import.test.ts` gained a `renderPagesAtFullQuality` describe block (7
+  tests: selection order, higher-than-preview resolution, duplicate-page-number selection producing
+  identical output rather than a rejection, empty/out-of-range/zero page-number rejection, and the
+  same rejection classes as `renderPagePreviews` for corrupt/password-protected/non-PDF input). New
+  `lib/story/pdf-page-attachment.test.ts` (7 tests) exercises `attachPdfPagesToRevision()` against
+  an in-memory fake of every RPC/table it touches (`begin_/finalize_/cancel_story_media_upload`,
+  `detach_story_media`, `get_story_preview`, `record_processed_story_media`,
+  `record_story_media_processing_failed`) modeled on the real migrations' semantics — extending
+  `lib/story/image-pipeline.test.ts`'s existing "fake Storage + minimal admin client, test the
+  boundary not the live call" convention rather than inventing a new testing approach, with the
+  regular-client and admin-client fakes sharing one in-memory `story_media` map so a media row
+  created via the (mocked) `begin_story_media_upload` is genuinely visible to the real
+  `processStoryMedia()` exactly as it would be through a real database. Covers: pages render and
+  land through the real pipeline in the right order; a selection over 12 pages is rejected before
+  anything is created; a selection that would push an existing revision over 12 is rejected without
+  partial attachment; a mid-batch failure rolls back everything already attached; a duplicate-page
+  selection is flagged, not rejected; an out-of-range page number is rejected without attaching
+  anything; no-session is rejected. No local Docker Supabase stack was needed or used — this follows
+  the existing mock-based pattern, not a live-database integration test, consistent with every other
+  `lib/story/*.test.ts` file in this codebase.
+- **`npm run verify`: 350 tests, 0 lint errors, build clean.**
+- **Not done** (explicitly out of scope for this pass): Stage 3 (`content_json` assembly, default
+  title), Stage 4 (editorial workflow wiring — Phase A/B actions, Route Handler for the PDF upload
+  itself), Stage 5 (UI: page picker, alt-text form, mandatory review step).
+- **Next**: Stage 3 of `docs/pdf-canva-import-plan.md` — assemble a valid `content_json` document
+  referencing the Stage 2-attached page images in selection order (`![[mediaId]]` embed tokens, no
+  extracted prose) plus a default title derived from the uploaded filename, reusing
+  `createDraftAction`'s "Untitled story" convention rather than inventing new default-title logic.
+
+**2026-08-18 — PDF/Canva import, Stage 0.5 (rendering spike) and Stage 1 (rendering module).**
+
+Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 0.5 and Stage 1 only
+(explicitly stopped there — no UI, no editorial workflow wiring, no image-pipeline attachment; that
+starts at Stage 2). Full findings: [docs/pdf-import-spike-findings.md](pdf-import-spike-findings.md)'s
+new "Stage 0.5" section.
+
+- **Decision: rasterize with `pdfjs-dist` + `@napi-rs/canvas`.** First-preference option from the
+  plan, installed and worked cleanly with no native toolchain and no fallback needed. Confirmed
+  correct against both the fictional fixture PDFs and — the actual point of this spike — the real
+  30-page bilingual Canva export used in the earlier (superseded) text-extraction spike: a page
+  whose Chinese prose Stage 0 found was **silently dropped by text extraction** renders perfectly
+  as an image, since rasterization never needs to read anything as text. A useful implementation
+  detail found while wiring this up: pdfjs-dist v6's own Node-path default already `require()`s
+  `@napi-rs/canvas` internally when it detects a Node environment — no custom `CanvasFactory` needs
+  to be supplied to `getDocument()`, only a plain per-page canvas for the actual render target.
+- **Decision: 40-page ceiling** for how many pages the importer will attempt to generate preview
+  thumbnails for (`MAX_PDF_IMPORT_PAGES`, `lib/story/pdf-validation.ts`) — independent from, and
+  much more permissive than, the existing 12-image-per-revision attach limit. Driven by real timing
+  data: the real sample averaged ~270-290ms/page at preview resolution (dominated by vector/font
+  rendering cost, not pixel count — resolution is a legibility knob here, not a performance one);
+  40 pages is ~11-12s worst case for one synchronous request. This is a sandbox-measured number,
+  not confirmed against the real deploy target's actual function timeout — flagged in the findings
+  doc for reconfirmation before relying on it in production.
+- **Decision: 75 MiB size ceiling** (`MAX_PDF_IMPORT_INPUT_BYTES`) — headroom above the one real
+  sample measured (a 151-page personal scrapbook export, ~57 MB), its own constant separate from
+  `lib/story/content-import.ts`'s 2 MB text-import limit. **Deliberately NOT wired into
+  `next.config.ts`'s Server Action body-size limit**, unlike that existing constant — a file this
+  large needs a Route Handler upload path (mirroring the existing image pipeline, which already
+  uses a Route Handler rather than a Server Action for exactly this reason: a platform-level
+  request-body ceiling applies on top of whatever Next's own config says). Flagged for Stage 4 to
+  actually wire up; noted in both the findings doc and the plan doc so it isn't rediscovered later.
+- **No background-job pattern needed.** Confirmed by reading `lib/story/image-pipeline.ts` and its
+  one caller: there is no async/queue infrastructure anywhere in this codebase today — image
+  processing is synchronous-in-request, and `renderPagePreviews()` follows the same convention,
+  made safe specifically by the 40-page ceiling above.
+- **New files**: `lib/story/pdf-validation.ts` (dependency-free constants + `%PDF-` magic-byte
+  sniff, split out the same way `image-validation.ts` is split from `image-pipeline.ts` so it stays
+  safe to import from `lib/validation/` without dragging a native/WASM renderer into a client
+  bundle), `lib/story/pdf-import.ts` (`server-only`, the actual `renderPagePreviews()` renderer;
+  discriminated `PdfPreviewResult` union mirroring `content-import.ts`'s `ImportResult` pattern;
+  explicit rejection for corrupt/unparseable, password-protected, zero-page, over-page-ceiling, and
+  over-size-ceiling input — never a partial/truncated result), `lib/validation/pdf-import.ts`
+  (`pdfImportFileSchema`, the new upload-boundary Zod schema, importing only from the client-safe
+  `pdf-validation.ts`). Tests: `lib/story/pdf-import.test.ts` and `lib/validation/pdf-import.test.ts`
+  (17 tests), against small fictional fixture PDFs in `lib/story/__fixtures__/` generated by the new
+  `scripts/generate-pdf-import-fixtures.mjs` (pdfkit for the valid/over-page-ceiling PDFs; the
+  `qpdf` CLI — installed via Homebrew, a build-time-only tool, not a runtime dependency — for the
+  password-protected fixture, since pdfkit has no encryption support).
+- **Dependency changes**: `pdfjs-dist` and `@napi-rs/canvas` added as real `dependencies` (were
+  `--no-save` spike-only installs before this task); `pdfkit` added as a `devDependency`
+  (test-fixture generation only). `next.config.ts` gained `serverExternalPackages:
+["@napi-rs/canvas", "pdfjs-dist"]` so Next doesn't try to bundle the native-binary/large-module-graph
+  renderer through webpack's browser-oriented transforms (the same reason `sharp` already works
+  without needing this — Next auto-detects a few common native packages, but not these two).
+- **Confirmed nothing persists the source PDF or a stray reference to it** (plan Ground Rule 6): no
+  module-level cache in `pdf-import.ts`, no temp files written to disk, every pdfjs
+  `Document`/`Page`/`LoadingTask` handle is `cleanup()`/`destroy()`-ed before `renderPagePreviews()`
+  returns. Verified live end-to-end against a real fixture through the actual production module
+  (not just the vitest mock path) — rendered PNG output inspected visually and confirmed correct.
+- **Not done** (explicitly out of scope for this pass, per the task instructions): Stage 2 (full-
+  quality render + attach through `lib/story/image-pipeline.ts`), Stage 3 (`content_json`
+  assembly), Stage 4 (editorial workflow wiring, two-phase upload/select action), Stage 5 (UI). No
+  UI, Server Action, or Route Handler references `lib/story/pdf-import.ts` yet — it is a standalone,
+  tested module only, per the plan's explicit Stage 1 scope.
+- **`npm run verify`: 337 tests, 0 lint errors, build clean.** Two pre-existing `no-var-requires`
+  eslint-disable warnings in the untracked Stage-0-era `scripts/spike-pdf-extract*.ts` files (not
+  part of this task's deliverable) were left as warnings, not errors — `npm run verify` was already
+  green before touching them; a `TextItem` type-export mismatch in those same two files (an
+  unrelated `pdfjs-dist` type-surface change between the version they were originally written
+  against and the version now pinned) was fixed minimally (inline type instead of the missing
+  export) since it blocked `tsc --noEmit` for the whole repo.
+- **Next**: Stage 2 of `docs/pdf-canva-import-plan.md` — `renderPagesAtFullQuality()` at full/publish
+  resolution, feeding each rendered page through the **existing, unmodified**
+  `lib/story/image-pipeline.ts` path exactly as a manual upload would, respecting the real
+  12-image-per-revision limit at that (the real) enforcement point.
 
 **2026-08-17, part 2 — Border every image frame.**
 

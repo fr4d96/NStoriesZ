@@ -58,7 +58,24 @@ export function AuthModal({
           <span aria-hidden="true">×</span>
         </button>
       </div>
-      <div className="px-6 py-6">{children}</div>
+      {/*
+        Children are mounted ONLY while the modal is open, deliberately.
+        Both AuthModal instances in components/site-header.tsx wrap the very
+        same SignInForm/SignUpForm components that the real /sign-in and
+        /sign-up pages render, and those forms hard-code id="email" /
+        id="password" / id="displayName". Keeping them mounted while closed
+        therefore put a SECOND element with each of those ids into the DOM of
+        every page -- including /sign-in itself, where the visible <label
+        for="email"> then resolved (via getElementById's first-match rule) to
+        the header modal's hidden input instead of the field right next to it.
+        That is a real labelling defect (CLAUDE.md rule 19), not just a test
+        nuisance: it also made every e2e sign-in helper target an invisible
+        input. Unmounting when closed removes the duplicate ids entirely and
+        costs nothing -- the <dialog> shell itself stays mounted, so the
+        showModal()/close() effect above is unaffected, and a freshly opened
+        modal starting with empty fields is the desired behaviour anyway.
+      */}
+      <div className="px-6 py-6">{open ? children : null}</div>
     </dialog>
   );
 }

@@ -1430,6 +1430,10 @@ export type Database = {
         Args: { p_note: string; p_story_id: string };
         Returns: undefined;
       };
+      delete_draft_story: {
+        Args: { p_expected_version: number; p_story_id: string };
+        Returns: undefined;
+      };
       detach_story_media: {
         Args: {
           p_expected_version: number;

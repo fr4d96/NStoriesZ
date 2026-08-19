@@ -18,6 +18,66 @@ const attributionTypeSchema = z.enum([
 ]);
 
 /**
+ * Shared "pick an existing contributor or create a new unlinked one" logic,
+ * factored out so `createEditorialImportAction` below and the PDF-import
+ * Phase B Route Handler (app/(editor)/editorial/new/pdf-attach/route.ts,
+ * Stage 4 of docs/pdf-canva-import-plan.md) parse the exact same
+ * `contributorMode`/`existingContributorId`/`newContributorDisplayName`/
+ * `newContributorAttributionType` form fields identically, rather than two
+ * copies of this validation drifting apart. Does NOT check editor/admin
+ * itself -- every caller must do that first (defense in depth, Server
+ * Actions and Route Handlers are both reachable regardless of which page
+ * rendered them).
+ */
+export async function resolveContributorIdFromFormData(
+  formData: FormData,
+): Promise<{ ok: true; contributorId: string } | { ok: false; error: string }> {
+  const mode = formData.get("contributorMode");
+
+  if (mode === "new") {
+    const displayName = z
+      .string()
+      .trim()
+      .min(1, "Contributor name is required.")
+      .max(120)
+      .safeParse(formData.get("newContributorDisplayName"));
+    const attributionType = attributionTypeSchema.safeParse(
+      formData.get("newContributorAttributionType"),
+    );
+    if (!displayName.success) {
+      return {
+        ok: false,
+        error: displayName.error.issues[0]?.message ?? "Invalid name.",
+      };
+    }
+    if (!attributionType.success) {
+      return { ok: false, error: "Invalid attribution type." };
+    }
+    try {
+      const created = await createUnlinkedContributor({
+        displayName: displayName.data,
+        attributionType: attributionType.data,
+      });
+      return { ok: true, contributorId: created.id };
+    } catch (error) {
+      return {
+        ok: false,
+        error: getErrorMessage(
+          error,
+          "Could not create the contributor record.",
+        ),
+      };
+    }
+  }
+
+  const existing = z.uuid().safeParse(formData.get("existingContributorId"));
+  if (!existing.success) {
+    return { ok: false, error: "Choose a contributor." };
+  }
+  return { ok: true, contributorId: existing.data };
+}
+
+/**
  * Handles both "pick an existing contributor" and "create a new unlinked
  * contributor" in one submit -- every editorial Server Action independently
  * re-checks editor/admin here, rather than relying on the (editor) route
@@ -42,46 +102,11 @@ export async function createEditorialImportAction(
     return { error: titleParsed.error.issues[0]?.message ?? "Invalid title." };
   }
 
-  const mode = formData.get("contributorMode");
-  let contributorId: string;
-
-  if (mode === "new") {
-    const displayName = z
-      .string()
-      .trim()
-      .min(1, "Contributor name is required.")
-      .max(120)
-      .safeParse(formData.get("newContributorDisplayName"));
-    const attributionType = attributionTypeSchema.safeParse(
-      formData.get("newContributorAttributionType"),
-    );
-    if (!displayName.success) {
-      return { error: displayName.error.issues[0]?.message ?? "Invalid name." };
-    }
-    if (!attributionType.success) {
-      return { error: "Invalid attribution type." };
-    }
-    try {
-      const created = await createUnlinkedContributor({
-        displayName: displayName.data,
-        attributionType: attributionType.data,
-      });
-      contributorId = created.id;
-    } catch (error) {
-      return {
-        error: getErrorMessage(
-          error,
-          "Could not create the contributor record.",
-        ),
-      };
-    }
-  } else {
-    const existing = z.uuid().safeParse(formData.get("existingContributorId"));
-    if (!existing.success) {
-      return { error: "Choose a contributor." };
-    }
-    contributorId = existing.data;
+  const resolved = await resolveContributorIdFromFormData(formData);
+  if (!resolved.ok) {
+    return { error: resolved.error };
   }
+  const contributorId = resolved.contributorId;
 
   let storyId: string;
   try {

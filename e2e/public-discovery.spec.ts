@@ -2,6 +2,7 @@ import path from "node:path";
 import { test, expect } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { signInUi } from "./helpers/sign-in";
 
 /**
  * Prompt 5: real, UI-level (browser-driven) coverage of the public
@@ -238,11 +239,7 @@ test.describe("story detail", () => {
   }) => {
     test.skip(!hasCredentials, "requires .env.test.local");
 
-    await page.goto("/sign-in");
-    await page.getByLabel("Email").fill(OWNER_EMAIL!);
-    await page.getByLabel("Password").fill(OWNER_PASSWORD!);
-    await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page).not.toHaveURL(/\/sign-in/);
+    await signInUi(page, OWNER_EMAIL!, OWNER_PASSWORD!);
 
     await page.goto(`/stories/${fixtureSlug}`);
     await page.getByRole("button", { name: "Report this story" }).click();

@@ -12,6 +12,21 @@ describe("AuthModal", () => {
     expect(screen.getByText("Sign in")).not.toBeVisible();
   });
 
+  it("does not mount its children at all while closed", () => {
+    // Not cosmetic: site-header.tsx passes the real SignInForm/SignUpForm
+    // here, and those hard-code id="email"/id="password"/id="displayName".
+    // Mounting them while closed duplicated those ids on every page --
+    // including /sign-in, whose own visible <label for="email"> then
+    // resolved to this hidden copy instead of its own field. See the
+    // component's own comment for the full reasoning.
+    render(
+      <AuthModal open={false} onClose={vi.fn()} title="Sign in">
+        <input id="email" aria-label="Email" />
+      </AuthModal>,
+    );
+    expect(screen.queryByLabelText("Email")).toBeNull();
+  });
+
   it("opens and renders its content when open=true", () => {
     render(
       <AuthModal open={true} onClose={vi.fn()} title="Sign in">

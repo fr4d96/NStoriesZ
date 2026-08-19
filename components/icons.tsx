@@ -239,3 +239,25 @@ export function CloseIcon(props: IconProps) {
     </svg>
   );
 }
+
+/** Preview / review a story. */
+export function EyeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="2.75" />
+    </svg>
+  );
+}
+
+/** Permanently delete. */
+export function TrashIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4.5 7h15" />
+      <path d="M9.5 7V5.25c0-.69.56-1.25 1.25-1.25h2.5c.69 0 1.25.56 1.25 1.25V7" />
+      <path d="M6.5 7l.75 12c.05.9.8 1.6 1.7 1.6h6.1c.9 0 1.65-.7 1.7-1.6L17.5 7" />
+      <path d="M10.25 11v6M13.75 11v6" />
+    </svg>
+  );
+}
