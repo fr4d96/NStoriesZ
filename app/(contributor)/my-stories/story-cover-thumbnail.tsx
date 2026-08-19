@@ -38,7 +38,7 @@ export function StoryCoverThumbnail({
     return (
       <div className="relative h-full w-full bg-surface-muted">
         <Image
-          src="/NoImage.png"
+          src="/kakinotes-icon.png"
           alt=""
           fill
           sizes="(min-width: 640px) 33vw, 50vw"

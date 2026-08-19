@@ -159,21 +159,25 @@ describe("MyStoriesView", () => {
       />,
     );
 
-    // Only the plain draft is deletable -- exactly one "Delete…" button.
+    // Only the plain draft is deletable -- exactly one trash-icon trigger.
     expect(screen.getAllByRole("button", { name: /^Delete/ })).toHaveLength(1);
 
-    const deleteButton = screen.getByRole("button", { name: /^Delete/ });
+    const deleteButton = screen.getByRole("button", {
+      name: "Delete Picking apples in Hawke's Bay",
+    });
     await user.click(deleteButton);
 
     expect(
-      screen.getByRole("button", { name: /^Confirm delete/ }),
+      screen.getByRole("heading", { name: "Delete this story?" }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Cancel delete" }));
-    expect(screen.getByRole("button", { name: /^Delete/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.queryByRole("heading", { name: "Delete this story?" }),
+    ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^Delete/ }));
-    await user.click(screen.getByRole("button", { name: /^Confirm delete/ }));
+    await user.click(deleteButton);
+    await user.click(screen.getByRole("button", { name: "Delete story" }));
 
     expect(deleteDraftStoryAction).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",

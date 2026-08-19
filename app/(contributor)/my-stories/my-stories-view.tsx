@@ -7,13 +7,8 @@ import { StatusBadge } from "./status-badge";
 import { StoryCoverThumbnail } from "./story-cover-thumbnail";
 import { deleteDraftStoryAction } from "./actions";
 import { useToast } from "@/components/ui/toast";
-import {
-  EditorialPencilIcon,
-  EyeIcon,
-  TrashIcon,
-  CheckCircleIcon,
-  CloseIcon,
-} from "@/components/icons";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EditorialPencilIcon, EyeIcon, TrashIcon } from "@/components/icons";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
 
 // Shared 32px round hit-target for every per-story icon action (Edit,
@@ -130,12 +125,11 @@ function ActionIconLink({
 }
 
 /**
- * Two-step inline delete (click the trash icon -> click check to confirm or
- * X to cancel) rather than a native confirm() dialog, to match the rest of
- * this page's controlled UI. Deletion is permanent -- delete_draft_story()
- * hard-deletes the story row and everything under it (Engineering rule:
- * only ever a never-published, never-submitted draft, so nothing public is
- * at stake).
+ * Delete, gated behind a real confirmation dialog (ConfirmDialog, the same
+ * <dialog>-based shell as the sign-in/sign-up modal) rather than a bare
+ * click -- deletion is permanent, delete_draft_story() hard-deletes the
+ * story row and everything under it (Engineering rule: only ever a
+ * never-published, never-submitted draft, so nothing public is at stake).
  */
 function DeleteDraftAction({
   story,
@@ -148,7 +142,7 @@ function DeleteDraftAction({
 }) {
   const router = useRouter();
   const { showToast } = useToast();
-  const [confirming, setConfirming] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   async function handleConfirm() {
@@ -160,47 +154,32 @@ function DeleteDraftAction({
       return;
     }
     setDeleting(false);
-    setConfirming(false);
+    setConfirmOpen(false);
     showToast(result.error, "error");
   }
 
-  if (confirming) {
-    return (
-      <span className="inline-flex items-center gap-1">
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={deleting}
-          title={`Confirm delete ${title}`}
-          aria-label={`Confirm delete ${title}`}
-          className={`${ACTION_ICON_CLASS} text-destructive`}
-        >
-          <CheckCircleIcon className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          disabled={deleting}
-          title="Cancel"
-          aria-label="Cancel delete"
-          className={`${ACTION_ICON_CLASS} text-foreground/70`}
-        >
-          <CloseIcon className="h-4 w-4" />
-        </button>
-      </span>
-    );
-  }
-
   return (
-    <button
-      type="button"
-      onClick={() => setConfirming(true)}
-      title={`Delete ${title}`}
-      aria-label={`Delete ${title}`}
-      className={`${ACTION_ICON_CLASS} text-destructive ${className ?? ""}`}
-    >
-      <TrashIcon className="h-4 w-4" />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        title={`Delete ${title}`}
+        aria-label={`Delete ${title}`}
+        className={`${ACTION_ICON_CLASS} text-destructive ${className ?? ""}`}
+      >
+        <TrashIcon className="h-4 w-4" />
+      </button>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete this story?"
+        description={`"${title}" will be permanently deleted. This can't be undone.`}
+        confirmLabel="Delete story"
+        danger
+        pending={deleting}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
   );
 }
 
