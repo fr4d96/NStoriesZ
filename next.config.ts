@@ -46,10 +46,30 @@ const nextConfig: NextConfig = {
   // pdfjs-dist (a large module graph not meant to run through webpack's
   // browser-oriented transforms). Both must be excluded from Next's server
   // bundling and loaded via plain `require`/dynamic `import` at runtime
-  // instead -- the same reason `sharp` (lib/story/image-pipeline.ts) already
-  // works without needing to be listed here (Next auto-detects a few common
-  // native packages, but not these two).
-  serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
+  // instead.
+  //
+  // `sharp` (lib/story/image-pipeline.ts, lib/story/heic.ts) is here for the
+  // same reason, NOT because it works without this -- an earlier version of
+  // this comment claimed Next auto-detects sharp and only napi-rs/canvas
+  // and pdfjs-dist needed listing. That assumption was wrong under this
+  // project's Turbopack build: confirmed live via a real Vercel production
+  // deployment's function logs, every image upload crashed at cold start
+  // (500 FUNCTION_INVOCATION_FAILED, zero outgoing requests, ~200ms) with
+  // `ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object
+  // file`. Root cause: sharp is a native addon (a compiled .node binding
+  // plus a separate libvips .so it dlopen()s at runtime, shipped as a
+  // platform-specific optional dependency, @img/sharp-libvips-linux-x64)
+  // -- exactly the same class of "not a plain JS require(), invisible to
+  // static bundling/tracing" problem @napi-rs/canvas already has, and the
+  // reason serverExternalPackages exists at all: it tells Next to leave the
+  // whole node_modules/sharp directory (native binary included) untouched
+  // by Turbopack's own bundling instead of trying to trace/transform it,
+  // so Vercel's deployment packaging can find and include the native
+  // library that a JS-level static trace can't see. sharp's own package
+  // was present in package-lock.json with correct linux-x64 optional
+  // dependencies the whole time -- this was never an install problem, only
+  // a bundling one.
+  serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist", "sharp"],
 };
 
 export default nextConfig;

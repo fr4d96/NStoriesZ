@@ -3,11 +3,61 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-20 (image upload timeout fix for production/Vercel — see the entry
-immediately below; the HEIC entry beneath it is the same-day earlier work this one builds on).
+Last updated: 2026-08-20 (the REAL cause of every image upload failing on Vercel, found via the
+user's actual Function logs — see the entry immediately below; the timeout entry beneath it was a
+real, separate, worthwhile fix, but not what was actually breaking every upload).
 
-**2026-08-20 — Image upload timeout on Vercel deployment: root-caused and mitigated; image-viewing
-report still open, cause outside this codebase so far.**
+**2026-08-20 — Every image upload crashing on Vercel: sharp's native binary wasn't being packaged
+for the deployed Lambda (`ERR_DLOPEN_FAILED`), found from the user's own Vercel Function logs.**
+
+The maxDuration/timeout fix below (same day, earlier) was real and still worth having, but the
+user reported uploads still failing identically after that fix was deployed — meaning it wasn't
+the (or wasn't the only) actual cause. Rather than guess further, asked the user for the literal
+Vercel Function log for one failed request. That log's actual error text (not just the
+trace/timing panel, which showed a red herring — "No outgoing requests", ~200ms execution,
+`FUNCTION_INVOCATION_FAILED` — consistent with, but not proof of, several different causes):
+
+```
+Failed to load external module sharp-20c6a5da84e2135f: Error: Could not load the "sharp" module
+using the linux-x64 runtime
+ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object file: No such file or directory
+```
+
+- **Root cause.** `sharp` is a native addon: a compiled `.node` binding plus a _separate_ shared
+  library (`libvips-cpp.so`, shipped as its own platform-specific optional dependency,
+  `@img/sharp-libvips-linux-x64`) that the binding `dlopen()`s at runtime — not a plain
+  `require()`/`import` a bundler's static analysis can see. `next.config.ts`'s
+  `serverExternalPackages` list (needed for exactly this reason for `@napi-rs/canvas`) did NOT
+  include `sharp` — its own comment claimed sharp "already works without needing to be listed here
+  (Next auto-detects... but not these two)". That assumption was wrong under this project's
+  Turbopack build: confirmed directly in the compiled output (`grep` on `.next/server/chunks/`)
+  that sharp WAS already being treated as a Turbopack "external import" — `e.y("sharp-...")`, the
+  exact same module id from the Vercel error — so externalization itself wasn't the gap; Next's own
+  file-tracing (which decides what actually gets copied into the deployed Lambda, native binaries
+  included) was the part not reliably picking up sharp's separate native library. This is not an
+  install problem — `package-lock.json` already carried correct `@img/sharp-libvips-linux-x64` /
+  `@img/sharp-linux-x64` entries (checked directly) — it's a bundling/packaging one.
+  - **Why every upload failed identically, HEIC or not, and why the earlier timeout theory didn't
+    fully explain it:** `sharp` is imported unconditionally at the top of
+    `lib/story/image-pipeline.ts`, which the upload route imports unconditionally at its own top
+    level — so the crash happens at module load, before the route handler body runs at all. That
+    matches the trace panel's "no outgoing requests" / ~200ms exactly: the request never got far
+    enough to make one.
+  - **Fix:** added `"sharp"` to `serverExternalPackages` in `next.config.ts`, alongside
+    `@napi-rs/canvas` and `pdfjs-dist`.
+  - **Verification, and its real limit.** `npm run verify` green (411/411, build clean) — but this
+    is a Linux-only, Vercel-build-only failure mode: local `npm install` only fetches optional
+    binaries for the current platform (macOS here), so a local trace can never show the
+    `linux-x64`/`libvips-cpp.so` files the actual bug is about, and this could not be reproduced or
+    disproven locally by design. **Told the user this plainly rather than claiming a verification
+    that wasn't possible** — the fix is the standard, documented mechanism for exactly this error
+    signature, and matches the evidence precisely, but only an actual Vercel redeploy + retest can
+    confirm it. Awaiting that confirmation as of this entry. If it doesn't fully resolve it, the
+    next step is a Vercel redeploy with a cleared build cache (in case a stale cached install is
+    involved) before looking further.
+
+**2026-08-20 (earlier the same day) — Image upload timeout on Vercel deployment: root-caused and
+mitigated; image-viewing report still open, cause outside this codebase so far.**
 
 User report: "on vercel deployment, images do not load. Uploading HEIC pictures also do not work
 ... none of the image upload is working in the deployed vercel server" (i.e. not HEIC-specific —
