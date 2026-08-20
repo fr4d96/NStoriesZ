@@ -3,9 +3,45 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-18 (PDF/Canva import: the Turbopack `pdfjs-dist` runtime bug found during
-Stage 5 is FIXED, plus the first Playwright coverage that can catch this class of bug. See
-"2026-08-18 — PDF/Canva import: Turbopack fix" immediately below).
+Last updated: 2026-08-20 (HEIC photo uploads — see the entry immediately below).
+
+**2026-08-20 — HEIC (iPhone) photo uploads.**
+
+- **HEIC uploads (`lib/story/heic.ts`, new).** The image uploader now accepts the format an iPhone
+  actually shoots. Sharp's prebuilt libvips parses a HEIC container but cannot decode it (no HEVC
+  decompressor in the prebuilt binaries — verified directly here, and pinned by a unit test that
+  fails if that ever changes), so the upload route decodes HEIC with `heic-decode` (WASM libheif,
+  **dependency added** — the only thing in reach that can decode HEVC; imported lazily, so non-HEIC
+  uploads never load its ~6 MB payload) and re-encodes to **PNG** (lossless — chosen over JPEG so the
+  transcode adds no additional generation loss beyond the HEIC source's own HEVC compression)
+  **before** a storage path is reserved or any row is written.
+  - Deliberately normalized at the boundary rather than taught to the rest of the system: bucket
+    `allowed_mime_types`, the `begin_story_media_upload()` / `record_processed_story_media()` MIME
+    whitelists, `story_media.source_mime_type`, and `image-pipeline.ts`'s own sniff all still see
+    exactly the three stored formats. No migration, no RLS change, no storage-policy change.
+  - Trade-off recorded: the stored "original" for a HEIC upload is the PNG transcode, not the HEIC
+    bytes. The original is private staging material and the published derivative is always a
+    re-encode of it (`image-pipeline.ts` re-encodes any non-PNG source to JPEG regardless — a
+    HEIC-origin upload therefore still ends up JPEG in public; PNG is only ever the private staged
+    original). PNG's real cost is size, not quality: routinely 3-6x a same-content JPEG transcode,
+    which makes the `MAX_UPLOAD_BYTES` ceiling a materially more likely rejection for a large HEIC
+    photo than for the same photo already in JPEG/PNG/WebP.
+  - Sniffing split in two: `sniffImageMimeType()` (stored formats; still rejects HEIC) vs
+    `sniffUploadMimeType()` (adds HEIC). HEIC is an ISO-BMFF `ftyp` brand check; `avif`/`avis` and
+    video brands excluded.
+  - Client side: `accept` now carries `image/heic`, `image/heif` **and the bare `.heic`/`.heif`
+    extensions**, because several browsers report an empty `File.type` for them — a MIME-only
+    accept list hides the user's own photos in the picker. The in-flight tile shows a muted square
+    instead of a broken-image icon for HEIC, which browsers generally can't render.
+  - **Verified:** unit tests against a real (checked-in, synthetic) HEIC fixture —
+    `lib/story/heic.test.ts`, regenerable via `scripts/generate-heic-fixture.mjs` (macOS `sips`;
+    nothing in the dependency tree can _encode_ HEIC either) — plus `image-validation.test.ts` brand
+    coverage, and the full `npm run verify` gate. Also live-verified end-to-end against the linked
+    dev Supabase project: uploaded a HEIC file through the real editor with `File.type` deliberately
+    left empty (mimicking browsers that report no MIME for `.heic`), and it transcoded, stored,
+    finalized, processed, and rendered correctly in the gallery.
+- A landing-page handwriting-font trial was explored in the same session and then **reverted at the
+  user's request** — no font change is present in this codebase.
 
 **2026-08-18 — PDF/Canva import: Turbopack runtime fix, proxy body-size fix, and the
 anti-recurrence e2e coverage that would have caught both.**

@@ -753,7 +753,8 @@ Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` 
 built), `export const runtime = "nodejs"`, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler
 authenticates, rejects an oversized `Content-Length` header early, buffers the multipart body via
 `request.formData()`, sniffs real magic bytes from the buffered bytes (never trusts the client's
-reported `File.type`), calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
+reported `File.type`), **normalizes a HEIC upload to PNG** (see "HEIC normalization" below),
+calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
 server client — never the admin client — to the reserved path, calls
 `finalize_story_media_upload()`, and then calls `processStoryMedia()` **synchronously, in the same
 request** — there is no background worker/queue in this phase, so the upload response doesn't
@@ -763,6 +764,40 @@ reservation (`cancelPendingStoryMediaUpload`) and best-effort removes any alread
 so a failed request never leaves an orphaned `pending_upload` row for longer than the request
 itself — the maintenance script below is a backstop for the cases that still slip through (e.g. the
 client's connection dropping mid-request), not the primary cleanup path.
+
+### HEIC normalization (`lib/story/heic.ts`)
+
+iPhones shoot HEIC by default, and a HEIC file transferred to a computer (rather than picked
+straight out of the iOS photo picker, which often auto-converts) arrives as HEIC. Sharp's prebuilt
+libvips can _parse_ a HEIC container but cannot decode one — its bundled libheif ships no HEVC
+decompressor ("Support for this compression format has not been built in"), because that decoder is
+patent-encumbered. AVIF (AV1 in the same container) decodes fine; an iPhone photo does not. So the
+route handler decodes HEIC with `heic-decode` (a WASM libheif build, imported lazily so non-HEIC
+uploads never pay for its ~6 MB payload) and re-encodes the raw pixels to **PNG** via sharp,
+**before** a path is reserved or any row is written.
+
+Normalizing at the boundary is deliberate: HEIC never becomes a fourth format anywhere downstream.
+The buckets' `allowed_mime_types`, the `begin_story_media_upload()` /
+`record_processed_story_media()` MIME whitelists, `story_media.source_mime_type`, and the
+pipeline's own sniff all still see exactly `image/jpeg | image/png | image/webp`, so no migration,
+RLS change, or storage-policy change was needed. The trade-off: the stored "original" for a HEIC
+upload is that PNG transcode, not the HEIC bytes — acceptable because the original is private
+staging material only, and the published derivative is always a re-encode of it (via
+`image-pipeline.ts`, which re-encodes any non-PNG source to JPEG regardless — a HEIC-origin upload
+therefore ends up JPEG in public anyway; PNG is only ever the private staged original). PNG is
+lossless, so this transcode adds no generation loss beyond the HEIC source's own HEVC compression —
+at the cost of a materially larger intermediate file (routinely 3-6x a same-content JPEG transcode),
+which makes `MAX_UPLOAD_BYTES` a real rejection risk for large HEIC photos in a way it barely is for
+the other two source formats. Guards mirror the pipeline's: dimensions are read from the container
+and checked against `MAX_INPUT_PIXELS` before libheif is asked to allocate a `w*h*4` buffer, and the
+encoded result is re-checked against `MAX_UPLOAD_BYTES`. libheif applies the container's `irot`/
+`imir` transforms while decoding, so the PNG is upright and carries no metadata at all.
+
+Sniffing lives in `lib/story/image-validation.ts`, split in two on purpose:
+`sniffImageMimeType()` (the three _stored_ formats — used by the storage-facing pipeline, and still
+rejects HEIC) and `sniffUploadMimeType()` (those three plus HEIC — used only at the upload
+boundary). HEIC detection is an ISO-BMFF `ftyp` brand check; `avif`/`avis` and the video brands are
+deliberately excluded.
 
 ### Processing (`lib/story/image-pipeline.ts` — the one module allowed to import `lib/supabase/admin.ts`)
 

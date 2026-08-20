@@ -6,6 +6,7 @@ import type { MutationQueue } from "@/lib/story/mutation-queue";
 import {
   MAX_IMAGES_PER_REVISION,
   MAX_UPLOAD_BYTES,
+  UPLOAD_ACCEPT_ATTRIBUTE,
 } from "@/lib/story/image-validation";
 import { getErrorMessage } from "@/lib/errors";
 import { DEFAULT_EMBED_WIDTH } from "@/lib/story/markdown-media";
@@ -22,7 +23,19 @@ import {
   refreshMediaAction,
 } from "@/app/(contributor)/stories/[id]/media-actions";
 
-const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+/** Types a browser can render directly in an <img>, for the in-flight tile. */
+const BROWSER_RENDERABLE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/**
+ * Client-side pre-check only (the server re-sniffs the real magic bytes).
+ * HEIC is matched by extension as well as MIME type because several
+ * browsers report an empty File.type for .heic/.heif files.
+ */
+function isAcceptedFile(file: File): boolean {
+  if (BROWSER_RENDERABLE_TYPES.includes(file.type)) return true;
+  if (file.type === "image/heic" || file.type === "image/heif") return true;
+  return /\.(heic|heif)$/i.test(file.name);
+}
 
 type UploadingItem = {
   key: string;
@@ -32,8 +45,10 @@ type UploadingItem = {
   /** Local object URL for the file being uploaded, so the tile can show the
    * actual image (dimmed, with a centered spinner over it) instead of a
    * blank placeholder while the real upload/processing is in flight.
-   * Revoked once the item leaves `uploading` (see handleFiles/removeUploading). */
-  previewUrl: string;
+   * Revoked once the item leaves `uploading` (see handleFiles/removeUploading).
+   * null for a HEIC file: most browsers cannot render one in an <img>, so a
+   * plain muted tile beats a broken-image icon. */
+  previewUrl: string | null;
 };
 
 export type ImageUploadManagerProps = {
@@ -162,19 +177,21 @@ export function ImageUploadManager({
 
     for (const file of toUpload) {
       const key = `${file.name}-${file.size}-${Date.now()}`;
-      const previewUrl = URL.createObjectURL(file);
-      previewUrlsRef.current.add(previewUrl);
+      const previewUrl = BROWSER_RENDERABLE_TYPES.includes(file.type)
+        ? URL.createObjectURL(file)
+        : null;
+      if (previewUrl) previewUrlsRef.current.add(previewUrl);
       // Fast client-side pre-checks — UX feedback only. Every real safety
       // decision (true format, dimensions, decode success) happens
       // server-side in lib/story/image-pipeline.ts; nothing here is trusted.
-      if (!ACCEPTED_TYPES.includes(file.type)) {
+      if (!isAcceptedFile(file)) {
         setUploading((prev) => [
           ...prev,
           {
             key,
             fileName: file.name,
             progress: "error",
-            error: "Use JPEG, PNG, or WebP.",
+            error: "Use JPEG, PNG, WebP, or HEIC.",
             previewUrl,
           },
         ]);
@@ -225,8 +242,10 @@ export function ImageUploadManager({
         // exactly one on success (see the migration's own guarantee).
         versionRef.current += 1;
         onVersionBumped();
-        URL.revokeObjectURL(previewUrl);
-        previewUrlsRef.current.delete(previewUrl);
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl);
+          previewUrlsRef.current.delete(previewUrl);
+        }
         setUploading((prev) => prev.filter((u) => u.key !== key));
         await refresh();
         showToast(`${file.name} uploaded.`);
@@ -370,14 +389,15 @@ export function ImageUploadManager({
             Drag and drop images here, or click to browse
           </span>
           <span className="text-sm text-muted-foreground">
-            Up to {MAX_IMAGES_PER_REVISION} images, JPEG/PNG/WebP, 15 MB each.
+            Up to {MAX_IMAGES_PER_REVISION} images, JPEG/PNG/WebP/HEIC (iPhone
+            photos), 15 MB each.
           </span>
         </label>
         <input
           ref={fileInputRef}
           id="story-image-upload"
           type="file"
-          accept={ACCEPTED_TYPES.join(",")}
+          accept={UPLOAD_ACCEPT_ATTRIBUTE}
           multiple
           className="sr-only"
           onChange={(e) => {
@@ -401,12 +421,19 @@ export function ImageUploadManager({
                     : "border-border-subtle"
                 }`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- a local object URL for the file being uploaded, not an optimizable static asset */}
-                <img
-                  src={u.previewUrl}
-                  alt=""
-                  className={`h-full w-full object-cover ${u.progress === "error" ? "opacity-40" : "opacity-90"}`}
-                />
+                {u.previewUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element -- a local object URL for the file being uploaded, not an optimizable static asset */
+                  <img
+                    src={u.previewUrl}
+                    alt=""
+                    className={`h-full w-full object-cover ${u.progress === "error" ? "opacity-40" : "opacity-90"}`}
+                  />
+                ) : (
+                  /* HEIC: no browser-renderable local preview, so the tile
+                     stays a plain muted square until the processed
+                     (JPEG) thumbnail arrives from the server. */
+                  <div className="h-full w-full bg-surface-muted" />
+                )}
               </div>
               <p
                 className={`truncate text-xs ${

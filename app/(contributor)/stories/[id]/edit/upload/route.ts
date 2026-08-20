@@ -11,8 +11,10 @@ import {
 import { processStoryMedia } from "@/lib/story/image-pipeline";
 import {
   MAX_UPLOAD_BYTES,
-  sniffImageMimeType,
+  sniffUploadMimeType,
+  type AllowedImageMimeType,
 } from "@/lib/story/image-validation";
+import { HeicTranscodeError, transcodeHeicToPng } from "@/lib/story/heic";
 import { getErrorMessage } from "@/lib/errors";
 
 // Node runtime (not Edge): sharp-based processing later in this same
@@ -29,7 +31,8 @@ export const runtime = "nodejs";
  *
  * Sequence: authenticate -> reject an oversized Content-Length early ->
  * buffer the body (still bounded by MAX_UPLOAD_BYTES) -> sniff real magic
- * bytes (never trust a client Content-Type) -> begin_story_media_upload
+ * bytes (never trust a client Content-Type) -> transcode HEIC to PNG if
+ * that is what arrived (lib/story/heic.ts) -> begin_story_media_upload
  * (reserves a slot + path) -> upload via the REGULAR server client (RLS-
  * enforced, never the admin client) to the reserved path ->
  * finalize_story_media_upload (verifies the object actually landed, joins
@@ -104,18 +107,41 @@ export async function POST(
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const sniffed = sniffImageMimeType(bytes);
+  const sniffed = sniffUploadMimeType(bytes);
   if (!sniffed) {
     return NextResponse.json(
-      { error: "Unsupported file type. Use JPEG, PNG, or WebP." },
+      { error: "Unsupported file type. Use JPEG, PNG, WebP, or HEIC." },
       { status: 400 },
     );
+  }
+
+  // An iPhone's HEIC is normalized to PNG here, at the boundary, before
+  // any path is reserved or any row written -- so everything below this
+  // point (storage buckets, DB functions, the processing pipeline) still
+  // only ever sees the three stored formats. See lib/story/heic.ts.
+  let uploadBytes = bytes;
+  let uploadMimeType: AllowedImageMimeType;
+  if (sniffed === "image/heic") {
+    try {
+      uploadBytes = await transcodeHeicToPng(bytes);
+    } catch (error) {
+      if (error instanceof HeicTranscodeError) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      return NextResponse.json(
+        { error: "Could not convert this HEIC photo. Please try again." },
+        { status: 500 },
+      );
+    }
+    uploadMimeType = "image/png";
+  } else {
+    uploadMimeType = sniffed;
   }
 
   let mediaId: string;
   let reservedPath: string;
   try {
-    const reserved = await beginStoryMediaUpload(revisionId, sniffed);
+    const reserved = await beginStoryMediaUpload(revisionId, uploadMimeType);
     mediaId = reserved.media_id;
     reservedPath = reserved.reserved_path;
   } catch (error) {
@@ -157,8 +183,8 @@ export async function POST(
       },
       "story-images-private",
       reservedPath,
-      bytes,
-      sniffed,
+      uploadBytes,
+      uploadMimeType,
       false,
     );
   } catch {
