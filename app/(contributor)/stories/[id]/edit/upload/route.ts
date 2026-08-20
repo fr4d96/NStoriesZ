@@ -24,6 +24,23 @@ import { getErrorMessage } from "@/lib/errors";
 // flow" for the full sequence this implements.
 export const runtime = "nodejs";
 
+// Vercel kills a Function once it exceeds its execution-time ceiling and
+// this route has none of the slack that implies by default. Measured live
+// against a real photo and this project's actual Supabase project: a
+// single upload+process request routinely takes 15-30+ seconds (upload of
+// the original to Storage alone was 8.3s for a 5.4 MB file; see
+// docs/architecture.md "Upload reservation flow" for the full per-step
+// breakdown) -- comfortably past a serverless platform's short default
+// timeout, and the likely cause of uploads silently failing in production
+// while working locally (a local dev/prod server has no such ceiling).
+// 60s is a conservative ceiling supported on every Vercel plan tier
+// (Hobby/Pro/Enterprise) without risking a build-time rejection for
+// exceeding a lower plan's maximum -- if uploads still time out after this
+// fix on a plan that supports a higher ceiling (Pro: up to 300s,
+// Enterprise: up to 800s), raise this number to match. Vercel enforces its
+// own plan ceiling regardless of what's set here.
+export const maxDuration = 60;
+
 /**
  * POST /stories/:id/edit/upload — multipart form fields:
  *   file            the image bytes
@@ -215,7 +232,12 @@ export async function POST(
   // usable until processed); the client polls processingState via the
   // preview/edit media list rather than this response.
   try {
-    await processStoryMedia(mediaId);
+    // Passes the bytes just uploaded above directly, rather than letting
+    // processStoryMedia re-download them from Storage -- a real, measured
+    // cost with no purpose when (as here) it runs synchronously in the
+    // same request right after the upload. See processStoryMedia's own
+    // doc comment for the numbers.
+    await processStoryMedia(mediaId, uploadBytes);
   } catch {
     // Already recorded server-side; nothing further to do here.
   }

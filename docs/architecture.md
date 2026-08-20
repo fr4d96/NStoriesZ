@@ -757,13 +757,38 @@ reported `File.type`), **normalizes a HEIC upload to JPEG** (see "HEIC normaliza
 calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
 server client — never the admin client — to the reserved path, calls
 `finalize_story_media_upload()`, and then calls `processStoryMedia()` **synchronously, in the same
-request** — there is no background worker/queue in this phase, so the upload response doesn't
-return until processing has actually finished (or recorded a specific failure). Any failure after
-the reservation step (storage upload fails, `finalize_` rejects a stale version) cancels the
-reservation (`cancelPendingStoryMediaUpload`) and best-effort removes any already-uploaded bytes,
-so a failed request never leaves an orphaned `pending_upload` row for longer than the request
-itself — the maintenance script below is a backstop for the cases that still slip through (e.g. the
-client's connection dropping mid-request), not the primary cleanup path.
+request**, passing it the just-uploaded bytes directly — there is no background worker/queue in
+this phase, so the upload response doesn't return until processing has actually finished (or
+recorded a specific failure). Any failure after the reservation step (storage upload fails,
+`finalize_` rejects a stale version) cancels the reservation (`cancelPendingStoryMediaUpload`) and
+best-effort removes any already-uploaded bytes, so a failed request never leaves an orphaned
+`pending_upload` row for longer than the request itself — the maintenance script below is a
+backstop for the cases that still slip through (e.g. the client's connection dropping mid-request),
+not the primary cleanup path.
+
+**Real-world latency, measured, and why `maxDuration` matters.** This whole flow is synchronous and
+sequential: reserve (RPC) → upload original → finalize (RPC) → download-or-reuse original → decode
+→ resize/re-encode → upload processed → download processed to verify → record (RPC). Instrumented
+live against this project's actual Supabase project with a real 5.4 MB HEIC-origin photo: **8.3s**
+to upload the original alone, ~1.8-2.7s for each subsequent storage round trip, ~1.4s total across
+the four RPCs, and ~13.7-16.6s end to end even after eliminating the one avoidable round trip
+(`processStoryMedia`'s second parameter below) — comfortably past a serverless platform's default
+Function timeout. `export const maxDuration = 60` on the route exists specifically because of this:
+without it, a real-world upload of any non-trivial photo is likely to be killed by the platform
+mid-request in production while working fine in local dev/`next start` (neither of which impose
+such a ceiling) — the exact "works locally, fails in production" shape this was found to explain.
+60s is deliberately the ceiling supported on every Vercel plan tier without risking a build-time
+rejection for exceeding a lower plan's maximum; raise it (Pro: up to 300s, Enterprise: up to 800s)
+if uploads still time out on a plan that supports more. `processStoryMedia(mediaId,
+knownOriginalBytes?)`'s second, optional parameter is the one already-shipped mitigation: the route
+passes the bytes it just uploaded directly, skipping a real, measured redundant download of the
+same object it downloaded moments after uploading it (worth ~2-3s on its own, more for larger
+files) — real savings, but nowhere near enough on its own to make the request reliably fast; the
+`maxDuration` bump is what actually keeps the platform from killing a slow-but-legitimate upload.
+This entire flow remains a genuine architectural limitation, not fully solved by either change: a
+synchronous multi-round-trip request per upload does not scale gracefully to larger files or a
+slower network path to Supabase, and a real background job/queue (outside this phase's scope) is
+the durable fix if this keeps being a problem in practice.
 
 ### HEIC normalization (`lib/story/heic.ts`)
 

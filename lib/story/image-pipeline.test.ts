@@ -78,6 +78,8 @@ vi.mock("@/lib/env.server", () => ({
 // the same in-memory `objects` map as fakeAdmin.storage above so
 // copyStoryMediaToPublic (which still goes through fakeAdmin.storage.list()
 // for its "is it already there" check) keeps seeing consistent state.
+const downloadedPaths: string[] = [];
+
 vi.mock("@/lib/story/raw-storage-http", () => ({
   rawStorageDownload: async (
     _url: string,
@@ -85,6 +87,7 @@ vi.mock("@/lib/story/raw-storage-http", () => ({
     bucket: string,
     path: string,
   ) => {
+    downloadedPaths.push(key(bucket, path));
     const buf = objects.get(key(bucket, path));
     if (!buf) throw new Error("not found");
     return buf;
@@ -107,6 +110,7 @@ beforeEach(() => {
   rpcCalls.length = 0;
   mediaRow = null;
   fakeAdmin.rpc.mockClear();
+  downloadedPaths.length = 0;
 });
 
 async function jpegWithExif(): Promise<Buffer> {
@@ -162,6 +166,41 @@ describe("processStoryMedia", () => {
     expect(stagedPath).toBe(
       `${mediaRow.story_id}/media-1/processed-${recorded!.args.p_sha256}.jpg`,
     );
+  });
+
+  // The upload route (app/(contributor)/stories/[id]/edit/upload/route.ts)
+  // calls processStoryMedia synchronously, right after uploading these
+  // exact bytes -- passing them through here skips a real, measured
+  // redundant download of the *original* (see processStoryMedia's own doc
+  // comment). verifyUploadedBytes() still legitimately downloads the
+  // *processed* derivative afterward to confirm it landed correctly -- an
+  // unrelated, intentional download this fast path does not touch -- so
+  // the assertion below checks the original's specific path was never
+  // downloaded, not that zero downloads happened at all.
+  it("skips the redundant download when the original bytes are already known", async () => {
+    const source = await jpegWithExif();
+    mediaRow = {
+      story_id: "11111111-1111-4111-8111-111111111111",
+      private_storage_path: "story/media/original.jpg",
+      processing_state: "uploaded",
+    };
+    // Deliberately NOT put in `objects` -- if the fast path were broken and
+    // this fell through to a real download, it would throw "not found"
+    // rather than silently succeeding, so this also proves the passed-in
+    // bytes (not a coincidentally-present object) are what got processed.
+
+    await processStoryMedia("media-3", source);
+
+    expect(downloadedPaths).not.toContain(
+      key("story-images-private", mediaRow.private_storage_path),
+    );
+    const recorded = rpcCalls.find(
+      (c) => c.name === "record_processed_story_media",
+    );
+    expect(recorded).toBeDefined();
+    expect(recorded!.args.p_source_mime_type).toBe("image/jpeg");
+    expect(recorded!.args.p_source_width).toBe(40);
+    expect(recorded!.args.p_source_height).toBe(20);
   });
 
   it("records a processing failure for a non-image file", async () => {

@@ -3,11 +3,71 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-20 (HEIC photo uploads, including a same-day real-photo bug fix — see the
-entry immediately below).
+Last updated: 2026-08-20 (image upload timeout fix for production/Vercel — see the entry
+immediately below; the HEIC entry beneath it is the same-day earlier work this one builds on).
 
-**2026-08-20 — HEIC (iPhone) photo uploads, PNG tried and reverted, and a real-photo crash fixed
-same day.**
+**2026-08-20 — Image upload timeout on Vercel deployment: root-caused and mitigated; image-viewing
+report still open, cause outside this codebase so far.**
+
+User report: "on vercel deployment, images do not load. Uploading HEIC pictures also do not work
+... none of the image upload is working in the deployed vercel server" (i.e. not HEIC-specific —
+every upload). `npm run verify` run and green (410/410) before any investigation, per the user's
+explicit request to test first.
+
+- **Upload timeout — root-caused with real measurements, not guessed.** Reproduced against a real
+  local **production** build (`next start`, the same server code Vercel runs) talking to this
+  project's actual Supabase project — it succeeded locally, ruling out a code crash or a
+  bundling/tracing problem (checked and ruled out: sharp's Linux binaries are present in the
+  lockfile, libheif's WASM is embedded in its bundle, not read from disk, so it IS included in the
+  Vercel build). The route was then instrumented with temporary timing logs (reverted afterward,
+  not shipped) and re-run against a real user-supplied iPhone photo: **13.7-33.2s** end to end
+  across several runs, breaking down as ~8.3s to upload the original alone, 1.8-2.7s per subsequent
+  storage round trip, ~1.4s across four DB RPCs. The route declared no `maxDuration`, so it ran at
+  Vercel's short default Function timeout — comfortably exceeded by ordinary real-world uploads.
+  This is not HEIC-specific (matches the user's "none of the image upload is working" report): any
+  upload of a non-trivial photo takes this long, HEIC or not; HEIC uploads are only somewhat worse
+  because the JPEG re-encode of a HEIC photo is often larger than the HEIC original (this test
+  photo: 3.5 MB HEIC → 5.4 MB JPEG), and the transcode itself adds ~1.4s of CPU.
+  - **Fix 1: `export const maxDuration = 60`** on `app/(contributor)/stories/[id]/edit/upload/route.ts`
+    — 60s chosen as the ceiling supported on every Vercel plan tier without risking a build-time
+    rejection for exceeding a lower plan's maximum (Hobby); raise further (Pro: 300s, Enterprise:
+    800s) if still insufficient on a plan that supports it.
+  - **Fix 2: eliminated one real, measured redundant round trip.** `processStoryMedia()` in
+    `lib/story/image-pipeline.ts` always re-downloaded the original from Storage as its first
+    action — pointless when (as here) it's called synchronously in the same request that just
+    uploaded those exact bytes. Added an optional `knownOriginalBytes` parameter; the upload route
+    now passes the bytes it already has in memory, skipping that download entirely. Worth ~2-3s on
+    a 5.4 MB file, more for larger ones; standalone/future retry callers are unaffected (parameter
+    is optional, falls back to the original download). New regression test
+    (`lib/story/image-pipeline.test.ts`) proves the original's specific storage path is never
+    downloaded when bytes are supplied, while the (unrelated, still-intentional) post-upload
+    verification download of the _processed_ derivative still happens — full `npm run verify` gate
+    green afterward, 411/411.
+  - **Re-verified live** against the running dev server with the user's real photo after both
+    fixes: 13.7s (down from the original 33.2s baseline measurement), succeeded, rendered correctly
+    at the expected resized dimensions. Test upload removed from the draft afterward.
+  - **Not fully solved.** This remains architecturally a synchronous, multi-round-trip-per-upload
+    design — real for any sizeable file, not eliminated by either fix, just brought under a
+    timeout ceiling that should now tolerate it. A real background job/queue is the durable fix if
+    large/slow uploads keep being a problem; out of scope for this pass.
+- **"Images do not load" (viewing, not uploading) — investigated, not yet resolved.** No CSP
+  anywhere in the app (`next.config.ts`, `proxy.ts`, `app/layout.tsx` all checked, none set), no
+  `next/image` component anywhere renders a remote Supabase URL (confirmed via full-repo search —
+  the only two `next/image` usages are a local static asset and a fallback icon; every public/
+  gallery image goes through a plain `<img>`, so `next.config.ts`'s empty `images.remotePatterns`
+  cannot be the cause), and `getPublicImageUrl()`
+  (`lib/story/public-image-url.ts`) works correctly locally against real env vars. Asked the user
+  to check Vercel's Environment Variables (`NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) for the Production environment — **user confirmed these
+  are already set correctly**, ruling out the leading hypothesis. Root cause still open: next
+  candidates are the Supabase Storage project's own CORS/bucket configuration for the production
+  domain, or something specific to the Vercel deployment this codebase has no visibility into.
+  **Needs the actual Vercel Function/browser error for a failing image request** (a real HTTP
+  status + response body, not just "doesn't load") to make further progress — asked the user for
+  this; not yet supplied as of this entry.
+
+**2026-08-20 (earlier the same day) — HEIC (iPhone) photo uploads, PNG tried and reverted, and a
+real-photo crash fixed same day.**
 
 - **HEIC uploads (`lib/story/heic.ts`, new).** The image uploader now accepts the format an iPhone
   actually shoots. Sharp's prebuilt libvips parses a HEIC container but cannot decode it (no HEVC

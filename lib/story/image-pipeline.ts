@@ -104,8 +104,23 @@ async function uploadObject(
  * deterministic output and is a no-op-safe retry from the DB's perspective
  * (record_processed_story_media rejects only if already `processed` or
  * later, per its own idempotency rule).
+ *
+ * `knownOriginalBytes` is an optional fast path: the upload route calls
+ * this synchronously, in the same request, immediately after uploading
+ * those exact bytes to `media.private_storage_path` — so re-downloading
+ * them here is a real, measured cost with no purpose (confirmed live: on a
+ * real 5.4 MB HEIC-origin upload, that redundant download alone cost
+ * ~2.7s of a ~16.6s total request, on top of the ~8.3s the *upload* of the
+ * same bytes had already cost moments earlier). Omit it (or call this
+ * function with only a mediaId, as any future standalone retry/worker
+ * would) and it falls back to downloading from storage as before — the
+ * fast path is purely an optimization, not a change to what gets
+ * validated or how a retry behaves.
  */
-export async function processStoryMedia(mediaId: string): Promise<void> {
+export async function processStoryMedia(
+  mediaId: string,
+  knownOriginalBytes?: Buffer,
+): Promise<void> {
   const admin = createAdminClient();
   const { data: media, error: fetchError } = await admin
     .from("story_media")
@@ -117,10 +132,9 @@ export async function processStoryMedia(mediaId: string): Promise<void> {
   }
 
   try {
-    const original = await downloadObject(
-      PRIVATE_BUCKET,
-      media.private_storage_path,
-    );
+    const original =
+      knownOriginalBytes ??
+      (await downloadObject(PRIVATE_BUCKET, media.private_storage_path));
 
     const sniffed = sniffImageMimeType(original);
     if (!sniffed) {
