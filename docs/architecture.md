@@ -753,7 +753,7 @@ Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` 
 built), `export const runtime = "nodejs"`, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler
 authenticates, rejects an oversized `Content-Length` header early, buffers the multipart body via
 `request.formData()`, sniffs real magic bytes from the buffered bytes (never trusts the client's
-reported `File.type`), **normalizes a HEIC upload to PNG** (see "HEIC normalization" below),
+reported `File.type`), **normalizes a HEIC upload to JPEG** (see "HEIC normalization" below),
 calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
 server client — never the admin client — to the reserved path, calls
 `finalize_story_media_upload()`, and then calls `processStoryMedia()` **synchronously, in the same
@@ -773,7 +773,7 @@ libvips can _parse_ a HEIC container but cannot decode one — its bundled libhe
 decompressor ("Support for this compression format has not been built in"), because that decoder is
 patent-encumbered. AVIF (AV1 in the same container) decodes fine; an iPhone photo does not. So the
 route handler decodes HEIC with `heic-decode` (a WASM libheif build, imported lazily so non-HEIC
-uploads never pay for its ~6 MB payload) and re-encodes the raw pixels to **PNG** via sharp,
+uploads never pay for its ~6 MB payload) and re-encodes the raw pixels to **JPEG** via sharp,
 **before** a path is reserved or any row is written.
 
 Normalizing at the boundary is deliberate: HEIC never becomes a fourth format anywhere downstream.
@@ -781,17 +781,32 @@ The buckets' `allowed_mime_types`, the `begin_story_media_upload()` /
 `record_processed_story_media()` MIME whitelists, `story_media.source_mime_type`, and the
 pipeline's own sniff all still see exactly `image/jpeg | image/png | image/webp`, so no migration,
 RLS change, or storage-policy change was needed. The trade-off: the stored "original" for a HEIC
-upload is that PNG transcode, not the HEIC bytes — acceptable because the original is private
-staging material only, and the published derivative is always a re-encode of it (via
-`image-pipeline.ts`, which re-encodes any non-PNG source to JPEG regardless — a HEIC-origin upload
-therefore ends up JPEG in public anyway; PNG is only ever the private staged original). PNG is
-lossless, so this transcode adds no generation loss beyond the HEIC source's own HEVC compression —
-at the cost of a materially larger intermediate file (routinely 3-6x a same-content JPEG transcode),
-which makes `MAX_UPLOAD_BYTES` a real rejection risk for large HEIC photos in a way it barely is for
-the other two source formats. Guards mirror the pipeline's: dimensions are read from the container
-and checked against `MAX_INPUT_PIXELS` before libheif is asked to allocate a `w*h*4` buffer, and the
-encoded result is re-checked against `MAX_UPLOAD_BYTES`. libheif applies the container's `irot`/
-`imir` transforms while decoding, so the PNG is upright and carries no metadata at all.
+upload is that JPEG transcode, not the HEIC bytes — acceptable because the original is private
+staging material only, and the published derivative is always a re-encode of it.
+
+**PNG was tried first and reverted** — a real-photo test proved it non-viable. A lossless PNG
+re-encode of an ordinary 4284x5712 iPhone photo came to 51 MB against a 5 MB JPEG re-encode of the
+exact same pixels, and both `MAX_UPLOAD_BYTES` and the storage buckets' own `file_size_limit`
+(`supabase/migrations/20260804090700_story_media_storage_buckets.sql`) are fixed at 15 MiB — so PNG
+would reject perfectly ordinary uploads at both the app layer and, even if that check were relaxed,
+the storage layer too (a schema change, not a config tweak). PNG's losslessness buys nothing back
+here regardless: the HEIC source is already lossy HEVC, so a lossless re-encode of it just spends
+far more bytes on the same already-lossy pixels.
+
+**Does not** pre-check dimensions via a separate `sharp(bytes).metadata()` parse ahead of decoding —
+that was the first implementation, and it was a real bug: sharp's bundled libheif enforces its own
+hard ceiling of 16 references in a HEIC container's `iref` box, and an ordinary modern iPhone photo
+routinely exceeds it (Portrait mode / Deep Fusion / Live Photo all link extra image items —
+thumbnail, depth map, portrait matte — via `iref`), throwing `Security limit exceeded: Number of
+references in iref box (N) exceeds the security limits of 16` on files `heic-decode` (the separate
+WASM libheif build actually used for the real decode) opens without issue. Reproduced directly
+against a real 3.5 MB iPhone photo before the fix. `MAX_INPUT_PIXELS` (the decompression-bomb guard)
+is now enforced from the dimensions `heic-decode` itself returns, checked immediately after decode
+and before the (comparatively expensive) JPEG re-encode — not before the HEIC decode. That is an
+accepted narrowing of the guard, not an oversight: this endpoint requires an authenticated
+contributor with edit rights on the revision (never anonymous), and the compressed input is already
+bounded by `MAX_UPLOAD_BYTES` before it reaches here. libheif applies the container's `irot`/`imir`
+transforms while decoding, so the JPEG is upright and carries no metadata at all.
 
 Sniffing lives in `lib/story/image-validation.ts`, split in two on purpose:
 `sniffImageMimeType()` (the three _stored_ formats — used by the storage-facing pipeline, and still

@@ -3,29 +3,52 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-20 (HEIC photo uploads — see the entry immediately below).
+Last updated: 2026-08-20 (HEIC photo uploads, including a same-day real-photo bug fix — see the
+entry immediately below).
 
-**2026-08-20 — HEIC (iPhone) photo uploads.**
+**2026-08-20 — HEIC (iPhone) photo uploads, PNG tried and reverted, and a real-photo crash fixed
+same day.**
 
 - **HEIC uploads (`lib/story/heic.ts`, new).** The image uploader now accepts the format an iPhone
   actually shoots. Sharp's prebuilt libvips parses a HEIC container but cannot decode it (no HEVC
   decompressor in the prebuilt binaries — verified directly here, and pinned by a unit test that
   fails if that ever changes), so the upload route decodes HEIC with `heic-decode` (WASM libheif,
   **dependency added** — the only thing in reach that can decode HEVC; imported lazily, so non-HEIC
-  uploads never load its ~6 MB payload) and re-encodes to **PNG** (lossless — chosen over JPEG so the
-  transcode adds no additional generation loss beyond the HEIC source's own HEVC compression)
-  **before** a storage path is reserved or any row is written.
+  uploads never load its ~6 MB payload) and re-encodes to **JPEG before** a storage path is
+  reserved or any row is written.
   - Deliberately normalized at the boundary rather than taught to the rest of the system: bucket
     `allowed_mime_types`, the `begin_story_media_upload()` / `record_processed_story_media()` MIME
     whitelists, `story_media.source_mime_type`, and `image-pipeline.ts`'s own sniff all still see
     exactly the three stored formats. No migration, no RLS change, no storage-policy change.
-  - Trade-off recorded: the stored "original" for a HEIC upload is the PNG transcode, not the HEIC
-    bytes. The original is private staging material and the published derivative is always a
-    re-encode of it (`image-pipeline.ts` re-encodes any non-PNG source to JPEG regardless — a
-    HEIC-origin upload therefore still ends up JPEG in public; PNG is only ever the private staged
-    original). PNG's real cost is size, not quality: routinely 3-6x a same-content JPEG transcode,
-    which makes the `MAX_UPLOAD_BYTES` ceiling a materially more likely rejection for a large HEIC
-    photo than for the same photo already in JPEG/PNG/WebP.
+  - Trade-off recorded: the stored "original" for a HEIC upload is the JPEG transcode, not the
+    HEIC bytes. The original is private staging material and the published derivative is always a
+    re-encode of it, so nothing user-visible loses more than one JPEG generation.
+- **PNG tried first, reverted same day — proven non-viable against a real photo.** The initial
+  build transcoded HEIC to PNG (lossless) instead. A live test against a real iPhone photo
+  (4284x5712) supplied by the user showed the PNG re-encode at 51 MB against 5 MB for a JPEG
+  re-encode of the identical decoded pixels — both `MAX_UPLOAD_BYTES` and the storage buckets'
+  own `file_size_limit` are fixed at 15 MiB, so PNG rejected an entirely ordinary upload at the app
+  layer, and would have hit the storage layer's own hard cap too (a schema change, not a config
+  fix). PNG's losslessness bought nothing back: the HEIC source is already lossy HEVC, so a
+  lossless re-encode of it just spends far more bytes on the same already-lossy pixels. Reverted
+  to JPEG after presenting the finding and the user choosing it explicitly over raising storage
+  limits or downscaling before encode.
+- **Real bug found and fixed the same day, via that same real-photo test.** The first
+  implementation pre-checked dimensions with a separate `sharp(bytes).metadata()` parse before
+  handing off to the real decoder — and that call threw on the user's actual photo:
+  `Security limit exceeded: Number of references in iref box (45) exceeds the security limits of
+16`. Root cause: sharp's bundled libheif enforces its own hard ceiling of 16 references in a
+  HEIC container's `iref` box, and an ordinary modern iPhone photo routinely exceeds it (Portrait
+  mode / Deep Fusion / Live Photo all link extra image items — thumbnail, depth map, portrait
+  matte — via `iref`). `heic-decode` (the separate WASM libheif build actually used for the real
+  decode) opened the same file without issue — confirmed directly, isolated from the app, before
+  changing any code. **This meant essentially any real recent-iPhone photo would have failed the
+  upload, not just an edge case.** Fixed by dropping the pre-decode `sharp().metadata()` call
+  entirely: `MAX_INPUT_PIXELS` (the decompression-bomb guard) is now checked from the dimensions
+  `heic-decode` itself returns, immediately after decode and before the JPEG re-encode — an
+  accepted narrowing (decode now happens before the pixel-count check, rather than after), justified
+  because this endpoint requires an authenticated contributor with edit rights on the revision
+  (never anonymous) and the compressed input is already bounded by `MAX_UPLOAD_BYTES`.
   - Sniffing split in two: `sniffImageMimeType()` (stored formats; still rejects HEIC) vs
     `sniffUploadMimeType()` (adds HEIC). HEIC is an ISO-BMFF `ftyp` brand check; `avif`/`avis` and
     video brands excluded.
@@ -35,13 +58,16 @@ Last updated: 2026-08-20 (HEIC photo uploads — see the entry immediately below
     instead of a broken-image icon for HEIC, which browsers generally can't render.
   - **Verified:** unit tests against a real (checked-in, synthetic) HEIC fixture —
     `lib/story/heic.test.ts`, regenerable via `scripts/generate-heic-fixture.mjs` (macOS `sips`;
-    nothing in the dependency tree can _encode_ HEIC either) — plus `image-validation.test.ts` brand
-    coverage, and the full `npm run verify` gate. Also live-verified end-to-end against the linked
-    dev Supabase project: uploaded a HEIC file through the real editor with `File.type` deliberately
-    left empty (mimicking browsers that report no MIME for `.heic`), and it transcoded, stored,
-    finalized, processed, and rendered correctly in the gallery.
-- A landing-page handwriting-font trial was explored in the same session and then **reverted at the
-  user's request** — no font change is present in this codebase.
+    nothing in the dependency tree can _encode_ HEIC either) — plus `image-validation.test.ts`
+    brand coverage, and the full `npm run verify` gate. Live-verified end-to-end against the
+    linked dev Supabase project twice: once with a synthetic fixture (uploaded through the real
+    editor with `File.type` deliberately left empty, mimicking browsers that report no MIME for
+    `.heic`), and once with the user's actual 3.5 MB iPhone photo (4284x5712, the file that
+    surfaced the `iref`-limit bug above) uploaded through the real editor UI end to end — both
+    transcoded, stored, finalized, processed, and rendered correctly (upright, no visible artifacts)
+    in the gallery. The real-photo test upload was removed from the draft afterward.
+- A landing-page handwriting-font trial was explored in the same session and then **reverted at
+  the user's request** — no font change is present in this codebase.
 
 **2026-08-18 — PDF/Canva import: Turbopack runtime fix, proxy body-size fix, and the
 anti-recurrence e2e coverage that would have caught both.**

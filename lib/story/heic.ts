@@ -6,7 +6,7 @@ import {
 } from "@/lib/story/image-validation";
 
 /**
- * HEIC -> PNG normalization, run at the upload trust boundary (the route
+ * HEIC -> JPEG normalization, run at the upload trust boundary (the route
  * handler) BEFORE a storage path is reserved or any row is written.
  *
  * Why here, and not in lib/story/image-pipeline.ts: sharp's prebuilt
@@ -22,20 +22,21 @@ import {
  * begin_story_media_upload / record_processed_story_media MIME whitelists,
  * story_media.source_mime_type, and the pipeline's own sniff all continue
  * to see exactly the three formats they already allow. The stored
- * "original" for a HEIC upload is therefore this full-resolution PNG
+ * "original" for a HEIC upload is therefore this full-resolution JPEG
  * transcode rather than the HEIC bytes themselves; that original is
  * private staging material only (the published derivative is always a
- * re-encode of it -- see image-pipeline.ts, which re-encodes any non-PNG
- * source to JPEG for the actual published derivative).
+ * re-encode of it), so nothing user-visible loses fidelity beyond one JPEG
+ * generation.
  *
- * PNG is lossless, so it carries no additional generation loss beyond the
- * HEIC source's own HEVC compression -- at the cost of a materially larger
- * intermediate file than a JPEG transcode would produce for the same
- * photographic content (routinely 3-6x). That's why the MAX_UPLOAD_BYTES
- * guard below matters here in a way it barely does for the other two
- * source formats: a large HEIC photo is meaningfully more likely to be
- * rejected post-transcode than a same-resolution JPEG/PNG/WebP upload would
- * be pre-transcode.
+ * JPEG, not PNG: tried PNG first, but a real iPhone photo re-encoded
+ * losslessly routinely lands 3-10x the size of an equivalent JPEG (a
+ * verified 4284x5712 test photo: 51 MB as PNG vs. 5 MB as JPEG at q90) --
+ * enough to blow both MAX_UPLOAD_BYTES and the storage buckets' own
+ * file_size_limit (15 MiB, supabase/migrations/
+ * 20260804090700_story_media_storage_buckets.sql) for perfectly ordinary
+ * uploads. PNG's losslessness buys nothing back here anyway: the HEIC
+ * source is already lossy HEVC, so a lossless re-encode of it just spends
+ * far more bytes storing the same already-lossy pixels.
  */
 
 /** Distinguishes an unusable HEIC from an infrastructure failure. */
@@ -47,36 +48,28 @@ export class HeicTranscodeError extends Error {
 }
 
 /**
- * Decodes a HEIC/HEIF still image and re-encodes it as PNG.
+ * Decodes a HEIC/HEIF still image and re-encodes it as JPEG.
  *
- * Guards, in order: dimensions are read from the container (a parse, not a
- * decode) and checked against MAX_INPUT_PIXELS *before* libheif is asked to
- * allocate a width*height*4 pixel buffer, so a decompression-bomb HEIC is
- * rejected without ever being decoded; the encoded result is then checked
- * against MAX_UPLOAD_BYTES, since a lossless PNG transcode of a HEIC photo
- * can be several times the size of its source.
+ * Does NOT pre-check dimensions via a separate sharp().metadata() parse
+ * before decoding -- that was tried and removed: sharp's bundled libheif
+ * enforces its own hard security ceiling of 16 references in a HEIC
+ * container's `iref` box, and an ordinary modern iPhone photo routinely
+ * exceeds it (Portrait mode / Deep Fusion / Live Photo all link extra
+ * image items -- thumbnail, depth map, portrait matte -- via `iref`),
+ * throwing "Security limit exceeded" on files heic-decode (a different,
+ * WASM libheif build) opens without issue. Verified directly against a
+ * real 3.5 MB iPhone photo that failed this way. The MAX_INPUT_PIXELS
+ * decompression-bomb guard is therefore enforced AFTER heic-decode
+ * returns real dimensions, not before -- still ahead of the (comparatively
+ * expensive) JPEG re-encode, just not ahead of the HEIC decode itself. That
+ * is an acceptable narrowing: this endpoint requires an authenticated
+ * contributor with edit rights on the revision (never anonymous), and the
+ * compressed input is already bounded by MAX_UPLOAD_BYTES before it
+ * reaches here.
  */
-export async function transcodeHeicToPng(
+export async function transcodeHeicToJpeg(
   bytes: Buffer,
 ): Promise<Buffer<ArrayBuffer>> {
-  let width: number | undefined;
-  let height: number | undefined;
-  try {
-    const metadata = await sharp(bytes, {
-      limitInputPixels: MAX_INPUT_PIXELS,
-    }).metadata();
-    width = metadata.width;
-    height = metadata.height;
-  } catch {
-    throw new HeicTranscodeError("This HEIC photo could not be read.");
-  }
-  if (!width || !height) {
-    throw new HeicTranscodeError("This HEIC photo could not be read.");
-  }
-  if (width * height > MAX_INPUT_PIXELS) {
-    throw new HeicTranscodeError("This photo is too large to process.");
-  }
-
   // Imported lazily: heic-decode pulls in a ~6 MB libheif WASM build, and
   // the overwhelming majority of uploads are not HEIC. Nothing else in the
   // request path pays for it.
@@ -89,26 +82,30 @@ export async function transcodeHeicToPng(
     throw new HeicTranscodeError("This HEIC photo could not be decoded.");
   }
 
+  if (decoded.width * decoded.height > MAX_INPUT_PIXELS) {
+    throw new HeicTranscodeError("This photo is too large to process.");
+  }
+
   // libheif applies the container's own rotation/mirror properties (irot,
   // imir) while decoding, so these raw pixels are already upright and the
-  // PNG below needs no EXIF orientation tag -- which matters, because sharp
-  // writes no metadata into this output at all.
-  let png: Buffer<ArrayBuffer>;
+  // JPEG below needs no EXIF orientation tag -- which matters, because
+  // sharp writes no metadata into this output at all.
+  let jpeg: Buffer<ArrayBuffer>;
   try {
-    png = await sharp(Buffer.from(decoded.data), {
+    jpeg = await sharp(Buffer.from(decoded.data), {
       raw: { width: decoded.width, height: decoded.height, channels: 4 },
       limitInputPixels: MAX_INPUT_PIXELS,
     })
-      .png()
+      .jpeg({ quality: 90 })
       .toBuffer();
   } catch {
     throw new HeicTranscodeError("This HEIC photo could not be converted.");
   }
 
-  if (png.byteLength > MAX_UPLOAD_BYTES) {
+  if (jpeg.byteLength > MAX_UPLOAD_BYTES) {
     throw new HeicTranscodeError(
-      "This photo is too large once converted. Please export it as a JPEG or PNG first.",
+      "This photo is too large once converted. Please export it as a JPEG first.",
     );
   }
-  return png;
+  return jpeg;
 }

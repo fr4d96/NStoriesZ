@@ -14,7 +14,7 @@ import {
   sniffUploadMimeType,
   type AllowedImageMimeType,
 } from "@/lib/story/image-validation";
-import { HeicTranscodeError, transcodeHeicToPng } from "@/lib/story/heic";
+import { HeicTranscodeError, transcodeHeicToJpeg } from "@/lib/story/heic";
 import { getErrorMessage } from "@/lib/errors";
 
 // Node runtime (not Edge): sharp-based processing later in this same
@@ -31,7 +31,7 @@ export const runtime = "nodejs";
  *
  * Sequence: authenticate -> reject an oversized Content-Length early ->
  * buffer the body (still bounded by MAX_UPLOAD_BYTES) -> sniff real magic
- * bytes (never trust a client Content-Type) -> transcode HEIC to PNG if
+ * bytes (never trust a client Content-Type) -> transcode HEIC to JPEG if
  * that is what arrived (lib/story/heic.ts) -> begin_story_media_upload
  * (reserves a slot + path) -> upload via the REGULAR server client (RLS-
  * enforced, never the admin client) to the reserved path ->
@@ -115,7 +115,7 @@ export async function POST(
     );
   }
 
-  // An iPhone's HEIC is normalized to PNG here, at the boundary, before
+  // An iPhone's HEIC is normalized to JPEG here, at the boundary, before
   // any path is reserved or any row written -- so everything below this
   // point (storage buckets, DB functions, the processing pipeline) still
   // only ever sees the three stored formats. See lib/story/heic.ts.
@@ -123,7 +123,7 @@ export async function POST(
   let uploadMimeType: AllowedImageMimeType;
   if (sniffed === "image/heic") {
     try {
-      uploadBytes = await transcodeHeicToPng(bytes);
+      uploadBytes = await transcodeHeicToJpeg(bytes);
     } catch (error) {
       if (error instanceof HeicTranscodeError) {
         return NextResponse.json({ error: error.message }, { status: 400 });
@@ -133,7 +133,7 @@ export async function POST(
         { status: 500 },
       );
     }
-    uploadMimeType = "image/png";
+    uploadMimeType = "image/jpeg";
   } else {
     uploadMimeType = sniffed;
   }

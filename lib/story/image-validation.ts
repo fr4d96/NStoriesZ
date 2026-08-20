@@ -22,7 +22,7 @@ export const MAX_PROCESSED_DIMENSION = 2000; // long-edge cap for the processed 
  * The only formats that are ever *stored* — in either bucket, in
  * story_media.source_mime_type/processed_mime_type, or in the buckets'
  * own allowed_mime_types lists. HEIC is deliberately NOT one of them: it
- * is normalized to PNG at the upload trust boundary (see
+ * is normalized to JPEG at the upload trust boundary (see
  * lib/story/heic.ts and the upload route), so nothing downstream of that
  * boundary — storage, RLS, the DB functions, the processing pipeline —
  * has to learn a fourth format.
@@ -31,7 +31,7 @@ export type AllowedImageMimeType = "image/jpeg" | "image/png" | "image/webp";
 
 /**
  * What an *upload* may arrive as. HEIC (the iPhone camera default since
- * iOS 11) is accepted here and only here; it is transcoded to PNG before
+ * iOS 11) is accepted here and only here; it is transcoded to JPEG before
  * anything is reserved, stored, or recorded.
  */
 export type AcceptedUploadMimeType = AllowedImageMimeType | "image/heic";
@@ -140,7 +140,7 @@ export function sniffImageMimeType(
 
 /**
  * The upload boundary's sniffer: the three stored formats, plus HEIC, which
- * the caller must transcode to PNG (lib/story/heic.ts) before reserving a
+ * the caller must transcode to JPEG (lib/story/heic.ts) before reserving a
  * path or recording anything. As above, a signature match is not a proof of
  * decodability — it only decides which decode path to attempt.
  */
