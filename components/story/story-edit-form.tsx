@@ -467,20 +467,6 @@ export function StoryEditForm({
     saveTags(next);
   }
 
-  function addLocation() {
-    if (regions.length === 0) return;
-    const next = [
-      ...locations,
-      {
-        regionId: regions[0].id,
-        destinationId: null,
-        sortOrder: locations.length,
-      },
-    ];
-    setLocations(next);
-    saveLocations(next);
-  }
-
   function updateLocation(
     index: number,
     patch: Partial<(typeof locations)[number]>,
@@ -517,9 +503,6 @@ export function StoryEditForm({
     });
   }
 
-  const destinationsForRegion = (regionId: string) =>
-    destinations.filter((d) => d.regionId === regionId);
-
   function handleLocationMatch(match: LocationMatch | null, label: string) {
     if (!match) {
       setLocationSearchNotice(
@@ -527,6 +510,14 @@ export function StoryEditForm({
           ? `No matching region found for "${label}" — pick manually below.`
           : "No matching region found — pick manually below.",
       );
+      return;
+    }
+    const isDuplicate = locations.some(
+      (l) =>
+        l.regionId === match.regionId && l.destinationId === match.destinationId,
+    );
+    if (isDuplicate) {
+      setLocationSearchNotice(`"${label}" is already in the list below.`);
       return;
     }
     setLocationSearchNotice(null);
@@ -844,20 +835,6 @@ export function StoryEditForm({
                     </option>
                   ))}
                 </select>
-                <select
-                  value={loc.destinationId ?? ""}
-                  onChange={(e) =>
-                    updateLocation(i, { destinationId: e.target.value || null })
-                  }
-                  className="rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
-                >
-                  <option value="">Whole region</option>
-                  {destinationsForRegion(loc.regionId).map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
                 <button
                   type="button"
                   onClick={() => removeLocation(i)}
@@ -867,13 +844,6 @@ export function StoryEditForm({
                 </button>
               </div>
             ))}
-            <button
-              type="button"
-              onClick={addLocation}
-              className="text-sm underline underline-offset-2"
-            >
-              Add a location
-            </button>
           </div>
         </fieldset>
 

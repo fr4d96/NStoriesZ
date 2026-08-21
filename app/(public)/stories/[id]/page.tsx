@@ -207,14 +207,16 @@ export default async function StoryDetailPage({
 
       {(regions.length > 0 || stringList(story.tags).length > 0) && (
         <div className="mt-4 flex flex-wrap gap-1.5">
-          {[...regions, ...stringList(story.tags)].map((label) => (
-            <span
-              key={label}
-              className="rounded-full bg-tag-background px-2 py-0.5 text-xs text-tag-foreground"
-            >
-              {label}
-            </span>
-          ))}
+          {Array.from(new Set([...regions, ...stringList(story.tags)])).map(
+            (label) => (
+              <span
+                key={label}
+                className="rounded-full bg-tag-background px-2 py-0.5 text-xs text-tag-foreground"
+              >
+                {label}
+              </span>
+            ),
+          )}
         </div>
       )}
 

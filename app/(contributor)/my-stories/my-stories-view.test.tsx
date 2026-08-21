@@ -1,7 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MyStoriesView } from "./my-stories-view";
+import { mintPreviewUrlAction } from "@/app/(contributor)/stories/[id]/media-actions";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
 
 // The thumbnail mints a short-lived signed preview URL through a Server
@@ -84,6 +85,47 @@ describe("MyStoriesView", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("reuses the cached preview URL when switching between grid and list view, instead of re-minting it", async () => {
+    // A mediaId not used by any other test in this file, and a cleared
+    // call count -- the module-level preview URL cache in
+    // story-cover-thumbnail.tsx is process-wide, so both must be isolated
+    // from whatever earlier tests already minted/cached.
+    vi.mocked(mintPreviewUrlAction).mockClear();
+    const user = userEvent.setup();
+    render(
+      <MyStoriesView
+        stories={[
+          makeStory({ coverMediaId: "99999999-9999-4999-8999-999999999999" }),
+        ]}
+      />,
+    );
+
+    // List view passes no alt text (the title link alongside carries it
+    // instead), which gives the resolved <img> an empty accessible name --
+    // match on the mocked resolved URL instead of alt text or role.
+    const findThumbnail = () =>
+      waitFor(() => {
+        const img = document.querySelector('img[src="blob:signed-preview"]');
+        expect(img).toBeTruthy();
+        return img as HTMLImageElement;
+      });
+
+    // Initial (list) render mints the URL once.
+    await findThumbnail();
+    expect(mintPreviewUrlAction).toHaveBeenCalledTimes(1);
+
+    // Switching to grid remounts the thumbnail in a new <ul> subtree; it
+    // should pick up the still-fresh cached URL rather than re-minting.
+    await user.click(screen.getByRole("button", { name: "Grid view" }));
+    await findThumbnail();
+    expect(mintPreviewUrlAction).toHaveBeenCalledTimes(1);
+
+    // And back to list -- still no additional mint.
+    await user.click(screen.getByRole("button", { name: "List view" }));
+    await findThumbnail();
+    expect(mintPreviewUrlAction).toHaveBeenCalledTimes(1);
   });
 
   it("shows a cover thumbnail beside each title in list view", () => {

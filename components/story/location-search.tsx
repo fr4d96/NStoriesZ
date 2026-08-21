@@ -156,7 +156,7 @@ export function LocationSearch({
   }
 
   function handleSelect(result: NominatimResult) {
-    const label = result.display_name.split(",")[0]?.trim() ?? query.trim();
+    const label = result.display_name.trim();
     setQuery(label);
     setOpen(false);
     const match = matchLocation(result.address, regions, destinations);
@@ -179,37 +179,42 @@ export function LocationSearch({
         className="w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
       />
       {open && results.length > 0 && (
-        <ul className="absolute z-10 mt-1 w-full rounded-md border border-border-subtle bg-surface text-sm shadow-lg">
-          {results.map((result) => (
-            <li key={result.place_id}>
-              <button
-                type="button"
-                onClick={() => handleSelect(result)}
-                className="block w-full px-3 py-2 text-left hover:bg-surface-muted"
-              >
-                {result.display_name}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="absolute z-10 mt-1 w-full rounded-md border border-border-subtle bg-surface text-sm shadow-lg">
+          <ul>
+            {results.map((result) => (
+              <li key={result.place_id}>
+                <button
+                  type="button"
+                  onClick={() => handleSelect(result)}
+                  className="block w-full truncate px-3 py-2 text-left hover:bg-surface-muted"
+                  title={result.display_name}
+                >
+                  {result.display_name}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {/* Attribution required by Nominatim's usage policy; scoped to when
+              OSM results are on screen rather than shown permanently. */}
+          <p className="border-t border-border-subtle px-3 py-1 text-[11px] text-muted-foreground/70">
+            Results by{" "}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+            >
+              OpenStreetMap
+            </a>{" "}
+            contributors
+          </p>
+        </div>
       )}
       {status === "error" && (
         <p className="mt-1 text-xs text-destructive">
           Place search failed — use the dropdowns below instead.
         </p>
       )}
-      <p className="mt-1 text-xs text-muted-foreground">
-        Search by{" "}
-        <a
-          href="https://www.openstreetmap.org/copyright"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2"
-        >
-          OpenStreetMap
-        </a>{" "}
-        contributors
-      </p>
     </div>
   );
 }
