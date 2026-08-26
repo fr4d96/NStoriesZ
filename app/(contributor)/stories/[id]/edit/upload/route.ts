@@ -136,7 +136,7 @@ export async function POST(
   // any path is reserved or any row written -- so everything below this
   // point (storage buckets, DB functions, the processing pipeline) still
   // only ever sees the three stored formats. See lib/story/heic.ts.
-  let uploadBytes = bytes;
+  let uploadBytes: Buffer = bytes;
   let uploadMimeType: AllowedImageMimeType;
   if (sniffed === "image/heic") {
     try {

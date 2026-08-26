@@ -4,16 +4,38 @@
 // mocked to a no-op here -- same convention as image-pipeline.test.ts.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import sharp from "sharp";
 
 vi.mock("server-only", () => ({}));
 
+// Wraps the REAL implementation by default (so every existing test below
+// still exercises actual compression, unchanged) — only overridden per-test
+// where the point is to observe how transcodeHeicToJpeg calls it or reacts
+// to what it returns. A real 15 MiB-exceeding HEIC isn't practical to
+// synthesize in a fast unit test (see encodeJpegUnderBudget's own test
+// suite in image-pipeline.test.ts for why: even 4000x3000 worst-case noise
+// only reaches ~8.3 MB at quality 90 with mozjpeg), so this is the only way
+// to exercise those paths at all.
+vi.mock("./jpeg-budget", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./jpeg-budget")>();
+  return {
+    ...actual,
+    encodeJpegUnderBudget: vi.fn(actual.encodeJpegUnderBudget),
+  };
+});
+
 const { HeicTranscodeError, transcodeHeicToJpeg } = await import("./heic");
+const { encodeJpegUnderBudget } = await import("./jpeg-budget");
+const { MAX_UPLOAD_BYTES } = await import("./image-validation");
 
 const heicFixture = readFileSync(
   path.join(__dirname, "__fixtures__", "sample.heic"),
 );
+
+beforeEach(() => {
+  vi.mocked(encodeJpegUnderBudget).mockClear();
+});
 
 describe("transcodeHeicToJpeg", () => {
   it("decodes a real HEIC file and returns a JPEG of the same dimensions", async () => {
@@ -66,5 +88,35 @@ describe("transcodeHeicToJpeg", () => {
     await expect(
       transcodeHeicToJpeg(heicFixture.subarray(0, 200)),
     ).rejects.toBeInstanceOf(HeicTranscodeError);
+  });
+
+  // Regression: a 48MP ProRAW/HEIC capture can exceed MAX_UPLOAD_BYTES once
+  // transcoded to JPEG (HEVC compresses better than JPEG at equal quality),
+  // rejecting an otherwise perfectly valid photo. This proves the transcode
+  // now asks for a step-down against the real upload ceiling instead of a
+  // single fixed quality.
+  it("budgets the transcode against MAX_UPLOAD_BYTES, not a fixed quality", async () => {
+    await transcodeHeicToJpeg(heicFixture);
+
+    expect(encodeJpegUnderBudget).toHaveBeenCalledTimes(1);
+    const [, qualitySteps, maxBytes] = vi.mocked(encodeJpegUnderBudget).mock
+      .calls[0];
+    expect(maxBytes).toBe(MAX_UPLOAD_BYTES);
+    // Descending steps, starting high (this JPEG is a private staging
+    // "original" the real pipeline re-compresses again, so fidelity is
+    // preferred whenever it fits).
+    expect([...qualitySteps]).toEqual([...qualitySteps].sort((a, b) => b - a));
+    expect(Math.max(...qualitySteps)).toBeGreaterThanOrEqual(85);
+  });
+
+  it("still rejects a photo that exceeds MAX_UPLOAD_BYTES at every quality step", async () => {
+    vi.mocked(encodeJpegUnderBudget).mockResolvedValueOnce({
+      data: Buffer.alloc(MAX_UPLOAD_BYTES + 1),
+      info: {} as never,
+    });
+
+    await expect(transcodeHeicToJpeg(heicFixture)).rejects.toThrow(
+      /too large once converted/,
+    );
   });
 });

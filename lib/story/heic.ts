@@ -1,9 +1,22 @@
 import "server-only";
 import sharp from "sharp";
+import { encodeJpegUnderBudget } from "@/lib/story/jpeg-budget";
 import {
   MAX_INPUT_PIXELS,
   MAX_UPLOAD_BYTES,
 } from "@/lib/story/image-validation";
+
+// This transcode's own quality ladder for encodeJpegUnderBudget
+// (lib/story/jpeg-budget.ts), budgeted against MAX_UPLOAD_BYTES rather than
+// the published derivative's smaller MAX_PROCESSED_BYTES. Starts higher
+// (90, unchanged from before this existed) because this JPEG is a private
+// staging "original" the real pipeline re-compresses again -- fidelity
+// matters more here than in the final published derivative, so quality
+// only drops if the top step doesn't fit. The one real trigger: a modern
+// iPhone's 48MP ProRAW/HEIC capture, where HEVC's efficiency advantage over
+// JPEG can outweigh mozjpeg's savings and still land above 15 MiB at
+// quality 90.
+const HEIC_JPEG_QUALITY_STEPS = [90, 82, 74, 66, 58] as const;
 
 /**
  * HEIC -> JPEG normalization, run at the upload trust boundary (the route
@@ -67,9 +80,7 @@ export class HeicTranscodeError extends Error {
  * compressed input is already bounded by MAX_UPLOAD_BYTES before it
  * reaches here.
  */
-export async function transcodeHeicToJpeg(
-  bytes: Buffer,
-): Promise<Buffer<ArrayBuffer>> {
+export async function transcodeHeicToJpeg(bytes: Buffer): Promise<Buffer> {
   // Imported lazily: heic-decode pulls in a ~6 MB libheif WASM build, and
   // the overwhelming majority of uploads are not HEIC. Nothing else in the
   // request path pays for it.
@@ -104,14 +115,18 @@ export async function transcodeHeicToJpeg(
     decoded.data.byteLength,
   );
 
-  let jpeg: Buffer<ArrayBuffer>;
+  let jpeg: Buffer;
   try {
-    jpeg = await sharp(rawPixels, {
+    const source = sharp(rawPixels, {
       raw: { width: decoded.width, height: decoded.height, channels: 4 },
       limitInputPixels: MAX_INPUT_PIXELS,
-    })
-      .jpeg({ quality: 90 })
-      .toBuffer();
+    });
+    const result = await encodeJpegUnderBudget(
+      source,
+      HEIC_JPEG_QUALITY_STEPS,
+      MAX_UPLOAD_BYTES,
+    );
+    jpeg = result.data;
   } catch {
     throw new HeicTranscodeError("This HEIC photo could not be converted.");
   }

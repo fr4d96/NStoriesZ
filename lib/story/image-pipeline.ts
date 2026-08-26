@@ -7,6 +7,7 @@ import {
   rawStorageDownload,
   rawStorageUpload,
 } from "@/lib/story/raw-storage-http";
+import { encodeJpegUnderBudget } from "@/lib/story/jpeg-budget";
 import {
   extensionForMimeType,
   MAX_INPUT_PIXELS,
@@ -39,6 +40,14 @@ import {
 const PRIVATE_BUCKET = "story-images-private";
 const PUBLIC_BUCKET = "story-images-public";
 const SIGNED_URL_EXPIRY_SECONDS = 120;
+
+// The published derivative's own quality ladder for encodeJpegUnderBudget
+// (lib/story/jpeg-budget.ts). 85 is unchanged from before that function
+// existed; the lower steps exist purely as a fallback for images that would
+// otherwise hit MAX_PROCESSED_BYTES and fail outright, not a general
+// quality reduction — see that module's doc comment for the full rationale
+// and the measured mozjpeg size reduction on a real photo.
+const JPEG_QUALITY_STEPS = [85, 75, 65, 55, 45] as const;
 
 function sha256Hex(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -194,23 +203,31 @@ export async function processStoryMedia(
     // call), so this re-encode is metadata-free.
     const processedMimeType: AllowedImageMimeType =
       sniffed === "image/png" ? "image/png" : "image/jpeg";
-    let pipeline = image.rotate().resize({
+    const resized = image.rotate().resize({
       width: MAX_PROCESSED_DIMENSION,
       height: MAX_PROCESSED_DIMENSION,
       fit: "inside",
       withoutEnlargement: true,
     });
-    pipeline =
-      processedMimeType === "image/png"
-        ? pipeline.png()
-        : pipeline.jpeg({ quality: 85 });
 
     let processedBuffer: Buffer;
     let processedInfo: OutputInfo;
     try {
-      const result = await pipeline.toBuffer({ resolveWithObject: true });
-      processedBuffer = result.data;
-      processedInfo = result.info;
+      if (processedMimeType === "image/png") {
+        const result = await resized.png().toBuffer({
+          resolveWithObject: true,
+        });
+        processedBuffer = result.data;
+        processedInfo = result.info;
+      } else {
+        const result = await encodeJpegUnderBudget(
+          resized,
+          JPEG_QUALITY_STEPS,
+          MAX_PROCESSED_BYTES,
+        );
+        processedBuffer = result.data;
+        processedInfo = result.info;
+      }
     } catch {
       await recordProcessingFailure(
         mediaId,

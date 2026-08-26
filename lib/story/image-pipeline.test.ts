@@ -122,6 +122,7 @@ vi.mock("@/lib/story/raw-storage-http", () => ({
 }));
 
 const { processStoryMedia } = await import("./image-pipeline");
+const { encodeJpegUnderBudget } = await import("./jpeg-budget");
 
 beforeEach(() => {
   objects.clear();
@@ -181,6 +182,11 @@ describe("processStoryMedia", () => {
     expect(staged).toBeDefined();
     const strippedMetadata = await sharp(staged!).metadata();
     expect(strippedMetadata.exif).toBeUndefined();
+
+    // WhatsApp-style compression is wired in for every JPEG derivative, not
+    // just an unreachable fallback path — progressive scan is the one
+    // property sharp exposes back in metadata to confirm this directly.
+    expect(strippedMetadata.isProgressive).toBe(true);
 
     // Content-addressed path convention.
     expect(stagedPath).toBe(
@@ -317,4 +323,62 @@ describe("processStoryMedia", () => {
   // source would have silently passed the check undetected. Fixed above;
   // a real-fixture regression test for the full rejection path is tracked
   // for Sub-phase 5, not skipped silently.
+});
+
+describe("encodeJpegUnderBudget", () => {
+  // Real photos, even worst-case synthetic noise at full resolution, never
+  // get remotely close to the real MAX_PROCESSED_BYTES (8 MiB) — see this
+  // function's own doc comment for the measured number — so the step-down
+  // behavior is exercised directly here, against a deliberately tiny budget,
+  // rather than indirectly through processStoryMedia where it can't
+  // actually be observed firing more than once.
+  async function noiseFrame(size: number) {
+    const raw = await import("node:crypto").then((c) =>
+      c.randomBytes(size * size * 3),
+    );
+    return sharp(raw, { raw: { width: size, height: size, channels: 3 } });
+  }
+
+  it("steps down quality until the output fits the budget", async () => {
+    const source = await noiseFrame(200);
+    const highQuality = await source
+      .clone()
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer();
+
+    // A budget between the smallest and largest step forces at least one
+    // step-down without requiring every step to be exhausted.
+    const budget = Math.round(highQuality.byteLength * 0.6);
+    const result = await encodeJpegUnderBudget(
+      source,
+      [85, 75, 65, 55, 45],
+      budget,
+    );
+
+    expect(result.data.byteLength).toBeLessThanOrEqual(budget);
+    expect(result.data.byteLength).toBeLessThan(highQuality.byteLength);
+  });
+
+  it("returns the smallest attempt when no step fits the budget", async () => {
+    const source = await noiseFrame(200);
+
+    const result = await encodeJpegUnderBudget(source, [85, 75, 65, 55, 45], 1);
+
+    // Still a valid, decodable JPEG — the caller's own MAX_PROCESSED_BYTES
+    // check is what turns "didn't fit" into a recorded failure, not this
+    // function silently producing garbage.
+    const metadata = await sharp(result.data).metadata();
+    expect(metadata.format).toBe("jpeg");
+    expect(result.data.byteLength).toBeGreaterThan(1);
+  });
+
+  it("applies progressive scan and mozjpeg at every step", async () => {
+    const source = await noiseFrame(64);
+
+    const result = await encodeJpegUnderBudget(source, [85, 75, 65, 55, 45], 1);
+
+    const metadata = await sharp(result.data).metadata();
+    expect(metadata.isProgressive).toBe(true);
+    expect(metadata.chromaSubsampling).toBe("4:2:0");
+  });
 });

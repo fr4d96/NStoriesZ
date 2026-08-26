@@ -39,6 +39,8 @@ const MAX_INPUT_PIXELS = 50_000_000;
 const MAX_PROCESSED_DIMENSION = 2000;
 const MAX_PROCESSED_BYTES = 8 * 1024 * 1024;
 const PRIVATE_BUCKET = "story-images-private";
+// Mirrors lib/story/image-pipeline.ts's JPEG_QUALITY_STEPS.
+const JPEG_QUALITY_STEPS = [85, 75, 65, 55, 45];
 
 const APPLY = process.argv.includes("--apply");
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -193,7 +195,7 @@ async function reprocess(media) {
   if (!meta.width || !meta.height) throw new Error("no dimensions");
 
   const processedMime = sniffed === "image/png" ? "image/png" : "image/jpeg";
-  let pipeline = sharp(original, { limitInputPixels: MAX_INPUT_PIXELS })
+  const resized = sharp(original, { limitInputPixels: MAX_INPUT_PIXELS })
     .rotate()
     .resize({
       width: MAX_PROCESSED_DIMENSION,
@@ -201,14 +203,26 @@ async function reprocess(media) {
       fit: "inside",
       withoutEnlargement: true,
     });
-  pipeline =
-    processedMime === "image/png"
-      ? pipeline.png()
-      : pipeline.jpeg({ quality: 85 });
 
-  const { data: processed, info } = await pipeline.toBuffer({
-    resolveWithObject: true,
-  });
+  let processed, info;
+  if (processedMime === "image/png") {
+    ({ data: processed, info } = await resized
+      .png()
+      .toBuffer({ resolveWithObject: true }));
+  } else {
+    for (const quality of JPEG_QUALITY_STEPS) {
+      ({ data: processed, info } = await resized
+        .clone()
+        .jpeg({
+          quality,
+          mozjpeg: true,
+          progressive: true,
+          chromaSubsampling: "4:2:0",
+        })
+        .toBuffer({ resolveWithObject: true }));
+      if (processed.byteLength <= MAX_PROCESSED_BYTES) break;
+    }
+  }
   if (processed.byteLength > MAX_PROCESSED_BYTES) {
     throw new Error("processed output exceeds the size limit");
   }
