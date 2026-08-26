@@ -79,6 +79,15 @@ vi.mock("@/lib/env.server", () => ({
 // copyStoryMediaToPublic (which still goes through fakeAdmin.storage.list()
 // for its "is it already there" check) keeps seeing consistent state.
 const downloadedPaths: string[] = [];
+const uploadedPaths: string[] = [];
+
+// Lets a test force the exact production failure that uploadAndVerify's
+// retry exists to survive: the next N writes land mangled. Reproduces the
+// real corruption signature byte-for-byte -- every byte >0x7F replaced by
+// the 3-byte UTF-8 replacement sequence (EF BF BD) -- which is what a
+// derivative re-downloaded from production storage with `curl` actually
+// contained (107,289 of them in a single 472,760-byte object).
+let corruptUploadsRemaining = 0;
 
 vi.mock("@/lib/story/raw-storage-http", () => ({
   rawStorageDownload: async (
@@ -99,6 +108,15 @@ vi.mock("@/lib/story/raw-storage-http", () => ({
     path: string,
     bytes: Buffer,
   ) => {
+    uploadedPaths.push(key(bucket, path));
+    if (corruptUploadsRemaining > 0) {
+      corruptUploadsRemaining--;
+      objects.set(
+        key(bucket, path),
+        Buffer.from(bytes.toString("utf8"), "utf8"),
+      );
+      return;
+    }
     objects.set(key(bucket, path), Buffer.from(bytes));
   },
 }));
@@ -111,6 +129,8 @@ beforeEach(() => {
   mediaRow = null;
   fakeAdmin.rpc.mockClear();
   downloadedPaths.length = 0;
+  uploadedPaths.length = 0;
+  corruptUploadsRemaining = 0;
 });
 
 async function jpegWithExif(): Promise<Buffer> {
@@ -201,6 +221,66 @@ describe("processStoryMedia", () => {
     expect(recorded!.args.p_source_mime_type).toBe("image/jpeg");
     expect(recorded!.args.p_source_width).toBe(40);
     expect(recorded!.args.p_source_height).toBe(20);
+  });
+
+  // Regression: ten consecutive derivative uploads were written corrupt in
+  // production on 2026-08-23, each permanently failing the media with no
+  // retry, which is why story images never loaded. See toTransportBuffer in
+  // lib/story/raw-storage-http.ts for the root cause, and uploadAndVerify
+  // here for why retrying a content-addressed path is safe.
+  it("retries a corrupted derivative upload until the stored bytes verify", async () => {
+    const source = await jpegWithExif();
+    mediaRow = {
+      story_id: "11111111-1111-4111-8111-111111111111",
+      private_storage_path: "story/media/original.jpg",
+      processing_state: "uploaded",
+    };
+    corruptUploadsRemaining = 1;
+
+    await processStoryMedia("media-retry", source);
+
+    const recorded = rpcCalls.find(
+      (c) => c.name === "record_processed_story_media",
+    );
+    expect(recorded).toBeDefined();
+    expect(
+      rpcCalls.some((c) => c.name === "record_story_media_processing_failed"),
+    ).toBe(false);
+
+    // The write was actually attempted twice, and what finally landed is
+    // the real derivative -- not the mangled first attempt.
+    const stagedPath = recorded!.args
+      .p_processed_private_storage_path as string;
+    expect(
+      uploadedPaths.filter((p) => p === key("story-images-private", stagedPath))
+        .length,
+    ).toBe(2);
+    const staged = objects.get(key("story-images-private", stagedPath))!;
+    expect(staged.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+    expect(staged.includes(Buffer.from([0xef, 0xbf, 0xbd]))).toBe(false);
+  });
+
+  it("gives up and records a failure when every upload attempt is corrupted", async () => {
+    const source = await jpegWithExif();
+    mediaRow = {
+      story_id: "11111111-1111-4111-8111-111111111111",
+      private_storage_path: "story/media/original.jpg",
+      processing_state: "uploaded",
+    };
+    corruptUploadsRemaining = Number.MAX_SAFE_INTEGER;
+
+    await expect(
+      processStoryMedia("media-always-corrupt", source),
+    ).rejects.toThrow(/Byte verification failed/);
+
+    const failed = rpcCalls.find(
+      (c) => c.name === "record_story_media_processing_failed",
+    );
+    expect(failed).toBeDefined();
+    expect(failed!.args.p_failure_reason).toMatch(/after 3 attempts/);
+    expect(
+      rpcCalls.some((c) => c.name === "record_processed_story_media"),
+    ).toBe(false);
   });
 
   it("records a processing failure for a non-image file", async () => {

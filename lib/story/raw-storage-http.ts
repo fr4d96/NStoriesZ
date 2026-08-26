@@ -41,6 +41,49 @@ function objectUrl(supabaseUrl: string, bucket: string, path: string): URL {
   );
 }
 
+/**
+ * Copies `bytes` into a plain, V8-owned Buffer before it is handed to the
+ * HTTP layer. This is the actual fix for the long-running upload-corruption
+ * bug that three previous attempts (Blob body, undici's fetch, then raw
+ * node:https) all failed to solve -- each of those swapped the HTTP *client*
+ * while leaving the thing that actually mattered untouched.
+ *
+ * Diagnosed against real production data (2026-08-26) by comparing the three
+ * call sites that share this exact function:
+ *   - route handler, original upload -- Buffer.from(await file.arrayBuffer())
+ *     -> V8-owned -> verified byte-perfect in storage
+ *   - copyStoryMediaToPublic        -- Buffer.concat(node:https chunks)
+ *     -> V8-owned -> verified byte-perfect in storage (same service-role
+ *        auth AND same x-upsert:true as the failing call, which rules out
+ *        auth and upsert as the variable)
+ *   - processStoryMedia, derivative -- sharp(...).toBuffer()
+ *     -> libvips-allocated external memory -> CORRUPTED
+ * A stored derivative was re-downloaded with plain `curl` and contained
+ * 107,289 EF BF BD sequences (every byte >0x7F replaced by the UTF-8
+ * replacement character); the original of the same upload, in the same
+ * request, was a flawless 5712x4284 iPhone JPEG. Uploading the same bytes
+ * to the same bucket from a workstation round-tripped perfectly under both
+ * upsert modes, so Supabase Storage itself is not the corrupting layer.
+ *
+ * sharp's toBuffer() returns a Buffer whose backing store is memory libvips
+ * allocated and handed to Node through N-API -- a JS `Buffer`, but not one
+ * backed by an ordinary V8 ArrayBuffer. Something in Vercel's runtime
+ * mishandles that when serialising an outbound request body, decoding it as
+ * UTF-8 and re-encoding it (Content-Length is recomputed to the expanded
+ * length, so the request is genuinely rebuilt rather than truncated).
+ *
+ * The copy is unconditional and cheap relative to what follows it: one
+ * memcpy of at most MAX_UPLOAD_BYTES against a network upload measured at
+ * ~8.3s for 5.4 MB. Applying it here rather than at the sharp call sites
+ * means every present and future caller is covered, whatever its buffer's
+ * provenance.
+ */
+function toTransportBuffer(bytes: Buffer): Buffer {
+  const copy = Buffer.allocUnsafe(bytes.byteLength);
+  bytes.copy(copy);
+  return copy;
+}
+
 export async function rawStorageUpload(
   supabaseUrl: string,
   auth: RawStorageAuth,
@@ -51,6 +94,7 @@ export async function rawStorageUpload(
   upsert: boolean,
 ): Promise<void> {
   const url = objectUrl(supabaseUrl, bucket, path);
+  const body = toTransportBuffer(bytes);
   await new Promise<void>((resolve, reject) => {
     const req = httpsRequest(
       url,
@@ -60,7 +104,7 @@ export async function rawStorageUpload(
           Authorization: `Bearer ${auth.bearerToken}`,
           apikey: auth.apikey,
           "Content-Type": contentType,
-          "Content-Length": bytes.byteLength,
+          "Content-Length": body.byteLength,
           "x-upsert": String(upsert),
         },
       },
@@ -82,7 +126,7 @@ export async function rawStorageUpload(
       },
     );
     req.on("error", reject);
-    req.write(bytes);
+    req.write(body);
     req.end();
   });
 }

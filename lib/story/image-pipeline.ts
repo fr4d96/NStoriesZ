@@ -233,16 +233,11 @@ export async function processStoryMedia(
     const ext = extensionForMimeType(processedMimeType);
     const stagingPath = `${media.story_id}/${mediaId}/processed-${hash}.${ext}`;
 
-    await uploadObject(
+    await uploadAndVerify(
       PRIVATE_BUCKET,
       stagingPath,
       processedBuffer,
       processedMimeType,
-    );
-    await verifyUploadedBytes(
-      PRIVATE_BUCKET,
-      stagingPath,
-      processedBuffer,
       hash,
     );
 
@@ -313,6 +308,54 @@ async function verifyUploadedBytes(
 }
 
 /**
+ * Uploads and then proves the stored bytes are correct, retrying the pair if
+ * verification fails.
+ *
+ * The corruption this guards against (see toTransportBuffer in
+ * lib/story/raw-storage-http.ts for the full diagnosis) was *intermittent* in
+ * production: ten consecutive derivative uploads on 2026-08-23 were all
+ * written mangled, while a batch three days earlier went through clean. The
+ * transport-buffer copy addresses the mechanism we identified, but a single
+ * corrupted write currently marks the media `failed` permanently, with no
+ * retry and no way for a contributor to recover except re-uploading the
+ * photo -- so a defence that only works if the diagnosis is complete is not
+ * enough on its own.
+ *
+ * Retrying is safe precisely because the target path is content-addressed:
+ * every attempt writes the same bytes to the same key with upsert, so a
+ * retry either overwrites corrupt content with verified-correct content or
+ * rewrites identical content. A path can never end up holding two different
+ * byte sequences that were both accepted as correct.
+ */
+const UPLOAD_VERIFY_ATTEMPTS = 3;
+
+async function uploadAndVerify(
+  bucket: string,
+  path: string,
+  bytes: Buffer,
+  contentType: string,
+  expectedHash: string,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= UPLOAD_VERIFY_ATTEMPTS; attempt++) {
+    try {
+      await uploadObject(bucket, path, bytes, contentType);
+      await verifyUploadedBytes(bucket, path, bytes, expectedHash);
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error
+    ? new Error(
+        `${lastError.message} (after ${UPLOAD_VERIFY_ATTEMPTS} attempts)`,
+      )
+    : new Error(
+        `Upload verification failed for ${bucket}/${path} after ${UPLOAD_VERIFY_ATTEMPTS} attempts`,
+      );
+}
+
+/**
  * Copies an already-processed media item's derivative into the public
  * bucket for one specific publication attempt, verifies the copy, and
  * records the result. Idempotent: retrying after a prior failure re-derives
@@ -376,13 +419,13 @@ export async function copyStoryMediaToPublic(
       PRIVATE_BUCKET,
       media.processed_private_storage_path,
     );
-    await uploadObject(
+    await uploadAndVerify(
       PUBLIC_BUCKET,
       publicPath,
       bytes,
       media.processed_mime_type,
+      expectedHash,
     );
-    await verifyUploadedBytes(PUBLIC_BUCKET, publicPath, bytes, expectedHash);
 
     const { error: verifiedError } = await admin.rpc(
       "record_story_media_copy_verified",
