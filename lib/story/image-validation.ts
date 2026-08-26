@@ -19,6 +19,60 @@ export const MAX_INPUT_PIXELS = 50_000_000; // ~50 megapixels — decompression-
 export const MAX_PROCESSED_DIMENSION = 2000; // long-edge cap for the processed derivative
 
 /**
+ * Raw HEIC input ceiling — higher than MAX_UPLOAD_BYTES on purpose. A real
+ * 48-megapixel iPhone HEIC of a detail-dense scene (measured against a
+ * genuine complaint: a forest/waterfall photo, exactly the kind of
+ * high-frequency content that compresses worst) can land well above 15 MiB
+ * while HEVC is still doing its job — that is not a decompression bomb, it
+ * is HEIC being a much more efficient codec than the JPEG it gets
+ * normalized to (lib/story/heic.ts). Raising this specific ceiling is safe
+ * because nothing downstream gets more permissive as a result:
+ *   - Decode memory is bounded by MAX_INPUT_PIXELS (pixel count), not
+ *     compressed byte size — a HEIC's raw decoded RGBA buffer costs the
+ *     same whether the source file was 8 MB or 25 MB.
+ *   - The transcoded JPEG this produces is still budgeted against the
+ *     ORIGINAL MAX_UPLOAD_BYTES (matching the storage buckets' own
+ *     15 MiB file_size_limit,
+ *     supabase/migrations/20260804090700_story_media_storage_buckets.sql)
+ *     via encodeJpegUnderBudget's quality step-down — this constant only
+ *     controls what we are willing to ACCEPT and attempt to compress, not
+ *     what can ever be written to storage.
+ * JPEG/PNG/WebP keep the smaller MAX_UPLOAD_BYTES ceiling: they have no
+ * equivalent step-down-after-the-fact story (a JPEG input this large is
+ * already the final format) and no reason to accept a bigger buffer.
+ */
+export const MAX_HEIC_UPLOAD_BYTES = 30 * 1024 * 1024; // 30 MiB
+
+/**
+ * Whether a file's client-reported type/name suggests HEIC, WITHOUT
+ * decoding anything. Deliberately unverified — real magic-byte sniffing
+ * only happens after the file is fully buffered
+ * (sniffUploadMimeType/sniffImageMimeType) — this only decides which raw
+ * SIZE ceiling to apply before that buffering happens, not what format is
+ * ultimately trusted.
+ *
+ * Several browsers (notably Safari on iOS) report an empty `File.type` for
+ * .heic/.heif files picked from the system Photos library, so the
+ * extension is checked as a fallback the same way isAcceptedFile in
+ * components/story/image-upload-manager.tsx already did before this was
+ * extracted — this is that same check, now shared with the server so the
+ * two can never drift onto different size ceilings for the same upload.
+ *
+ * Safe to get "wrong": a non-HEIC file that spoofs its way past the larger
+ * ceiling still fails the real magic-byte sniff moments later, or fails
+ * the storage bucket's own file_size_limit if it somehow got that far —
+ * both are independent enforcement layers this heuristic cannot weaken.
+ * The only cost of a false positive is buffering up to MAX_HEIC_UPLOAD_BYTES
+ * instead of MAX_UPLOAD_BYTES before that rejection, on an endpoint that
+ * already requires an authenticated contributor with edit rights on the
+ * revision — never anonymous.
+ */
+export function looksLikeHeicUpload(type: string, name: string): boolean {
+  if (type === "image/heic" || type === "image/heif") return true;
+  return /\.(heic|heif)$/i.test(name);
+}
+
+/**
  * The only formats that are ever *stored* — in either bucket, in
  * story_media.source_mime_type/processed_mime_type, or in the buckets'
  * own allowed_mime_types lists. HEIC is deliberately NOT one of them: it

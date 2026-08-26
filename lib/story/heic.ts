@@ -77,8 +77,8 @@ export class HeicTranscodeError extends Error {
  * expensive) JPEG re-encode, just not ahead of the HEIC decode itself. That
  * is an acceptable narrowing: this endpoint requires an authenticated
  * contributor with edit rights on the revision (never anonymous), and the
- * compressed input is already bounded by MAX_UPLOAD_BYTES before it
- * reaches here.
+ * compressed input is already bounded by MAX_HEIC_UPLOAD_BYTES (see
+ * lib/story/image-validation.ts) before it reaches here.
  */
 export async function transcodeHeicToJpeg(bytes: Buffer): Promise<Buffer> {
   // Imported lazily: heic-decode pulls in a ~6 MB libheif WASM build, and

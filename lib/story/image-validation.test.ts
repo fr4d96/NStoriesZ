@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   extensionForMimeType,
+  looksLikeHeicUpload,
+  MAX_HEIC_UPLOAD_BYTES,
   MAX_IMAGES_PER_REVISION,
+  MAX_UPLOAD_BYTES,
   sniffImageMimeType,
   sniffUploadMimeType,
   UPLOAD_ACCEPT_ATTRIBUTE,
@@ -113,5 +116,45 @@ describe("extensionForMimeType", () => {
 describe("MAX_IMAGES_PER_REVISION", () => {
   it("matches the DB-enforced limit (12) documented in CLAUDE.md", () => {
     expect(MAX_IMAGES_PER_REVISION).toBe(12);
+  });
+});
+
+describe("looksLikeHeicUpload", () => {
+  it("matches by MIME type", () => {
+    expect(looksLikeHeicUpload("image/heic", "photo.dat")).toBe(true);
+    expect(looksLikeHeicUpload("image/heif", "photo.dat")).toBe(true);
+  });
+
+  // Real-world regression: Safari on iOS reports an empty File.type for
+  // .heic/.heif files picked from the system Photos library.
+  it("falls back to the file extension when File.type is empty", () => {
+    expect(looksLikeHeicUpload("", "IMG_5785.HEIC")).toBe(true);
+    expect(looksLikeHeicUpload("", "IMG_5785.heif")).toBe(true);
+  });
+
+  it("does not match ordinary image types", () => {
+    expect(looksLikeHeicUpload("image/jpeg", "photo.jpg")).toBe(false);
+    expect(looksLikeHeicUpload("image/png", "photo.png")).toBe(false);
+    expect(looksLikeHeicUpload("image/webp", "photo.webp")).toBe(false);
+  });
+
+  // A file that merely claims to be HEIC (wrong type AND wrong extension)
+  // is not this function's problem to catch — it only picks a size
+  // ceiling; sniffUploadMimeType on the real bytes is what actually
+  // decides trust, downstream of this check.
+  it("does not match a file with neither a HEIC type nor extension", () => {
+    expect(looksLikeHeicUpload("application/octet-stream", "photo.dat")).toBe(
+      false,
+    );
+  });
+});
+
+describe("MAX_HEIC_UPLOAD_BYTES", () => {
+  // The whole point of this constant: HEIC gets more room than
+  // JPEG/PNG/WebP because it has to survive a re-encode into a less
+  // efficient format afterward (lib/story/heic.ts) — see this file's own
+  // doc comment for why raising it doesn't loosen anything downstream.
+  it("is larger than the general upload ceiling", () => {
+    expect(MAX_HEIC_UPLOAD_BYTES).toBeGreaterThan(MAX_UPLOAD_BYTES);
   });
 });

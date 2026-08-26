@@ -10,6 +10,8 @@ import {
 } from "@/lib/story/mutations";
 import { processStoryMedia } from "@/lib/story/image-pipeline";
 import {
+  looksLikeHeicUpload,
+  MAX_HEIC_UPLOAD_BYTES,
   MAX_UPLOAD_BYTES,
   sniffUploadMimeType,
   type AllowedImageMimeType,
@@ -76,12 +78,21 @@ export async function POST(
 
   const { id: storyId } = await params;
 
+  // Coarse pre-filter only: Content-Length is the whole multipart body, not
+  // just the file part, and says nothing about the file's format — the real,
+  // per-format ceiling is enforced below once `file` (with its type/name)
+  // is available. Checked against the larger of the two ceilings so a
+  // legitimately large HEIC is never rejected here before it gets the
+  // chance to be recognized as HEIC.
   const contentLengthHeader = request.headers.get("content-length");
   if (contentLengthHeader) {
     const contentLength = Number(contentLengthHeader);
-    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_BYTES) {
+    if (
+      Number.isFinite(contentLength) &&
+      contentLength > MAX_HEIC_UPLOAD_BYTES
+    ) {
       return NextResponse.json(
-        { error: "File is too large (max 15 MB)." },
+        { error: "File is too large." },
         { status: 413 },
       );
     }
@@ -116,9 +127,18 @@ export async function POST(
     );
   }
 
-  if (file.size > MAX_UPLOAD_BYTES) {
+  // Branches on unverified client-reported type/name, not the real
+  // magic-byte sniff (which needs the bytes buffered first, right below) —
+  // see looksLikeHeicUpload's own doc comment for why that's safe here:
+  // this only selects which SIZE ceiling to apply, never what format gets
+  // trusted downstream.
+  const isHeicSized = looksLikeHeicUpload(file.type, file.name);
+  const sizeLimit = isHeicSized ? MAX_HEIC_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
+  if (file.size > sizeLimit) {
     return NextResponse.json(
-      { error: "File is too large (max 15 MB)." },
+      {
+        error: `File is too large (max ${Math.floor(sizeLimit / (1024 * 1024))} MB).`,
+      },
       { status: 413 },
     );
   }

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { RevisionMediaItem } from "@/lib/story/contributor-queries";
 import type { MutationQueue } from "@/lib/story/mutation-queue";
 import {
+  looksLikeHeicUpload,
+  MAX_HEIC_UPLOAD_BYTES,
   MAX_IMAGES_PER_REVISION,
   MAX_UPLOAD_BYTES,
   UPLOAD_ACCEPT_ATTRIBUTE,
@@ -28,13 +30,10 @@ const BROWSER_RENDERABLE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /**
  * Client-side pre-check only (the server re-sniffs the real magic bytes).
- * HEIC is matched by extension as well as MIME type because several
- * browsers report an empty File.type for .heic/.heif files.
  */
 function isAcceptedFile(file: File): boolean {
   if (BROWSER_RENDERABLE_TYPES.includes(file.type)) return true;
-  if (file.type === "image/heic" || file.type === "image/heif") return true;
-  return /\.(heic|heif)$/i.test(file.name);
+  return looksLikeHeicUpload(file.type, file.name);
 }
 
 /**
@@ -241,14 +240,17 @@ export function ImageUploadManager({
         ]);
         continue;
       }
-      if (file.size > MAX_UPLOAD_BYTES) {
+      const sizeLimit = looksLikeHeicUpload(file.type, file.name)
+        ? MAX_HEIC_UPLOAD_BYTES
+        : MAX_UPLOAD_BYTES;
+      if (file.size > sizeLimit) {
         setUploading((prev) => [
           ...prev,
           {
             key,
             fileName: file.name,
             progress: "error",
-            error: "File is too large (max 15 MB).",
+            error: `File is too large (max ${Math.floor(sizeLimit / (1024 * 1024))} MB).`,
             previewUrl,
           },
         ]);
