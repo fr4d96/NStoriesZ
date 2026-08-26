@@ -90,9 +90,23 @@ export async function transcodeHeicToJpeg(
   // imir) while decoding, so these raw pixels are already upright and the
   // JPEG below needs no EXIF orientation tag -- which matters, because
   // sharp writes no metadata into this output at all.
+  // Buffer.from(TypedArray) COPIES; Buffer.from(arrayBuffer, offset, length)
+  // is a zero-copy view over the same memory. That distinction matters here:
+  // a 5712x4284 iPhone photo decodes to 24.5M RGBA pixels, so the copy alone
+  // was ~98 MB of additional peak resident memory, on top of the ~98 MB
+  // libheif already allocated inside the WASM heap and the ~98 MB libvips
+  // takes when it ingests these raw pixels. Nothing mutates `decoded.data`
+  // after this point, so the view is safe, and it removes an entire
+  // full-frame allocation from the worst moment of the request.
+  const rawPixels = Buffer.from(
+    decoded.data.buffer,
+    decoded.data.byteOffset,
+    decoded.data.byteLength,
+  );
+
   let jpeg: Buffer<ArrayBuffer>;
   try {
-    jpeg = await sharp(Buffer.from(decoded.data), {
+    jpeg = await sharp(rawPixels, {
       raw: { width: decoded.width, height: decoded.height, channels: 4 },
       limitInputPixels: MAX_INPUT_PIXELS,
     })

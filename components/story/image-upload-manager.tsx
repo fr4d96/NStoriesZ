@@ -37,6 +37,50 @@ function isAcceptedFile(file: File): boolean {
   return /\.(heic|heif)$/i.test(file.name);
 }
 
+/**
+ * Reads the upload route's reply without assuming it is JSON.
+ *
+ * The route always answers with JSON, but the things that go wrong *around*
+ * it do not: a crashed or out-of-memory function, a platform timeout, or a
+ * body-size rejection all come back as Vercel's own HTML error page. Calling
+ * `response.json()` on those throws, and the thrown parser error replaced the
+ * real failure in the UI -- on an iPhone that surfaced as WebKit's
+ * "The string did not match the expected pattern.", which tells a contributor
+ * nothing and told us nothing either while diagnosing HEIC uploads.
+ *
+ * So: read the body as text, parse it only if it actually parses, and
+ * otherwise translate the HTTP status into something a contributor can act
+ * on. The status code is kept in the message because these failures are
+ * server-side and otherwise leave no trace a contributor can report.
+ */
+async function readUploadResponse(
+  response: Response,
+): Promise<{ mediaId?: string; error?: string }> {
+  const raw = await response.text().catch(() => "");
+  if (raw) {
+    try {
+      return JSON.parse(raw) as { mediaId?: string; error?: string };
+    } catch {
+      // Not JSON — fall through to a status-derived message below.
+    }
+  }
+  if (response.ok) {
+    return { error: "The server sent an unreadable response." };
+  }
+  if (response.status === 413) {
+    return { error: "That photo is too large to upload (max 15 MB)." };
+  }
+  if (response.status === 504 || response.status === 408) {
+    return {
+      error:
+        "The server timed out processing that photo. Large iPhone photos can take a while — try again, or export it as a JPEG first.",
+    };
+  }
+  return {
+    error: `The server failed while processing that photo (error ${response.status}). Try again, or export it as a JPEG first.`,
+  };
+}
+
 type UploadingItem = {
   key: string;
   fileName: string;
@@ -231,10 +275,7 @@ export function ImageUploadManager({
           method: "POST",
           body: formData,
         });
-        const body = (await response.json()) as {
-          mediaId?: string;
-          error?: string;
-        };
+        const body = await readUploadResponse(response);
         if (!response.ok || !body.mediaId) {
           throw new Error(body.error ?? "Upload failed.");
         }
