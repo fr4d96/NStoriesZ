@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
-import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
+import {
+  getCurrentUserAvatarEmoji,
+  getCurrentUserRole,
+} from "@/lib/auth/roles";
 
 /**
  * Rendered only inside app/(readiness)/readiness/layout.tsx, after the real
@@ -10,7 +13,10 @@ import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
  * header renders.
  */
 export async function ReadinessNav() {
-  const avatarEmoji = await getCurrentUserAvatarEmoji();
+  const [avatarEmoji, role] = await Promise.all([
+    getCurrentUserAvatarEmoji(),
+    getCurrentUserRole(),
+  ]);
 
   return (
     <header className="border-b border-border-subtle">
@@ -33,7 +39,7 @@ export async function ReadinessNav() {
               Moderation
             </Link>
           </nav>
-          <UserAvatarMenu emoji={avatarEmoji} />
+          <UserAvatarMenu emoji={avatarEmoji} role={role} />
         </div>
       </div>
     </header>

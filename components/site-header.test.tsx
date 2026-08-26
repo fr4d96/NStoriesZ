@@ -48,7 +48,14 @@ vi.mock("@/lib/supabase/client", () => ({
     },
     from: () => ({
       select: () => ({
-        eq: () => ({ single: () => Promise.resolve({ data: null }) }),
+        // The header reads two of its OWN rows: profiles.avatar_emoji via
+        // single(), user_roles.role via maybeSingle() (an account with no
+        // role row is an ordinary contributor, not an error). Both resolve
+        // empty here -- these tests are about the nav, not the avatar.
+        eq: () => ({
+          single: () => Promise.resolve({ data: null }),
+          maybeSingle: () => Promise.resolve({ data: null }),
+        }),
       }),
     }),
   }),

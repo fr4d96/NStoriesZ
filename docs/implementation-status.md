@@ -3,9 +3,282 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-20 (the REAL cause of every image upload failing on Vercel, found via the
-user's actual Function logs — see the entry immediately below; the timeout entry beneath it was a
-real, separate, worthwhile fix, but not what was actually breaking every upload).
+Last updated: 2026-08-24 (admin tooling Phase 2: the /admin dashboard, and the post-login
+redirect that sends admins to it).
+
+**2026-08-24 — Admin tooling Phase 2: /admin is a real dashboard, and admins now land on it.**
+
+- **What this closes:** signing in as an admin landed on `/moderation`, and `/admin` itself served
+  `{"ok":true,"role":...,"message":"Admin tooling is not built yet."}` from a placeholder Route
+  Handler. Both were deliberate and documented, not bugs — `defaultPathForRole()` had no `"admin"`
+  case precisely because there was no admin dashboard to send anyone to. There is one now, so the
+  fallback is gone.
+- **No migration, no new database surface, no new grant.** Every figure comes from two RPCs that
+  already existed and were already gated: `get_operational_metrics()` (editor/moderator/admin,
+  since 20260806090000) and `list_user_accounts()` (admin only, Phase 1). Nothing on this page is
+  something an admin could not already read via /moderation, /readiness or /admin/users. Same
+  precedent as the 2026-08-22 /moderation rebuild.
+- **Files:** `app/(admin)/admin/page.tsx` (new; `app/(admin)/admin/route.ts` DELETED — a page and a
+  Route Handler cannot share a segment), `lib/admin/dashboard-analytics.ts` (pure, I/O-free
+  derivations) with `dashboard-analytics.test.ts` (18 tests), plus the `case "admin": return
+"/admin"` fix and doc-comment rewrite in `lib/auth/post-login-redirect.ts` and an "Overview"
+  entry in `admin-nav.tsx` (Phase 1 had deliberately omitted it, since it would have linked to raw
+  JSON).
+- **Charts are the /moderation primitives, reused not reimplemented.** `AgeStackedBar` was
+  generalised: its prop type is now the structural `StackedBarSegment` rather than
+  `QueueAgeBucket`, and its spoken label is overridable via `describeTotal`/`emptyLabel`, both
+  defaulting to exactly the wording /moderation already had. Still Server Components, plain
+  HTML+CSS, no charting dependency and no client JS.
+- **Role counts come from `total_count`, not from paging.** `list_user_accounts()` returns
+  `count(*) over ()`, so `p_limit: 1` plus a role filter reads that role's genuine total — the
+  trick `countAdmins()` already used. Five parallel calls (four filtered + one unfiltered).
+  Because the function LEFT JOINs `user_roles`, the unfiltered total is NOT the sum of the four,
+  so "No role assigned" is rendered as its own labelled slice rather than folded into
+  "Contributor"; it is clamped at zero so a torn read across the five queries cannot draw a
+  negative bar.
+- **Two independent failure flags, not one.** The admin-only accounts RPC and the staff-wide
+  metrics RPC are read through `Promise.allSettled`, so one failing degrades its own panels to an
+  explicit "could not read" rather than blanking the whole dashboard.
+- **No email addresses on this page, by decision.** Phase 1 established that an admin may read an
+  address; an overview does not need one to be useful, so "Recently joined" shows display name (or
+  a short id) plus role, and links to the detail page where the address already lives.
+- **Honest limit disclosed in the UI**, not hidden: `draft_imports_count` counts
+  `source_kind = 'editorial_import'` only, so a never-submitted self-submitted draft appears in no
+  pipeline stage. The panel says so. Adding a count for those would need a migration, which is out
+  of scope for this phase.
+- **One real chart bug found while verifying, and fixed in the primitive:** `BarList` floored every
+  bar at 2% width, so a count of zero drew a visible sliver. It never showed on /moderation, whose
+  slices filter zeros out; /admin deliberately KEEPS zero rows (a "0 stories missing consent" row is
+  the reassuring reading of that panel), which is what exposed it. Zero now draws no bar at all.
+- **Verified live** on the hosted dev project against the running dev server, per role, by
+  attaching a real Supabase session cookie for each `.env.test.local` fixture:
+  - `/admin` and `/admin/users`: **404** flat JSON for signed-out, ordinary user, editor AND
+    moderator — identical body in every case. The same runs returned `/editorial` **200** for the
+    editor and `/moderation` **200** for the moderator, which is what proves those sessions were
+    genuinely authenticated and the 404 is a role rejection rather than a signed-out artifact.
+  - admin: `/admin` **200**, rendering real data (19 accounts, 3 admins, 6 published, 15 in
+    flight).
+  - signing in as the admin fixture landed on **/admin**, title "Admin | Kakinotes" — the redirect
+    fix, end to end.
+- **Mobile checked first** (Engineering Rule 18), at 390px and then 1280px: `scrollWidth` equals
+  the viewport, zero horizontal overflow, every panel legible. The five-entry admin nav wraps to a
+  second row rather than pushing the avatar off-screen.
+- **Note for whoever reads the git history:** the dev server's Turbopack cache was corrupted
+  mid-session (missing `.sst` files, panicking worker) by a `npm run build` running against the
+  same `.next/` as a live `next dev` — two sessions were sharing this working directory. Clearing
+  `.next/dev/cache/turbopack` and restarting fixed it; nothing in the app was at fault.
+- **Role-aware profile dropdown (added after first review).** `UserAvatarMenu` gains a `role` prop
+  and renders a labelled "Staff" group above the existing My Stories / New Story / Account / Sign
+  out items. `lib/auth/staff-menu.ts` holds the pure role -> links map with
+  `staff-menu.test.ts` (8 tests); its entries mirror proxy.ts's gates exactly, so the menu can
+  never offer a link that 404s for the role it was drawn for — an editor is never shown
+  /moderation, a moderator is never shown /editorial, and only an admin sees /admin.
+  **The role is presentation only and never an authorization input** (Engineering Rule 2):
+  proxy.ts, each route group's layout, and RLS all still re-derive it server-side.
+- **Where the role comes from differs by header, deliberately.** The five Server Component navs
+  (Contributor/Readiness/Moderation/Editorial/Admin) call `getCurrentUserRole()` alongside the
+  avatar read. `SiteHeader` is a Client Component that already reads its own
+  `profiles.avatar_emoji` in the browser, so it reads `user_roles.role` the same way, under the
+  existing `user_roles: read own role` policy — whose own migration comment says it exists "so the
+  app can render role-aware UI". `maybeSingle()`, not `single()`: an account with no role row is
+  an ordinary contributor, not an error.
+- **This closes a real gap:** a staff member browsing a PUBLIC or contributor page previously had
+  no route back to their dashboard except typing the URL.
+- **Not this phase:** the regions/destinations/work_types/tags taxonomy manager — Phase 3.
+- **On the "admin login doesn't go to /admin" report:** investigated and NOT reproducible against
+  this code. `kakiadmin@gmail.com` has exactly one `user_roles` row, `role = admin`, and driving
+  the app's own `/auth/callback` with a freshly minted magic link for that exact account returned
+  `307 -> http://localhost:3000/admin`. The email/password path was separately confirmed live for
+  the admin fixture. The report is explained by the environment: every commit of Phase 1 and Phase
+  2 is still uncommitted, so any deployed build still has the old `/moderation` fallback, and the
+  local dev server was serving a corrupted Turbopack cache until it was restarted mid-session.
+- `npm run verify` clean (494 tests, up from 468).
+
+**2026-08-23 — Admin tooling Phase 1: a real role-management surface at /admin/users.**
+
+- **What this closes:** an admin had NO way to list accounts from the app. `profiles` RLS has no
+  admin read policy, and `auth.users` (where email and `last_sign_in_at` live) is unreachable from
+  an authenticated client at all. `admin_set_user_role()` — the only sanctioned write path into
+  `user_roles` — had zero app-side callers, so every role change was being made by hand in the SQL
+  console. That is what this retires.
+- **Read surface is SECURITY DEFINER RPCs, not the service-role client.** `lib/supabase/admin.ts`
+  exists but is deliberately not used here: routing this through the service role would make the
+  Next.js app the sole gatekeeper for who may list accounts, which is exactly what Engineering
+  Rule 3 rules out. Both new read functions re-check `public.has_role(auth.uid(), 'admin')`
+  internally, following `has_role`/`admin_set_user_role`/`list_editorial_queue`/
+  `get_moderation_queue` (SECURITY DEFINER, `set search_path = ''`, revoked from public/anon,
+  granted only to `authenticated`).
+- **Migrations (3, all applied to the hosted dev project `ybhydepjaantkngngvuf`):**
+  - `20260823090000_admin_set_user_role_last_admin_guard.sql` — last-admin guard inside
+    `admin_set_user_role()`, plus a `revoke ... from anon` (see the security finding below).
+  - `20260823090100_admin_user_accounts.sql` — `list_user_accounts()` (paginated, searchable by
+    email or display name, role filter, `p_limit` clamped to [1,50], `total_count` via a window
+    function) and `get_user_account_detail()` (full tier: email, role, signup/last-sign-in/
+    email-confirmed dates, public-profile state, linked contributor, story counts owned/published/
+    assigned-as-editor, and the 10 most recent moderation + editorial audit entries as jsonb).
+  - `20260823090200_user_account_existence_check.sql` — `can_view_user_account()`, the lightweight
+    existence check behind the detail route's real 404 (see below).
+- **Detail tier is "full account detail", email included, by explicit product decision.**
+  Engineering Rule 16 governs PUBLIC profiles, not admin tooling. The route fails closed and
+  nothing here logs an email — `logStaffAction` receives only the target's user id, per lib/log.ts's
+  hard rule. `recent_activity` deliberately carries only story id/slug, an action label and a
+  timestamp — never `user_facing_reason` or an editorial summary, both of which are free text about
+  a specific story and have their own narrower surfaces.
+- **Peer-admin demotion stays allowed** (deliberate product decision), and the existing
+  self-demotion guard stays unchanged. The new last-admin guard raises SQLSTATE `WHV02` if a write
+  would drop the admin count to zero, and takes `for update` on the admin rows first so two
+  concurrent demotions serialize instead of both reading a healthy count and both committing.
+- **Honest note on when the last-admin guard actually fires.** Given the self-demotion guard, a
+  single-caller demotion can never empty the admin set: the caller must BE an admin, and cannot
+  target themselves, so at least one admin always remains. The guard's real job is therefore the
+  CONCURRENT case — two admins demoting each other at the same moment, where both read a healthy
+  count before either write commits. That branch could not be driven through the Supabase MCP SQL
+  tool (it needs two simultaneous sessions; `dblink` is available but not installed, and installing
+  an extension on the dev project just to test was not worth it), so **the raise itself is
+  unverified live** — what was verified live is that it does not false-positive: with 3 admins, an
+  admin demoting a peer admin succeeded and left 2. The UI mirror of the same rule
+  (`resolveRoleChangeAvailability`) has direct unit tests.
+- **Pre-existing security finding, fixed here:** `get_advisors(security)` showed `anon` holding
+  EXECUTE on `admin_set_user_role()`. Confirmed by reading `pg_proc.proacl`
+  (`{postgres=X,anon=X,authenticated=X,service_role=X}`). Not introduced by this change and not
+  exploitable — a signed-out caller has a null `auth.uid()`, so `has_role()` is false and the first
+  check raises — but the original migration only revoked from `public`, which does not remove the
+  separate direct grant Supabase's default privileges hand `anon`. Now revoked; ACL is
+  `{postgres,authenticated,service_role}`.
+- **Soft-404 found by live verification and fixed.** An admin hitting
+  `/admin/users/<unknown-uuid>` initially got a live HTTP **200** carrying the not-found UI — the
+  same "a page-based `notFound()` deep in an RSC tree doesn't set the response status" failure mode
+  already documented here for the public detail pages. Not a leak (an admin may read every
+  account), but a soft-404 against this app's own standard. Fixed the proven way: an existence
+  check in `proxy.ts` via `can_view_user_account()` — deliberately NOT `get_user_account_detail()`,
+  which builds story counts and a jsonb audit aggregate on every call.
+- **Routing:** `proxy.ts` gains `STAFF_ADMIN_PATH` (`/admin` and everything under it, admin only,
+  same flat 404 for signed-out and wrong-role) plus matcher entries. `app/(admin)/admin/route.ts`
+  is untouched and still returns the Phase 1 stub JSON at `/admin` itself — a Route Handler and the
+  new `app/(admin)/admin/layout.tsx` coexist fine, since a layout only wraps child page segments.
+  (Phase 2 deleted that Route Handler and put a page at `/admin` instead; proxy.ts is unchanged.)
+- **Verified live** on the hosted dev project through the real UI, per role
+  (`rls-admin`/`rls-editor`/`rls-other` from `.env.test.local`), on the running dev server:
+  - signed out: `/admin`, `/admin/users`, `/admin/users/:id` → **404** flat JSON.
+  - editor and ordinary user: all five admin URLs → **404**, identical body to signed-out.
+  - admin: list **200**, list with `?search=&role=` **200**, real account detail **200**, unknown
+    uuid **404**, malformed id **404**.
+  - a full role round trip through the real Server Action: KakiEditor Editor → **Make moderator** →
+    "Role changed to Moderator." → reload shows Moderator → reverted to Editor.
+  - on the admin's OWN account page all four role buttons render disabled, three with "You cannot
+    demote your own admin account." and one with "Already this role."
+- **Not this phase (unchanged, by decision):** the `/admin` dashboard landing page and the
+  `case "admin": return "/admin"` fix in `lib/auth/post-login-redirect.ts` (admin still falls back
+  to `/moderation`) — Phase 2, **since built, see 2026-08-24 above**. The
+  regions/destinations/work_types/tags taxonomy manager — Phase 3.
+- **Types not regenerated:** the three new RPCs are called through
+  `lib/supabase/call-untyped-rpc.ts`, the codebase's existing escape hatch, because
+  `types/database.ts` has not been regenerated since. `npm run verify` clean (468 tests, up from
+  444).
+
+**2026-08-22 — /readiness no longer renders an "Open in editorial" link into a 404.**
+
+- **Symptom:** clicking "Open in editorial" on /readiness returned a raw `{"error":"Not Found"}`
+  page. Reproduced live for all three staff roles: moderator 404, admin 404, editor 200 only when
+  the story happened to be assigned to them.
+- **Cause:** the link was rendered on every `editorial_import` row regardless of viewer.
+  /readiness is editor + moderator + admin, but /editorial/:id/edit is narrower twice over —
+  proxy.ts rejects non-editor/admin, and then `get_my_story_with_draft()` authorizes only the
+  story's contributor or its ASSIGNED editor (20260804092000). Being an admin is not enough.
+- **Fix (app-only, no migration):** `app/(readiness)/readiness/page.tsx` resolves which stories
+  the viewer can actually open, via `list_editorial_queue()` (itself editor/admin-only, so it is
+  called only after a role check — it raises for a moderator), and renders the link only for
+  those. `selectStoriesAssignedTo()` in `lib/story/moderation-analytics.ts` holds the predicate,
+  with 3 unit tests. The readiness RPC does not return `assigned_editor_id`, which is why
+  assignment is resolved through the editorial queue rather than read off the row; the lookup
+  pages to 150 rows and anything it cannot confirm simply gets no link — the failure mode is a
+  missing link, never a link into a 404.
+- **Verified live** per role after the fix: moderator 0 links, admin 0 links, editor 15 links and
+  all 15 resolve HTTP 200. `npm run verify` clean (444 tests).
+
+**2026-08-22 — /moderation overview rebuilt as an analytics dashboard.**
+
+The landing page was a heading plus one link. It is now the real overview: a KPI row, four
+charts, a "waiting longest" worklist, and a catalogue-health strip.
+
+- **No new database surface.** Every figure is derived in the app from RPCs that already existed
+  and were already moderator-gated: `get_operational_metrics()`, `get_moderation_queue()`
+  (both the `submitted` and `recently_reviewed` branches), `list_reports_for_staff()`. No
+  migration, no new grant, nothing a moderator could not already read. Decision throughput is
+  exact — the `recently_reviewed` branch filters on the moderation ACTION's timestamp and returns
+  `count(*) over ()`, so a `limit 1` call reads a whole window's total.
+- **New files:** `lib/story/moderation-analytics.ts` (pure, I/O-free derivations — age buckets,
+  oldest wait, submission mix, report categories/statuses, 14-day trend) with
+  `moderation-analytics.test.ts` (16 tests); `app/(moderation)/moderation/dashboard-charts.tsx`
+  (StatTile / AgeStackedBar / BarList / TrendColumns / DataTable — Server Components, plain
+  HTML+CSS, no charting dependency and no client JS).
+- **Sampling is disclosed, not hidden.** Both RPCs clamp `p_limit` to 50, so the queue is paged up
+  to 200 rows and the panel says "across the N most recent of M" whenever the sample is partial.
+  A revision with no `submitted_at` is excluded from age statistics rather than counted as a
+  zero-hour wait.
+- **New design tokens:** `--chart-1..4` in `app/globals.css`, one sequential teal ramp with a
+  per-rendition step set (validated: single hue, monotone lightness, adjacent-step gaps,
+  near-surface end ≥ 2:1 against `--surface` in both themes). Single hue, so no second accent;
+  `--destructive` appears only as a status cue paired with a written label ("overdue 10d").
+  Documented in DESIGN.md under Colors.
+- **Two real bugs fixed while verifying at a mobile viewport:** `moderation-nav.tsx` overflowed a
+  390px viewport by 89px (four links plus the avatar in one non-wrapping row — pre-existing, not
+  introduced here), and the age-bar legend's stacked count-over-label collided with its neighbour
+  in the two-column mobile grid.
+- **Verified live** (hosted dev project, signed in as the RLS moderator fixture) at 1280px and
+  390px in both renditions: zero horizontal overflow, charts render with real data, and the
+  empty-queue state reads correctly. `npm run verify` clean (441 tests).
+
+**2026-08-21 — Supabase Storage → Cloudflare R2 migration: phase 1 (foundation) built.**
+
+Full phased plan:
+[`nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md`](../nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md).
+Architecture write-up: `docs/architecture.md` → "Migration in progress: Supabase Storage →
+Cloudflare R2".
+
+- **Runtime behavior is unchanged.** `lib/story/image-pipeline.ts`, the upload route, and
+  `lib/story/public-image-url.ts` all still use Supabase Storage via
+  `lib/story/raw-storage-http.ts`. Phase 2 (dual-write) is the first phase that changes anything a
+  user can observe. This phase is deliberately landable on its own.
+- **Built:** `lib/story/r2-storage.ts` (`r2Upload` / `r2Download` / `r2ObjectExists` / `r2Remove` /
+  `r2PresignedGetUrl`) over R2's S3-compatible API; `getR2Env()` in `lib/env.server.ts` (separate
+  lazy schema from `getAdminEnv()`, server-only per Rule 1); `.env.example` entries;
+  `lib/story/r2-storage.test.ts` (13 tests); `scripts/verify-r2-integrity.mjs`
+  (`npm run r2:verify-integrity`).
+- **Dependencies added** (Rule 20): `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` — R2's
+  documented S3-compatible client and its presigner, replacing Supabase Storage's REST API and
+  `createSignedUrl`. `@smithy/node-http-handler` — pinned explicitly rather than left to the SDK
+  default, to guarantee no `fetch`/`undici` in the binary write path (see next bullet). The 4 high
+  `npm audit` advisories are pre-existing (Next's transitive `sharp`/`postcss`), unchanged by this
+  install.
+- **The prior corruption bug is treated as live risk, not history.** `raw-storage-http.ts` exists
+  because binary upload bytes were intermittently corrupted in production (EF BF BD replacement-
+  character signature), and two plausible-looking fixes at the fetch/undici layer both still failed
+  under real load. So the R2 path pins `requestHandler: NodeHttpHandler` and sets
+  `requestChecksumCalculation: "WHEN_REQUIRED"`, and both choices are pinned by unit tests so a
+  future refactor that drops them fails CI rather than corrupting photos.
+- **Phase 1 exit gate, NOT yet run:** `npm run r2:verify-integrity` round-trips deliberately-
+  invalid-UTF-8 payloads (64 KiB → 14 MiB) concurrently against the real private bucket and
+  compares SHA-256. It needs real Cloudflare credentials, which don't exist yet. **Phase 2 must not
+  begin until this passes.**
+- **Blocked on user/infra (not code):** create the two R2 buckets and a bucket-scoped API token;
+  enable public access on the public bucket and take its `pub-<hash>.r2.dev` URL; populate
+  `R2_*` in `.env.local` and the Vercel project. **A custom domain is deliberately not required**
+  — revised 2026-08-21 from an earlier "custom domain before cutover" call that overstated the
+  urgency. It's worth having before public launch (r2.dev gets no CDN cache treatment, takes no
+  Cache Rules, and is documented as rate-limited/dev-only), but switching later is one env var
+  plus a redeploy because paths are stored relative and the hostname is composed at render time.
+  Added to the pre-public-launch checklist instead.
+- **Known accepted architectural regression, decided deliberately — see architecture.md for the
+  full reasoning.** Supabase Storage RLS (`_can_write_reserved_media_path()`) is currently a
+  _second, independent_ enforcement layer that re-derives authorization from Postgres on every
+  write. R2 has no equivalent and one cannot be built, so at cutover the app layer becomes the
+  _only_ layer. This is not Rule 21 ("never weaken a policy to route around a blocker") — there is
+  no R2 policy to weaken — but it does mean phase 2+ owes explicit tests that an unreserved or
+  wrong-owner key is rejected in application code. Tracked as a phase 2 requirement, not optional.
+  `_can_write_reserved_media_path()` / `_can_access_story_media()` are kept at decommission time;
+  only their use as Storage policies goes away.
+- `npm run verify` passes (0 lint errors, 425 tests, build OK).
 
 **2026-08-20 — Every image upload crashing on Vercel: sharp's native binary wasn't being packaged
 for the deployed Lambda (`ERR_DLOPEN_FAILED`), found from the user's own Vercel Function logs.**
@@ -2909,6 +3182,9 @@ All in `supabase/migrations/`, applied in filename order:
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `20260802085013_helpers.sql`                                       | `public.set_updated_at()` — shared `updated_at` maintenance trigger function.                                                                                                                                                                                                                                                                                                                    |
 | `20260802085014_user_roles.sql`                                    | `app_role` enum; `user_roles` table + RLS; `public.has_role()` (SECURITY DEFINER, used inside other tables' RLS); `public.admin_set_user_role()` (SECURITY DEFINER, the only post-creation role-change path).                                                                                                                                                                                    |
+| `20260823090000_admin_set_user_role_last_admin_guard.sql`          | `admin_set_user_role()` refuses any write that would leave zero admins (SQLSTATE `WHV02`), locking the admin rows `for update` first so concurrent demotions serialize; self-demotion guard unchanged, peer-admin demotion still allowed. Also revokes a pre-existing `anon` EXECUTE grant on the same function.                                                                                 |
+| `20260823090100_admin_user_accounts.sql`                           | `list_user_accounts()` and `get_user_account_detail()` — admin-gated SECURITY DEFINER reads joining `auth.users` + `profiles` + `user_roles` (+ contributor, story counts, recent moderation/editorial audit entries) for `/admin/users`.                                                                                                                                                        |
+| `20260823090200_user_account_existence_check.sql`                  | `can_view_user_account()` — lightweight admin-only existence check so `proxy.ts` can return a real 404 for an unknown/malformed account id instead of a soft-404.                                                                                                                                                                                                                                |
 | `20260802085015_profiles.sql`                                      | `profiles` table + RLS (owner read/write; public read only when opted in with a slug).                                                                                                                                                                                                                                                                                                           |
 | `20260802085016_contributors.sql`                                  | `attribution_type`, `contributor_status` enums; `contributors` table + RLS + `contributors_protect_privileged_fields()` trigger (blocks non-staff changes to `linked_user_id`/`created_by`/archiving).                                                                                                                                                                                           |
 | `20260802085017_contributor_links.sql`                             | `contributor_links` audit table (no direct-write RLS policy at all); `public.link_contributor_to_user()` (SECURITY DEFINER, editor/admin-only, the sole write path).                                                                                                                                                                                                                             |
@@ -2965,12 +3241,12 @@ All in `supabase/migrations/`, applied in filename order:
 `app_role`: `user` (default) · `editor` · `moderator` · `admin`. Assigned via `user_roles`, structurally
 unwritable by ordinary clients (see docs/architecture.md).
 
-| Table               | Anonymous                                                 | Owner (self)                                                                    | Other authenticated user | Editor                                                                                                                              | Moderator                                                                                                                         | Admin                                                                          |
-| ------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `profiles`          | Read only if `public_profile_enabled AND public_slug` set | Read/update own row (no INSERT/DELETE for anyone)                               | Same as anonymous        | Same as anonymous                                                                                                                   | Same as anonymous                                                                                                                 | Same as anonymous                                                              |
-| `user_roles`        | None                                                      | Read own role only                                                              | None                     | Read own role only                                                                                                                  | Read own role only                                                                                                                | Read own + all others; only writer of role changes (via `admin_set_user_role`) |
-| `contributors`      | Read only `public_status = 'public'` rows                 | Read/update own linked row; cannot change `linked_user_id`/`created_by`/archive | Same as anonymous        | Read all rows; create unlinked rows; update any row (still can't self-archive via the non-staff path — they ARE staff, so they can) | None (Prompt 6 Stage 1 — narrowed from "read all rows"; attribution comes from the `story_publication_consents` snapshot instead) | Read/update/delete all rows; create unlinked rows                              |
-| `contributor_links` | None                                                      | Read own link history                                                           | None                     | Read all link history; the only role (with admin) that can write, and only through `link_contributor_to_user()`                     | None                                                                                                                              | Read all link history; can write via the same function                         |
+| Table               | Anonymous                                                 | Owner (self)                                                                    | Other authenticated user | Editor                                                                                                                              | Moderator                                                                                                                         | Admin                                                                                                                       |
+| ------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `profiles`          | Read only if `public_profile_enabled AND public_slug` set | Read/update own row (no INSERT/DELETE for anyone)                               | Same as anonymous        | Same as anonymous                                                                                                                   | Same as anonymous                                                                                                                 | Same as anonymous                                                                                                           |
+| `user_roles`        | None                                                      | Read own role only                                                              | None                     | Read own role only                                                                                                                  | Read own role only                                                                                                                | Read own + all others; only writer of role changes (via `admin_set_user_role`, surfaced at `/admin/users` since 2026-08-23) |
+| `contributors`      | Read only `public_status = 'public'` rows                 | Read/update own linked row; cannot change `linked_user_id`/`created_by`/archive | Same as anonymous        | Read all rows; create unlinked rows; update any row (still can't self-archive via the non-staff path — they ARE staff, so they can) | None (Prompt 6 Stage 1 — narrowed from "read all rows"; attribution comes from the `story_publication_consents` snapshot instead) | Read/update/delete all rows; create unlinked rows                                                                           |
+| `contributor_links` | None                                                      | Read own link history                                                           | None                     | Read all link history; the only role (with admin) that can write, and only through `link_contributor_to_user()`                     | None                                                                                                                              | Read all link history; can write via the same function                                                                      |
 
 Self-service contributor creation (`linked_user_id = auth.uid()`) is available to any authenticated
 user regardless of role, via a dedicated INSERT policy — this is what "self-service stories" needs

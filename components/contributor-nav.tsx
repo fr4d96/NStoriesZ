@@ -3,7 +3,10 @@ import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
 import { ContributorNavLinks } from "@/components/contributor-nav-links";
-import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
+import {
+  getCurrentUserAvatarEmoji,
+  getCurrentUserRole,
+} from "@/lib/auth/roles";
 
 /**
  * Rendered only inside the (contributor) layout, after the real session
@@ -19,7 +22,10 @@ import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
  * to fetch and pass it down.
  */
 export async function ContributorNav() {
-  const avatarEmoji = await getCurrentUserAvatarEmoji();
+  const [avatarEmoji, role] = await Promise.all([
+    getCurrentUserAvatarEmoji(),
+    getCurrentUserRole(),
+  ]);
 
   return (
     <header className="journiq-header-solid sticky top-0 z-40 border-b border-border-subtle text-foreground">
@@ -36,7 +42,7 @@ export async function ContributorNav() {
 
         <div className="ml-auto flex items-center gap-2 md:ml-0">
           <ThemeToggle />
-          <UserAvatarMenu emoji={avatarEmoji} />
+          <UserAvatarMenu emoji={avatarEmoji} role={role} />
         </div>
       </div>
     </header>

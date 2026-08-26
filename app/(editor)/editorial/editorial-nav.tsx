@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
-import { getCurrentUserAvatarEmoji } from "@/lib/auth/roles";
+import {
+  getCurrentUserAvatarEmoji,
+  getCurrentUserRole,
+} from "@/lib/auth/roles";
 
 const editorialNav = [
   { href: "/editorial", label: "Dashboard" },
@@ -16,7 +19,10 @@ const editorialNav = [
  * (UserAvatarMenu) is the same one every other signed-in header renders.
  */
 export async function EditorialNav() {
-  const avatarEmoji = await getCurrentUserAvatarEmoji();
+  const [avatarEmoji, role] = await Promise.all([
+    getCurrentUserAvatarEmoji(),
+    getCurrentUserRole(),
+  ]);
 
   return (
     <header className="border-b border-border-subtle">
@@ -39,7 +45,7 @@ export async function EditorialNav() {
               </Link>
             ))}
           </nav>
-          <UserAvatarMenu emoji={avatarEmoji} />
+          <UserAvatarMenu emoji={avatarEmoji} role={role} />
         </div>
       </div>
     </header>

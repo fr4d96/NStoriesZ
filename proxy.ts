@@ -88,6 +88,19 @@ const STAFF_MODERATION_PATH = /^\/moderation(\/.*)?$/;
 // above.
 const STAFF_READINESS_PATH = /^\/readiness(\/.*)?$/;
 
+// Admin tooling Phase 1: /admin/users gains real pages. Mirrors
+// STAFF_EDITORIAL_PATH/STAFF_MODERATION_PATH/STAFF_READINESS_PATH exactly
+// -- same flat 404 for signed-out and wrong-role, same reasoning about why
+// this check has to live here rather than only in
+// app/(admin)/admin/layout.tsx. Covers /admin itself too, which is still
+// the Route Handler stub (app/(admin)/admin/route.ts): that handler
+// already fails closed on its own, so this is belt-and-braces there and
+// the actual guarantee for the new pages under it.
+const STAFF_ADMIN_PATH = /^\/admin(\/.*)?$/;
+// Exact-match-only, same reasoning as MODERATION_REVIEW_PAGE_PATH: nothing
+// nested under an account id (there is none today) gets swept in here.
+const ADMIN_USER_DETAIL_PAGE_PATH = /^\/admin\/users\/([^/]+)$/;
+
 function isProtectedPath(pathname: string) {
   return (
     PROTECTED_PATHS.some(
@@ -178,6 +191,30 @@ async function canViewModerationReport(
 ) {
   const { data, error } = await supabase.rpc("can_view_moderation_report", {
     p_report_id: reportId,
+  });
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Admin tooling Phase 1: existence-only check for /admin/users/[id], via
+ * can_view_user_account()
+ * (supabase/migrations/20260823090200_user_account_existence_check.sql) --
+ * deliberately NOT get_user_account_detail(), which builds story counts and
+ * a jsonb aggregate of audit history on every call. Same "error and empty
+ * both mean false, no distinction leaked" shape as the helpers above.
+ *
+ * Unlike the editorial/moderation per-row checks, this is not an
+ * authorization check -- an admin may read every account, and the role gate
+ * above has already run. It exists so a dead link returns a real 404
+ * instead of a live 200 carrying the not-found UI, which is what was
+ * confirmed happening before this was added.
+ */
+async function adminUserAccountExists(
+  supabase: ReturnType<typeof createServerClient>,
+  userId: string,
+) {
+  const { data, error } = await supabase.rpc("can_view_user_account", {
+    p_user_id: userId,
   });
   return !error && Array.isArray(data) && data.length > 0;
 }
@@ -322,6 +359,37 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  if (STAFF_ADMIN_PATH.test(request.nextUrl.pathname)) {
+    // Signed-out and signed-in-with-the-wrong-role get the IDENTICAL flat
+    // 404, same convention as every other staff route in this app. Admin
+    // is the narrowest gate in the app -- no editor/moderator fallthrough.
+    if (!data?.claims?.sub) {
+      return flatNotFound();
+    }
+    const { data: roleRow } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.claims.sub)
+      .single();
+    if (roleRow?.role !== "admin") {
+      return flatNotFound();
+    }
+
+    // Not an authorization check (an admin may see every account) -- an
+    // existence check, so an unknown or malformed id returns a real 404
+    // rather than a live 200 carrying the not-found UI. Confirmed live
+    // before/after; see adminUserAccountExists()'s comment above.
+    const accountMatch = request.nextUrl.pathname.match(
+      ADMIN_USER_DETAIL_PAGE_PATH,
+    );
+    if (accountMatch) {
+      const exists = await adminUserAccountExists(supabase, accountMatch[1]);
+      if (!exists) {
+        return flatNotFound();
+      }
+    }
+  }
+
   if (STAFF_READINESS_PATH.test(request.nextUrl.pathname)) {
     // Signed-out and signed-in-with-the-wrong-role get the IDENTICAL flat
     // 404, same convention as every other staff route in this app.
@@ -418,6 +486,8 @@ export const config = {
     "/moderation/:path*",
     "/readiness",
     "/readiness/:path*",
+    "/admin",
+    "/admin/:path*",
     "/stories/:id",
     "/contributors/:slug",
   ],

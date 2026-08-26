@@ -84,6 +84,17 @@
   --destructive: #c0392b;
   --destructive-foreground: #ffffff;
   --brand: var(--accent);
+  /* Chart ramp -- staff analytics only (/moderation, /readiness). One
+     sequential teal ramp stepped per rendition so "more severe" always
+     carries the MOST contrast against its own ground: darkest in light,
+     brightest in dark. Validated (single hue, monotone lightness, adjacent
+     step gaps, near-surface end >= 2:1) against this rendition's --surface
+     (#fdfbf8 light / #0d1218 dark). Not a second accent: it is one hue,
+     and it never appears on a public route. */
+  --chart-1: #63bcb2;
+  --chart-2: #17968b;
+  --chart-3: #00706a;
+  --chart-4: #004b46;
   --radius: 0.5rem;
 }
 
@@ -113,6 +124,10 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-brand: var(--brand);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -166,6 +181,10 @@
     --destructive: #ff6b6b;
     --destructive-foreground: #05070a;
     --brand: var(--accent);
+    --chart-1: #24685f;
+    --chart-2: #2f9086;
+    --chart-3: #3cbdb0;
+    --chart-4: #7fe9df;
   }
 }
 
@@ -197,6 +216,10 @@
   --destructive: #c0392b;
   --destructive-foreground: #ffffff;
   --brand: var(--accent);
+  --chart-1: #63bcb2;
+  --chart-2: #17968b;
+  --chart-3: #00706a;
+  --chart-4: #004b46;
 }
 
 :root[data-theme="dark"] {
@@ -227,6 +250,10 @@
   --destructive: #ff6b6b;
   --destructive-foreground: #05070a;
   --brand: var(--accent);
+  --chart-1: #24685f;
+  --chart-2: #2f9086;
+  --chart-3: #3cbdb0;
+  --chart-4: #7fe9df;
 }
 
 html {

@@ -14,8 +14,10 @@ describe("defaultPathForRole", () => {
     expect(defaultPathForRole("editor")).toBe("/editorial");
   });
 
-  it("sends an admin to the moderation dashboard (no standalone admin dashboard exists yet)", () => {
-    expect(defaultPathForRole("admin")).toBe("/moderation");
+  it("sends an admin to the admin dashboard, not to /moderation", () => {
+    // Phase 2 replaced the /admin placeholder Route Handler with a real
+    // dashboard, which is what retired the old /moderation fallback.
+    expect(defaultPathForRole("admin")).toBe("/admin");
   });
 
   it("sends an ordinary user to My Stories", () => {
@@ -42,7 +44,7 @@ describe("landingPathAfterSignIn", () => {
       expect(landingPathAfterSignIn("moderator", hasIdentity)).toBe(
         "/moderation",
       );
-      expect(landingPathAfterSignIn("admin", hasIdentity)).toBe("/moderation");
+      expect(landingPathAfterSignIn("admin", hasIdentity)).toBe("/admin");
       expect(landingPathAfterSignIn("editor", hasIdentity)).toBe("/editorial");
     }
   });

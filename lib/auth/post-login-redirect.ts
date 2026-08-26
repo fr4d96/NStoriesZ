@@ -4,18 +4,19 @@ import type { AppRole } from "@/lib/auth/staff-guard";
  * Where a signed-in user lands when nothing more specific was requested
  * (e.g. they navigated straight to /sign-in, rather than being bounced
  * here from a protected page with a real `?next=`). Staff roles land on
- * their own dashboard instead of the ordinary contributor pages --
- * `/admin` has no real dashboard yet (see app/(admin)/admin/route.ts), so
- * admin falls back to /moderation, the broadest staff surface an admin
- * already has access to (resolveStaffAccess allows admin on both
- * /moderation and /editorial). An ordinary user (or a signed-in caller
- * whose role lookup came back null) lands on My Stories, not the account
- * settings page.
+ * their own dashboard instead of the ordinary contributor pages. Admin has
+ * its own since Phase 2 (app/(admin)/admin/page.tsx) and goes there --
+ * before that it deliberately fell back to /moderation, because the only
+ * thing at /admin was a placeholder Route Handler returning JSON. The
+ * /admin overview links out to every other staff surface an admin can
+ * reach, so nothing is lost by no longer landing them on /moderation.
+ * An ordinary user (or a signed-in caller whose role lookup came back null)
+ * lands on My Stories, not the account settings page.
  */
 export function defaultPathForRole(role: AppRole | null): string {
   switch (role) {
     case "admin":
-      return "/moderation";
+      return "/admin";
     case "moderator":
       return "/moderation";
     case "editor":

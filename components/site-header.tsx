@@ -12,6 +12,7 @@ import { SignUpForm } from "@/components/auth/sign-up-form";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
 import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
 import { createClient } from "@/lib/supabase/client";
+import type { AppRole } from "@/lib/auth/staff-guard";
 
 // "Destinations" is a home-page anchor and must match the section id in
 // app/(public)/page.tsx. "Stories" and "Contributors" link to their own
@@ -89,24 +90,42 @@ export function SiteHeader() {
   const [authModal, setAuthModal] = useState<AuthModalKind>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [avatarEmoji, setAvatarEmoji] = useState<string | null>(null);
+  // Drives ONLY which staff links the dropdown draws -- never access. See
+  // lib/auth/staff-menu.ts; proxy.ts re-derives this server-side on every
+  // request, so a wrong value here changes nothing but the menu.
+  const [role, setRole] = useState<AppRole | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     let active = true;
 
-    async function loadAvatar(userId: string) {
-      const { data } = await supabase
-        .from("profiles")
-        .select("avatar_emoji")
-        .eq("id", userId)
-        .single();
-      if (active) setAvatarEmoji(data?.avatar_emoji ?? null);
+    // Both reads are the caller's OWN row under RLS (profiles' "owner reads
+    // own profile" and user_roles' "read own role" -- the latter exists
+    // precisely so the app can render role-aware UI, see its migration).
+    // maybeSingle(), not single(), because an account with no role row yet
+    // is an ordinary contributor, not an error worth logging.
+    async function loadIdentity(userId: string) {
+      const [profile, roleRow] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("avatar_emoji")
+          .eq("id", userId)
+          .single(),
+        supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .maybeSingle(),
+      ]);
+      if (!active) return;
+      setAvatarEmoji(profile.data?.avatar_emoji ?? null);
+      setRole((roleRow.data?.role as AppRole | undefined) ?? null);
     }
 
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       setSignedIn(!!data.session);
-      if (data.session) loadAvatar(data.session.user.id);
+      if (data.session) loadIdentity(data.session.user.id);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange(
@@ -114,9 +133,10 @@ export function SiteHeader() {
         if (!active) return;
         setSignedIn(!!session);
         if (session) {
-          loadAvatar(session.user.id);
+          loadIdentity(session.user.id);
         } else {
           setAvatarEmoji(null);
+          setRole(null);
         }
       },
     );
@@ -166,7 +186,11 @@ export function SiteHeader() {
           <div className="flex items-center gap-2">
             <ThemeToggle inverted={inverted} />
             {signedIn ? (
-              <UserAvatarMenu emoji={avatarEmoji} inverted={inverted} />
+              <UserAvatarMenu
+                emoji={avatarEmoji}
+                inverted={inverted}
+                role={role}
+              />
             ) : (
               <>
                 <button
@@ -198,6 +222,7 @@ export function SiteHeader() {
               emoji={avatarEmoji}
               inverted={inverted}
               extraItems={primaryNav}
+              role={role}
             />
           ) : (
             <MobileNavToggle

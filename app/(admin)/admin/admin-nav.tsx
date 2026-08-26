@@ -5,22 +5,22 @@ import {
   getCurrentUserRole,
 } from "@/lib/auth/roles";
 
-const moderationNav = [
-  { href: "/moderation", label: "Overview" },
-  { href: "/moderation/stories", label: "Stories queue" },
-  { href: "/moderation/reports", label: "Reports" },
+/**
+ * Rendered only inside app/(admin)/admin/layout.tsx, after the real admin
+ * role check passes -- same "own nav, no contradictions" reasoning as
+ * ModerationNav/EditorialNav. "Overview" arrived with Phase 2: until the
+ * dashboard existed, /admin was a stub Route Handler and linking to it
+ * would have pointed at raw JSON.
+ */
+const adminNav = [
+  { href: "/admin", label: "Overview" },
+  { href: "/admin/users", label: "Users" },
+  { href: "/moderation", label: "Moderation" },
+  { href: "/editorial", label: "Editorial" },
   { href: "/readiness", label: "Readiness" },
 ];
 
-/**
- * Rendered only inside app/(moderation)/moderation/layout.tsx, after the
- * real moderator/admin role check passes -- same "own nav, no
- * contradictions" reasoning as app/(editor)/editorial/editorial-nav.tsx.
- * The profile icon (UserAvatarMenu) is the same one every other signed-in
- * header renders -- staff dashboards previously had no way to reach My
- * Stories/Account/Sign out at all.
- */
-export async function ModerationNav() {
+export async function AdminNav() {
   const [avatarEmoji, role] = await Promise.all([
     getCurrentUserAvatarEmoji(),
     getCurrentUserRole(),
@@ -28,22 +28,18 @@ export async function ModerationNav() {
 
   return (
     <header className="border-b border-border-subtle">
-      {/*
-        The four links plus the avatar are wider than a phone: below `sm`
-        this wraps to a second row (title, then nav) rather than pushing the
-        avatar off-screen, which is what it did before -- 89px of horizontal
-        overflow on a 390px viewport.
-      */}
+      {/* Wraps to a second row below `sm` rather than pushing the avatar
+          off-screen -- same fix ModerationNav carries. */}
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-4 sm:flex-nowrap sm:px-6">
         <Link href="/" className="text-lg font-semibold tracking-tight">
-          Kakinotes — Moderation
+          Kakinotes — Admin
         </Link>
         <div className="flex min-w-0 flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end sm:gap-6">
           <nav
-            aria-label="Moderation"
+            aria-label="Admin"
             className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:flex-nowrap sm:gap-6"
           >
-            {moderationNav.map((item) => (
+            {adminNav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

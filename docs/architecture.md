@@ -43,7 +43,10 @@ app/
                                  # guarantee (see "Staff routes" below); dashboard, new/, contributors/,
                                  # [id]/edit/, import-actions.ts
   (moderation)/moderation/route.ts  # still a Route Handler stub — see "Staff routes" below
-  (admin)/admin/route.ts            # still a Route Handler stub
+  (admin)/admin/route.ts            # /admin itself is still a Route Handler stub (Phase 2)
+  (admin)/admin/layout.tsx          # admin-only role gate for the pages below it
+  (admin)/admin/users/              # Phase 1 role management: list, [id]/ detail + role-form.tsx,
+                                 # actions.ts (setUserRoleAction -> admin_set_user_role())
 lib/
   env.server.ts               # server-only, Zod-validated Supabase env vars
   supabase/
@@ -166,6 +169,22 @@ tree — verified directly during Prompt 1's build (`curl` showed `200 OK` for a
 `notFound()` even under `export const dynamic = "force-dynamic"`). A Route Handler sets the status
 directly, with no rendering pipeline in between, so it reliably returns 404. Their real UI is
 Prompt 6+ (moderation) — no navigation anywhere links to `/moderation`/`/admin` yet.
+
+**Admin tooling Phase 1 (2026-08-23)** adds real pages _under_ `/admin` — `/admin/users` and
+`/admin/users/[id]` — without disturbing the `/admin` stub itself: a Route Handler at a segment and
+a `layout.tsx` in the same folder coexist, because a layout only ever wraps child page segments.
+Those pages follow the settled pattern rather than the Route Handler one: the layout does the whole
+role check synchronously with no Suspense boundary under it as defense in depth, and `proxy.ts`'s
+`STAFF_ADMIN_PATH` check is what actually produces the true 404 status. `/admin/users/[id]` also
+gets an existence check there (`can_view_user_account()`), for the same soft-404 reason the public
+detail pages have one — an unknown account id returned a live 200 with the not-found UI before it
+was added. Admin is the narrowest gate in the app: no editor/moderator fallthrough.
+
+The account data itself comes from admin-gated `SECURITY DEFINER` RPCs (`list_user_accounts()`,
+`get_user_account_detail()`), never `lib/supabase/admin.ts`'s service-role client — using the
+service role would make the app the sole gatekeeper for who may list accounts, which Engineering
+Rule 3 rules out. `auth.users` is unreachable from an authenticated PostgREST client at all, so a
+definer function is also the only way to surface email/`last_sign_in_at` without the service role.
 
 `/editorial` gained its real UI in Prompt 4 Sub-phase 4 — the JSON-stub Route Handler was removed
 and replaced with real pages under `app/(editor)/editorial/`. This reintroduced exactly the failure
@@ -600,6 +619,18 @@ Rules, enforced by convention (no script does these automatically):
 
 - `npm run dev` / `build` / `start`: read `.env.local` (untracked), copied from `.env.example` and
   pointed at a dedicated Supabase **development** project.
+- `R2_*` (Cloudflare R2 image storage): read only by `getR2Env()` in `lib/env.server.ts`, which is
+  read only by `lib/story/r2-storage.ts`. Server-only and account-scoped — the R2 equivalent of the
+  service-role key (Engineering Rule 1). `NEXT_PUBLIC_R2_PUBLIC_BASE_URL` is the one deliberately
+  public R2 var: it is the base URL fronting the public bucket, and is read by
+  `lib/story/public-image-url.ts`, which Client Components import. It holds the
+  Cloudflare-assigned `pub-<hash>.r2.dev` domain for now; a custom domain is a pre-public-launch
+  item, not a migration gate, because `story_media` stores bucket-relative paths and the hostname
+  is composed at render time — so switching is one env var plus a redeploy, no data migration.
+  Never persist absolute image URLs anywhere; that property is what keeps this cheap.
+  `getR2Env()` is lazy, so routes that never touch image storage don't fail on a deployment that
+  hasn't configured R2 yet — which is what makes the phased migration safe to land
+  incrementally.
 - Vitest: unit tests never make a live Supabase call — Supabase modules are mocked at the import
   boundary (see `lib/auth/contributor-guard.test.ts` for the pattern: test the pure decision
   function, not the Server Component that calls Supabase).
@@ -708,6 +739,57 @@ Two buckets, created in `20260804090700_story_media_storage_buckets.sql`:
   writes to this bucket directly. The only code path that ever does is
   `copyStoryMediaToPublic()` in `lib/story/image-pipeline.ts`, and only as part of an active
   publication attempt.
+
+### Migration in progress: Supabase Storage → Cloudflare R2 (phase 1 of 5)
+
+The two buckets above are being replaced by two Cloudflare R2 buckets of the same names. The
+full phased plan lives in
+[`nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md`](../nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md);
+this section records what is **built today** and the one architectural property that changes.
+
+**Phase 1 (built): the storage layer, not yet wired to anything.** `lib/story/r2-storage.ts`
+provides `r2Upload` / `r2Download` / `r2ObjectExists` / `r2Remove` / `r2PresignedGetUrl` over
+R2's S3-compatible API. Nothing calls it yet — `image-pipeline.ts` and the upload route still
+use Supabase Storage via `raw-storage-http.ts`. Phase 2 (dual-write) is the first phase that
+changes runtime behavior. Credentials come from `getR2Env()` in `lib/env.server.ts` — a
+separate lazy schema from `getAdminEnv()`, for the same reason: server-only, never
+`NEXT_PUBLIC_*` (Engineering Rule 1).
+
+**Two configuration choices in that module are load-bearing and must not be "cleaned up":**
+
+- `requestHandler: NodeHttpHandler` is pinned explicitly instead of relying on the AWS SDK's
+  runtime default. This preserves the property `raw-storage-http.ts` was written to obtain —
+  no `fetch`/`undici` anywhere in the binary write path (see "A real bug class found during
+  live verification" precedent, and `raw-storage-http.ts`'s own doc comment, for why a default
+  is not good enough here).
+- `requestChecksumCalculation: "WHEN_REQUIRED"` suppresses the SDK's default flexible-checksum
+  headers, which S3-compatible third-party stores handle inconsistently. The codebase's own
+  re-read-and-SHA-256-compare (`verifyUploadedBytes`) is a stronger end-to-end guarantee.
+
+`scripts/verify-r2-integrity.mjs` (`npm run r2:verify-integrity`) is the **phase 1 exit gate**:
+it round-trips random, deliberately-invalid-UTF-8 payloads at realistic sizes (64 KiB → 14 MiB)
+concurrently against the real private bucket, compares SHA-256, and explicitly detects and names
+the `EF BF BD` replacement-character corruption signature if it reappears. It must pass before
+phase 2 begins.
+
+**The property that changes — read this before reviewing phase 2.** Under Supabase Storage,
+bucket RLS is a _second, independent_ enforcement layer: `_can_write_reserved_media_path()` runs
+inside the storage write path itself and re-derives authorization from live Postgres state on
+every write, so a direct Storage API call to an arbitrary or another user's path fails at the
+storage layer regardless of what application code did or intended. R2 — like any S3-compatible
+store — has no policy engine that can evaluate SQL against Postgres, so **that second layer
+cannot be reproduced**. It is replaced by: (a) the R2 credential being server-only, so no
+browser can address the bucket at all, and (b) all writes going through server code that only
+ever passes a key the DB itself just minted (`begin_story_media_upload`'s `reserved_path`),
+never a client-supplied one. This is a real, accepted reduction in defense-in-depth, signed off
+deliberately rather than discovered later — Engineering Rule 21 forbids weakening a policy to
+route around a blocker, and this is not that: the policy has no R2 equivalent to weaken. The
+compensating requirement is that the app-layer checks are now the _only_ layer, so phase 2+ must
+add explicit tests asserting an unreserved or wrong-owner key is rejected in application code.
+
+Consequently `_can_write_reserved_media_path()` and `_can_access_story_media()` are **kept** at
+decommission time — only their use as Storage policies goes away. They remain the authorization
+logic the RPCs themselves call.
 
 ### The media processing-state machine
 

@@ -196,6 +196,17 @@ describe("signInAction", () => {
     ).rejects.toThrow("REDIRECT:/moderation");
   });
 
+  it("with no explicit next, sends an admin to /admin, not /moderation", async () => {
+    mockGetCurrentUserRole.mockResolvedValue("admin");
+
+    await expect(
+      signInAction(
+        {},
+        formData({ email: "a@example.com", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/admin");
+  });
+
   it("with no explicit next, sends an editor to /editorial", async () => {
     mockGetCurrentUserRole.mockResolvedValue("editor");
 
