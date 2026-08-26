@@ -81,17 +81,11 @@ const nextConfig: NextConfig = {
   // at the decode step in production while working locally (node_modules is
   // fully present on disk in dev).
   //
-  // Unlike sharp, serverExternalPackages alone does NOT fix this: `sharp` is
-  // one of @vercel/nft's built-in special-cased packages, so its native
-  // binary gets included in the trace automatically once nft stops trying
-  // to transform the package; libheif-js's runtime-computed `fs.readFileSync`
-  // path has no such special case and is never found by nft's static
-  // analysis, with or without serverExternalPackages (confirmed by
-  // inspecting .next/server/app/.../upload/route.js.nft.json after a build
-  // -- libheif-bundle.js was listed, libheif.wasm was not). The .wasm must
-  // be force-included per-route via outputFileTracingIncludes below;
-  // serverExternalPackages is still needed alongside it so Turbopack leaves
-  // the package's own runtime `fs`/`__dirname` logic untransformed.
+  // serverExternalPackages alone does NOT fix either package: it stops
+  // Turbopack transforming them, but it does not make @vercel/nft include
+  // files that no static `require`/`import` points at. Confirmed by reading
+  // the built .nft.json trace files (see outputFileTracingIncludes below,
+  // which is where both are actually rescued).
   serverExternalPackages: [
     "@napi-rs/canvas",
     "pdfjs-dist",
@@ -99,14 +93,52 @@ const nextConfig: NextConfig = {
     "heic-decode",
     "libheif-js",
   ],
-  // Keyed with a `*` wildcard, not the literal `[id]` segment: this key is
-  // matched with picomatch against the route path, which parses a literal
-  // `[id]` as a single-character glob class (matching one character "i" or
-  // "d") rather than as the literal three-character dynamic-segment text --
-  // confirmed live, the literal-bracket key silently never matched and the
-  // .wasm was absent from the built trace file.
+  // Native/binary files that no static import points at, so @vercel/nft
+  // never traces them and Vercel never deploys them. Both entries below were
+  // verified by grepping the built .next/server/app/**/*.nft.json files --
+  // do the same after changing anything here, because a key that matches
+  // nothing fails SILENTLY at build time and only surfaces as a 500 in
+  // production.
+  //
+  // Keys use `*`, never the literal `[id]` segment: they are matched with
+  // picomatch against the normalized route path, which reads a literal
+  // `[id]` as a single-character glob class (matching "i" or "d") rather
+  // than as dynamic-segment text. Confirmed live -- a literal-bracket key
+  // silently never matched and the file stayed missing from the trace.
+  //
+  // Values are globs so that neither a platform nor a version bump breaks
+  // this again: on Vercel npm installs only the linux-x64 optional package,
+  // locally only darwin-arm64, and the libvips filename carries its own
+  // version (libvips-cpp.so.8.18.3).
   outputFileTracingIncludes: {
+    // sharp's `.node` binding IS traced automatically, but the separate
+    // libvips shared library it dlopen()s at runtime is NOT -- nft picks up
+    // the libvips package's index.js/package.json/versions.json and leaves
+    // the 17 MB .so/.dylib behind. That is the direct cause of the
+    // production error `ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot
+    // open shared object file`, which took down every route below, not just
+    // the upload handler: `/my-stories` renders StoryCoverThumbnail, whose
+    // mintPreviewUrlAction imports lib/story/image-pipeline.ts -> sharp, so
+    // the whole page 500s and no story image ever loads.
+    //
+    // Listed per-route rather than globally on purpose: this adds ~17 MB to
+    // each function it applies to, and only these eight entries actually
+    // pull sharp into their bundle (re-derive with:
+    // grep -rl "node_modules/sharp" .next/server/app --include="*.nft.json").
+    "/my-stories": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    "/stories/*/edit": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    "/stories/*/preview": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    "/stories/new/pdf-attach": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    "/editorial/*/edit": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    "/editorial/new/pdf-attach": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    "/moderation/stories/*": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    // The upload route needs libvips too, plus libheif-js's WASM binary,
+    // which libheif-bundle.js locates at runtime via
+    // `fs.readFileSync(__dirname + "/libheif.wasm")` -- again invisible to
+    // static tracing. Without it every HEIC (iPhone/iPad) upload fails at
+    // the decode step in production while working locally.
     "/stories/*/edit/upload": [
+      "./node_modules/@img/sharp-libvips-*/lib/*",
       "./node_modules/libheif-js/libheif-wasm/libheif.wasm",
     ],
   },
