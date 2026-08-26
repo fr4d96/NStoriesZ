@@ -8,6 +8,10 @@ import {
   parseReadinessQueueSearchParams,
   READINESS_QUEUE_PAGE_SIZE,
 } from "@/lib/validation/readiness";
+import { listEditorialQueue } from "@/lib/story/moderation";
+import { selectStoriesAssignedTo } from "@/lib/story/moderation-analytics";
+import { getCurrentUser } from "@/lib/auth/get-current-user";
+import { getCurrentUserRole } from "@/lib/auth/roles";
 import { VerifyForm } from "./verify-form";
 
 export const metadata: Metadata = {
@@ -38,6 +42,52 @@ const CHECKLIST_ITEMS: {
   { key: "publication_consent_complete", label: "Publication consent" },
   { key: "editorial_review_complete", label: "Editorial review" },
 ];
+
+/** list_editorial_queue clamps p_limit to 50; this is how far we page. */
+const EDITORIAL_LOOKUP_PAGE_SIZE = 50;
+const EDITORIAL_LOOKUP_MAX_PAGES = 3;
+
+/**
+ * Which of these stories the VIEWER can actually open in the editorial
+ * editor.
+ *
+ * /readiness is editor + moderator + admin (this route's own layout), but
+ * /editorial/:id/edit is narrower twice over: proxy.ts rejects anyone who
+ * is not editor/admin, and then get_my_story_with_draft() authorizes only
+ * the story's contributor or its ASSIGNED editor
+ * (supabase/migrations/20260804092000_assigned_editor_can_read_draft.sql).
+ * A moderator -- the role that reaches this page from the moderation nav --
+ * therefore got a flat `{"error":"Not Found"}` from every "Open in
+ * editorial" link on the page, and so did an admin, and so did any editor
+ * who was not the one assigned.
+ *
+ * The readiness RPC does not return assigned_editor_id, so assignment is
+ * resolved here through list_editorial_queue() instead -- which is itself
+ * editor/admin-only and raises for a moderator, hence the role check before
+ * the call. Anything this lookup cannot confirm simply gets no link: the
+ * failure mode is a missing link, never a link into a 404.
+ */
+async function resolveOpenableStoryIds(): Promise<Set<string>> {
+  const [role, user] = await Promise.all([
+    getCurrentUserRole(),
+    getCurrentUser(),
+  ]);
+  if (!user || (role !== "editor" && role !== "admin")) return new Set();
+
+  try {
+    const pages = await Promise.all(
+      Array.from({ length: EDITORIAL_LOOKUP_MAX_PAGES }, (_, i) =>
+        listEditorialQueue({
+          limit: EDITORIAL_LOOKUP_PAGE_SIZE,
+          offset: i * EDITORIAL_LOOKUP_PAGE_SIZE,
+        }),
+      ),
+    );
+    return selectStoriesAssignedTo(pages.flat(), user.id);
+  } catch {
+    return new Set();
+  }
+}
 
 function buildHref(
   base: string,
@@ -81,6 +131,7 @@ export default async function ReadinessDashboardPage({
   let rows: Awaited<ReturnType<typeof getContentReadinessQueue>> = [];
   let metrics: Awaited<ReturnType<typeof getOperationalMetrics>> = null;
   let loadError = false;
+  const openableStoryIds = await resolveOpenableStoryIds();
   try {
     [rows, metrics] = await Promise.all([
       getContentReadinessQueue({
@@ -196,7 +247,8 @@ export default async function ReadinessDashboardPage({
                       /{row.slug} · {row.source_kind} · {row.lifecycle_status}
                     </span>
                   </div>
-                  {row.source_kind === "editorial_import" ? (
+                  {row.source_kind === "editorial_import" &&
+                  openableStoryIds.has(row.story_id) ? (
                     <Link
                       href={`/editorial/${row.story_id}/edit`}
                       className="text-sm underline underline-offset-2"

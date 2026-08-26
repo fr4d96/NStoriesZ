@@ -148,6 +148,17 @@ not a return to the retired Field Journal paper/terracotta world.
   warm foreground at low alpha, never neutral black — a black shadow on the warm ground reads as a
   cold gray smudge. Same geometry and alpha as before, only the hue is pulled onto the palette.
 
+### Staff chart ramp
+
+- **Chart ramp** (`--chart-1` … `--chart-4`): one sequential teal ramp used only by the staff
+  analytics surfaces (`/moderation`, and available to `/readiness`). Steps are chosen per
+  rendition so "more severe" always carries the **most** contrast against its own ground —
+  `#63bcb2 → #17968b → #00706a → #004b46` in light (darkest = most severe), `#24685f → #2f9086 →
+#3cbdb0 → #7fe9df` in dark (brightest = most severe). Both sets are validated for a single hue
+  (spread ≤ 4°), monotone lightness, adjacent-step gaps ≥ 0.06 L, and a near-surface end clearing
+  2:1 against that rendition's `--surface`. Because it is one hue it is not a second accent; it
+  never appears on a public route.
+
 ### Named Rules
 
 **The One Accent Rule.** Signal Cyan is the only colour used for calls-to-action and emphasis.
