@@ -69,7 +69,47 @@ const nextConfig: NextConfig = {
   // was present in package-lock.json with correct linux-x64 optional
   // dependencies the whole time -- this was never an install problem, only
   // a bundling one.
-  serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist", "sharp"],
+  //
+  // `heic-decode` and its dependency `libheif-js` (lib/story/heic.ts) are
+  // here for the exact same class of problem, one level removed: instead of
+  // a native .node/.so binary, libheif-js's Emscripten-compiled bundle
+  // (node_modules/libheif-js/libheif-wasm/libheif-bundle.js) locates its
+  // ~1 MB libheif.wasm at runtime via `__dirname + "/libheif.wasm"` and
+  // `fs.readFileSync()` -- invisible to static bundling/tracing because it
+  // is not a JS `require`/`import` of that file. Left untraced, the .wasm
+  // never reaches the deployed Vercel function, and every HEIC upload fails
+  // at the decode step in production while working locally (node_modules is
+  // fully present on disk in dev).
+  //
+  // Unlike sharp, serverExternalPackages alone does NOT fix this: `sharp` is
+  // one of @vercel/nft's built-in special-cased packages, so its native
+  // binary gets included in the trace automatically once nft stops trying
+  // to transform the package; libheif-js's runtime-computed `fs.readFileSync`
+  // path has no such special case and is never found by nft's static
+  // analysis, with or without serverExternalPackages (confirmed by
+  // inspecting .next/server/app/.../upload/route.js.nft.json after a build
+  // -- libheif-bundle.js was listed, libheif.wasm was not). The .wasm must
+  // be force-included per-route via outputFileTracingIncludes below;
+  // serverExternalPackages is still needed alongside it so Turbopack leaves
+  // the package's own runtime `fs`/`__dirname` logic untransformed.
+  serverExternalPackages: [
+    "@napi-rs/canvas",
+    "pdfjs-dist",
+    "sharp",
+    "heic-decode",
+    "libheif-js",
+  ],
+  // Keyed with a `*` wildcard, not the literal `[id]` segment: this key is
+  // matched with picomatch against the route path, which parses a literal
+  // `[id]` as a single-character glob class (matching one character "i" or
+  // "d") rather than as the literal three-character dynamic-segment text --
+  // confirmed live, the literal-bracket key silently never matched and the
+  // .wasm was absent from the built trace file.
+  outputFileTracingIncludes: {
+    "/stories/*/edit/upload": [
+      "./node_modules/libheif-js/libheif-wasm/libheif.wasm",
+    ],
+  },
 };
 
 export default nextConfig;
