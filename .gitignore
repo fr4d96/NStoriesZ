@@ -23,6 +23,16 @@ supabase/.temp/
 
 # Claude Code local session settings (not project config)
 .claude/settings.local.json
+# Agent-authored local skills -- machine-specific (absolute paths, this
+# machine's Docker/Supabase situation), so not shared project config.
+.claude/skills/dev-server/
+
+# Nimbalyst editor local artifacts (not source, not project config)
+# .nimbalyst/ holds per-session transcript screenshots; nimbalyst-local/
+# holds working plan documents. Both are scratch output of a session, and
+# neither is something a checkout needs.
+.nimbalyst/
+nimbalyst-local/
 
 # test artifacts
 coverage/
