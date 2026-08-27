@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
+import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 import type {
   RevisionInput,
   SubmitRevisionInput,
@@ -296,9 +297,12 @@ export async function setRevisionTags(
 /**
  * Reserves a media slot and a private storage path for an upload. Does not
  * touch the authoring version — a reservation is not yet attached content.
- * The caller (a Route Handler, see app/(contributor)/stories/[id]/edit/upload/route.ts)
- * uploads the actual bytes to `reservedPath` itself, then calls
- * finalizeStoryMediaUpload().
+ * The CLIENT uploads the actual bytes directly to Supabase Storage at
+ * `reservedPath` itself (never through this server, and never through any
+ * Vercel function — see components/story/image-upload-manager.tsx), using
+ * its own session, then calls finalizeStoryMediaUpload(). image/heic
+ * reserves a transient `.heic` path; see authorizeHeicTranscode/
+ * recordHeicTranscodedOriginal below for the extra step that requires.
  */
 export async function beginStoryMediaUpload(
   revisionId: string,
@@ -312,6 +316,42 @@ export async function beginStoryMediaUpload(
   });
   if (error) throw error;
   return data[0];
+}
+
+/**
+ * Authorizes a HEIC transcode request against a media reservation the
+ * client has already staged raw HEIC bytes into (directly, bypassing any
+ * Vercel function). Re-derives edit rights and verifies the staged object
+ * actually exists in storage server-side — never trusts the caller's claim
+ * that it uploaded successfully. Returns the storyId/stagingPath the caller
+ * needs to actually perform the transcode
+ * (lib/story/image-pipeline.ts#transcodeStagedHeicUpload).
+ */
+export async function authorizeHeicTranscode(mediaId: string) {
+  await requireUser();
+  const supabase = await createClient();
+  const result = await callUntypedRpc<
+    { story_id: string; staging_path: string }[]
+  >(supabase, "authorize_heic_transcode", { p_media_id: mediaId });
+  return result[0];
+}
+
+/**
+ * Rewrites a HEIC reservation to point at its server-transcoded JPEG,
+ * after transcodeStagedHeicUpload has uploaded it. The RPC itself checks
+ * newStoragePath against the only value it could legitimately be — never
+ * trusted outright, despite crossing this server boundary.
+ */
+export async function recordHeicTranscodedOriginal(
+  mediaId: string,
+  newStoragePath: string,
+) {
+  await requireUser();
+  const supabase = await createClient();
+  await callUntypedRpc(supabase, "record_heic_transcoded_original", {
+    p_media_id: mediaId,
+    p_new_storage_path: newStoragePath,
+  });
 }
 
 /**

@@ -1,5 +1,4 @@
 import path from "node:path";
-import fs from "node:fs";
 import { test, expect } from "@playwright/test";
 import { signInUi } from "./helpers/sign-in";
 
@@ -97,7 +96,11 @@ test.describe("cross-contributor UI-level access denial", () => {
     // this test's real, unique one.
     await ownerPage.goto("/stories/new");
     await ownerPage.waitForURL(/\/stories\/[^/]+\/edit$/, { timeout: 15000 });
-    await ownerPage.getByLabel("Title").fill(title);
+    // "Title" is also a getByLabel substring match against "Sub-Title"'s
+    // own accessible name on this page (and the real field's accessible
+    // name is "Title required", so exact:true matches neither) --
+    // unrelated to anything this spec changed. #edit-title sidesteps both.
+    await ownerPage.locator("#edit-title").fill(title);
     await ownerPage.locator(".cm-content").click();
     await ownerPage.keyboard.type(
       "Real content for the cross-contributor access test.",
@@ -123,21 +126,39 @@ test.describe("cross-contributor UI-level access denial", () => {
     }
     const storyId = match[1];
 
-    // Capture the real revisionId the way a leaked/guessed ID would reach an
-    // attacker in practice: intercept the *owner's own* legitimate upload
-    // request (the revisionId is never present in the URL or plain DOM --
-    // it's a client-component prop threaded into the multipart body by
-    // components/story/image-upload-manager.tsx's fetch() call). This lets
-    // step 5 below test the strongest case: `other` presents a REAL
-    // revisionId and still gets rejected by _authorize_revision_edit(),
-    // not just a not-found due to a bad ID.
-    let capturedRevisionId = "";
-    await ownerPage.route("**/edit/upload", async (route) => {
-      const postData = route.request().postData() ?? "";
-      const revisionMatch = postData.match(
-        /name="revisionId"\r?\n\r?\n([0-9a-fA-F-]{36})/,
-      );
-      if (revisionMatch) capturedRevisionId = revisionMatch[1];
+    // Capture the real Server Action invocation the way a leaked/guessed
+    // revisionId would reach an attacker in practice: intercept the
+    // *owner's own* legitimate upload request. Uploading is now a Server
+    // Action (beginMediaUploadAction, app/(contributor)/stories/[id]/edit/
+    // upload-actions.ts) rather than a plain multipart POST to a Route
+    // Handler -- the browser posts to the page's own URL with a
+    // `Next-Action` header and an internally-encoded body containing the
+    // revisionId, not a stable, hand-writable wire format. Rather than
+    // reverse-engineer that encoding, this captures owner's ACTUAL request
+    // (headers + raw body) and replays it verbatim in step 5, with only
+    // the Cookie header stripped so it naturally carries `other`'s own
+    // session instead -- the strongest case: `other` presents a byte-for-
+    // byte real request and still gets rejected by
+    // _authorize_revision_edit(), not just a not-found from a bad ID or a
+    // malformed-body 400 that would prove nothing about authorization.
+    let capturedRequest: {
+      url: string;
+      headers: Record<string, string>;
+      postData: string;
+    } | null = null;
+    await ownerPage.route(`**/stories/${storyId}/edit`, async (route) => {
+      const req = route.request();
+      const postData = req.postData();
+      if (
+        req.method() === "POST" &&
+        !capturedRequest &&
+        postData &&
+        /[0-9a-fA-F]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/.test(
+          postData,
+        )
+      ) {
+        capturedRequest = { url: req.url(), headers: req.headers(), postData };
+      }
       await route.continue();
     });
 
@@ -146,7 +167,7 @@ test.describe("cross-contributor UI-level access denial", () => {
     await expect(ownerPage.getByText(/Uploading…|Processing…/)).toHaveCount(0, {
       timeout: 30000,
     });
-    expect(capturedRevisionId).toMatch(/^[0-9a-fA-F-]{36}$/);
+    expect(capturedRequest).not.toBeNull();
 
     await ownerContext.close();
 
@@ -170,26 +191,20 @@ test.describe("cross-contributor UI-level access denial", () => {
     expect(previewResponse!.status()).toBe(404);
     await expect(otherPage.getByText(title)).toHaveCount(0);
 
-    // --- Step 5: `other` attempts a direct, forged multipart POST to
-    // owner's upload endpoint, using a REAL revisionId (captured above) and
-    // `other`'s own authenticated session cookies. The Route Handler's own
-    // _authorize_revision_edit()-backed RPC chain must reject this over
-    // real HTTP, not just via the RLS suite's direct RPC call. ---
-    const fixtureBytes = fs.readFileSync(FIXTURE_PATH);
-    const uploadResponse = await otherPage.request.post(
-      `/stories/${storyId}/edit/upload`,
-      {
-        multipart: {
-          file: {
-            name: "tiny.png",
-            mimeType: "image/png",
-            buffer: fixtureBytes,
-          },
-          revisionId: capturedRevisionId,
-          expectedVersion: "1",
-        },
-      },
-    );
+    // --- Step 5: `other` replays owner's exact, captured
+    // beginMediaUploadAction request verbatim (same Next-Action id, same
+    // body, same real revisionId) with the Cookie header stripped, so
+    // otherPage.request naturally attaches `other`'s own session cookies
+    // instead of owner's. begin_story_media_upload's own
+    // _authorize_revision_edit()-backed check must reject this over a real
+    // HTTP round trip, not just via the RLS suite's direct RPC call. ---
+    const { url, headers, postData } = capturedRequest!;
+    const forgedHeaders = { ...headers };
+    delete forgedHeaders.cookie;
+    const uploadResponse = await otherPage.request.post(url, {
+      headers: forgedHeaders,
+      data: postData,
+    });
     expect(uploadResponse.status()).toBeGreaterThanOrEqual(400);
     expect(uploadResponse.status()).toBeLessThan(500);
 

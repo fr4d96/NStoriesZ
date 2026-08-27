@@ -14,6 +14,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { DEFAULT_EMBED_WIDTH } from "@/lib/story/markdown-media";
 import { useToast } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/spinner";
+import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   reorderMediaAction,
   setCoverAction,
@@ -24,6 +25,11 @@ import {
   mintPreviewUrlAction,
   refreshMediaAction,
 } from "@/app/(contributor)/stories/[id]/media-actions";
+import {
+  beginMediaUploadAction,
+  finalizeMediaUploadAction,
+  transcodeHeicUploadAction,
+} from "@/app/(contributor)/stories/[id]/edit/upload-actions";
 
 /** Types a browser can render directly in an <img>, for the in-flight tile. */
 const BROWSER_RENDERABLE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -37,47 +43,61 @@ function isAcceptedFile(file: File): boolean {
 }
 
 /**
- * Reads the upload route's reply without assuming it is JSON.
+ * Uploads `file` directly to Supabase Storage using the browser's own
+ * session — never through this app's server at all. This is the fix for
+ * the platform limit that made HEIC uploads fail unpredictably: Vercel's
+ * Node.js Functions synchronously invoke via AWS Lambda underneath, whose
+ * request payload is base64-encoded for binary bodies, working out to an
+ * effective ~4.5 MiB ceiling on the raw bytes a Function can receive —
+ * root-caused live by a 24MP iPhone HEIC (4.1 MB) failing with a 413
+ * carrying a non-JSON body (proof the platform rejected it before this
+ * app's own code, which always answers with JSON, ever ran) while a 12MP
+ * HEIC from the same phone succeeded every time.
  *
- * The route always answers with JSON, but the things that go wrong *around*
- * it do not: a crashed or out-of-memory function, a platform timeout, or a
- * body-size rejection all come back as Vercel's own HTML error page. Calling
- * `response.json()` on those throws, and the thrown parser error replaced the
- * real failure in the UI -- on an iPhone that surfaced as WebKit's
- * "The string did not match the expected pattern.", which tells a contributor
- * nothing and told us nothing either while diagnosing HEIC uploads.
- *
- * So: read the body as text, parse it only if it actually parses, and
- * otherwise translate the HTTP status into something a contributor can act
- * on. The status code is kept in the message because these failures are
- * server-side and otherwise leave no trace a contributor can report.
+ * Authorized by exactly the same storage RLS policy
+ * (_can_write_reserved_media_path) that already scoped writes to the
+ * caller's own auth.uid() — not "must come from our server" — so this
+ * changes where the bytes travel, not the authorization model.
  */
-async function readUploadResponse(
-  response: Response,
-): Promise<{ mediaId?: string; error?: string }> {
+async function uploadDirectlyToStorage(
+  reservedPath: string,
+  file: File,
+  contentType: string,
+  accessToken: string,
+): Promise<void> {
+  const encodedPath = reservedPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/story-images-private/${encodedPath}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      "Content-Type": contentType,
+      "x-upsert": "false",
+    },
+    body: file,
+  });
+  if (response.ok) return;
+
+  // Supabase Storage answers its own errors as JSON
+  // ({statusCode, error, message}), unlike the Vercel-platform-level
+  // failure this function exists to route around.
   const raw = await response.text().catch(() => "");
-  if (raw) {
-    try {
-      return JSON.parse(raw) as { mediaId?: string; error?: string };
-    } catch {
-      // Not JSON — fall through to a status-derived message below.
-    }
+  let message: string | undefined;
+  try {
+    message = (JSON.parse(raw) as { message?: string }).message;
+  } catch {
+    // Not JSON — fall through to a status-derived message below.
   }
-  if (response.ok) {
-    return { error: "The server sent an unreadable response." };
-  }
+  if (message) throw new Error(message);
   if (response.status === 413) {
-    return { error: "That photo is too large to upload (max 15 MB)." };
+    throw new Error("That photo is too large to upload.");
   }
-  if (response.status === 504 || response.status === 408) {
-    return {
-      error:
-        "The server timed out processing that photo. Large iPhone photos can take a while — try again, or export it as a JPEG first.",
-    };
-  }
-  return {
-    error: `The server failed while processing that photo (error ${response.status}). Try again, or export it as a JPEG first.`,
-  };
+  throw new Error(`Upload failed (error ${response.status}).`);
 }
 
 type UploadingItem = {
@@ -262,25 +282,45 @@ export function ImageUploadManager({
         { key, fileName: file.name, progress: "uploading", previewUrl },
       ]);
 
-      const formData = new FormData();
-      formData.set("file", file);
-      formData.set("revisionId", revisionId);
-      formData.set("expectedVersion", String(versionRef.current));
+      const isHeic = looksLikeHeicUpload(file.type, file.name);
+      const sourceMimeType = isHeic
+        ? ("image/heic" as const)
+        : (file.type as "image/jpeg" | "image/png" | "image/webp");
 
       try {
+        const begun = await beginMediaUploadAction(revisionId, sourceMimeType);
+        if ("error" in begun) throw new Error(begun.error);
+        const { mediaId, reservedPath } = begun;
+
         setUploading((prev) =>
           prev.map((u) =>
             u.key === key ? { ...u, progress: "processing" } : u,
           ),
         );
-        const response = await fetch(`/stories/${storyId}/edit/upload`, {
-          method: "POST",
-          body: formData,
-        });
-        const body = await readUploadResponse(response);
-        if (!response.ok || !body.mediaId) {
-          throw new Error(body.error ?? "Upload failed.");
+
+        const {
+          data: { session },
+        } = await createBrowserSupabaseClient().auth.getSession();
+        if (!session) throw new Error("You must be signed in.");
+
+        await uploadDirectlyToStorage(
+          reservedPath,
+          file,
+          sourceMimeType,
+          session.access_token,
+        );
+
+        if (isHeic) {
+          const transcoded = await transcodeHeicUploadAction(mediaId);
+          if ("error" in transcoded) throw new Error(transcoded.error);
         }
+
+        const finalized = await finalizeMediaUploadAction(
+          mediaId,
+          versionRef.current,
+        );
+        if ("error" in finalized) throw new Error(finalized.error);
+
         // finalize_story_media_upload bumped the authoring version by
         // exactly one on success (see the migration's own guarantee).
         versionRef.current += 1;

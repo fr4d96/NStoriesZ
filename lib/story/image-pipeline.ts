@@ -8,6 +8,7 @@ import {
   rawStorageUpload,
 } from "@/lib/story/raw-storage-http";
 import { encodeJpegUnderBudget } from "@/lib/story/jpeg-budget";
+import { transcodeHeicToJpeg } from "@/lib/story/heic";
 import {
   extensionForMimeType,
   MAX_INPUT_PIXELS,
@@ -370,6 +371,62 @@ async function uploadAndVerify(
     : new Error(
         `Upload verification failed for ${bucket}/${path} after ${UPLOAD_VERIFY_ATTEMPTS} attempts`,
       );
+}
+
+/**
+ * Downloads a staged raw HEIC upload, transcodes it to JPEG (lib/story/
+ * heic.ts's logic is completely unchanged -- this function only relocates
+ * WHERE the raw bytes travel: the browser stages them directly into the
+ * private bucket, bypassing the Vercel function's inbound request-body
+ * ceiling entirely, and this downloads+transcodes them via an ordinary
+ * OUTBOUND server request, which was never subject to that limit), uploads
+ * the result to the real original.jpg path, and deletes the transient
+ * staging object.
+ *
+ * Called only after authorize_heic_transcode has already verified, via the
+ * caller's own regular RLS-respecting client, that this media is a
+ * legitimate, still-pending HEIC reservation the caller has edit rights on
+ * -- storyId and stagingPath are therefore server-trusted by the time they
+ * reach here, not caller-supplied in the sense CLAUDE.md Rule 2 warns
+ * against.
+ *
+ * Returns the resulting path (== the same path record_heic_transcoded_
+ * original needs, computed once here rather than re-derived by the caller)
+ * — not the JPEG bytes themselves. finalizeMediaUploadAction's subsequent
+ * processStoryMedia(mediaId) call re-downloads them via its own existing
+ * fallback path; a second outbound download+reupload is a modest,
+ * acceptable cost for keeping every step a plain, bytes-free JSON call,
+ * consistent with the entire point of this redesign.
+ */
+export async function transcodeStagedHeicUpload(
+  mediaId: string,
+  storyId: string,
+  stagingPath: string,
+): Promise<{ jpgPath: string }> {
+  const heicBytes = await downloadObject(PRIVATE_BUCKET, stagingPath);
+  const jpeg = await transcodeHeicToJpeg(heicBytes);
+
+  const jpgPath = `${storyId}/${mediaId}/original.jpg`;
+  await uploadAndVerify(
+    PRIVATE_BUCKET,
+    jpgPath,
+    jpeg,
+    "image/jpeg",
+    sha256Hex(jpeg),
+  );
+
+  // Best-effort cleanup: once record_heic_transcoded_original (called next,
+  // by this function's caller) rewrites the reservation to point at
+  // jpgPath, nothing ever references the staging object again -- a failure
+  // here leaves an orphaned private object, not a correctness problem for
+  // the request in progress.
+  const admin = createAdminClient();
+  await admin.storage
+    .from(PRIVATE_BUCKET)
+    .remove([stagingPath])
+    .catch(() => {});
+
+  return { jpgPath };
 }
 
 /**
