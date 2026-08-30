@@ -3,6 +3,13 @@
 This file orients any engineer (human or AI) working in this repository. Read it, and
 [docs/implementation-status.md](docs/implementation-status.md), before starting any task.
 
+## How to reply
+
+Always reply in plain, simple language — the style of the `/bro` skill. Short sentences,
+no jargon, explain things like you're talking to a friend. Apply this to every response,
+not only when `/bro` is explicitly invoked. Keep technical accuracy, but cut hedging and
+formal phrasing; if a technical term is unavoidable, define it in one plain clause.
+
 ## Product context
 
 Kakinotes is a public platform for detailed, written first-person stories from people
