@@ -164,7 +164,7 @@ export function FilterBar({
     <form
       method="get"
       action="/stories"
-      className="rounded-xl border border-border-subtle bg-surface-muted p-4"
+      className="rounded-xl border border-border-subtle bg-surface p-4 shadow-sm"
     >
       <label className="mb-4 flex flex-col gap-1 text-sm">
         <span className="font-medium">Search</span>

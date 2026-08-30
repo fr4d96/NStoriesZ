@@ -78,21 +78,26 @@ function getHeader() {
 }
 
 describe("SiteHeader", () => {
-  it("is transparent (journiq-header) on the home route before scrolling", () => {
+  // The transparent-over-hero state is gone: the home hero is now an inset
+  // plate that starts below the header, so there is no photo to sit over and a
+  // transparent header would have drawn white nav text onto the light page
+  // ground. These assert it cannot come back by accident.
+  it("is solid on the home route, unscrolled", () => {
     render(<SiteHeader />);
-    expect(getHeader()).toHaveClass("journiq-header");
+    expect(getHeader()).toHaveClass("journiq-header-solid");
+    expect(getHeader()).not.toHaveClass("journiq-header");
+    expect(getHeader()).not.toHaveClass("text-white");
   });
 
-  it("is solid everywhere except the home route, even unscrolled", () => {
+  it("is solid on every other route too", () => {
     usePathnameMock.mockReturnValue("/sign-in");
     render(<SiteHeader />);
-    expect(getHeader()).not.toHaveClass("journiq-header");
     expect(getHeader()).toHaveClass("journiq-header-solid");
+    expect(getHeader()).not.toHaveClass("journiq-header");
   });
 
-  it("switches from transparent to solid once scrolled past the threshold on the home route", () => {
+  it("stays solid after scrolling on the home route", () => {
     render(<SiteHeader />);
-    expect(getHeader()).toHaveClass("journiq-header");
 
     Object.defineProperty(window, "scrollY", {
       value: 100,
@@ -100,8 +105,8 @@ describe("SiteHeader", () => {
     });
     fireEvent.scroll(window);
 
-    expect(getHeader()).not.toHaveClass("journiq-header");
     expect(getHeader()).toHaveClass("journiq-header-solid");
+    expect(getHeader()).not.toHaveClass("journiq-header");
   });
 
   it("always renders the real primary nav destinations", () => {

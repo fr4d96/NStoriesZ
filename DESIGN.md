@@ -18,22 +18,24 @@ colors:
   tag-foreground: "#8fe6da"
   muted-foreground: "#98a6a5"
   destructive: "#ff6b6b"
-  light-background: "#f6f3ef"
+  light-background: "#f1ede8"
   light-foreground: "#1b1612"
-  light-surface: "#fdfbf8"
-  light-surface-muted: "#ece7e1"
-  light-border-subtle: "rgba(27, 22, 18, 0.15)"
-  light-accent: "#00756e"
+  light-surface: "#fffefc"
+  light-surface-muted: "#e8e2db"
+  light-border-subtle: "rgba(27, 22, 18, 0.22)"
+  light-accent: "#006f68"
   light-accent-foreground: "#ffffff"
-  light-tag-background: "rgba(0, 117, 110, 0.11)"
+  light-tag-background: "rgba(0, 111, 104, 0.11)"
   light-tag-foreground: "#005d57"
   light-forest: "#17110d"
   light-muted-foreground: "#6a635c"
   light-destructive: "#c0392b"
-  # Shadow ink -- the warm foreground at low alpha, never neutral black: a
-  # black shadow on the warm ground reads as a cold gray smudge.
-  shadow-ink-soft: "rgba(27, 22, 18, 0.13)"
-  shadow-ink-deep: "rgba(27, 22, 18, 0.55)"
+  # Shadow ink. Light uses the warm foreground at low alpha, never neutral
+  # black: a black shadow on the warm ground reads as a cold gray smudge.
+  # Dark uses neutral black -- there is no warm ground to tint against, and
+  # shadow does almost no work there anyway. See Elevation & Depth.
+  shadow-ink-light: "rgba(27, 22, 18, 0.04-0.13)"
+  shadow-ink-dark: "rgba(0, 0, 0, 0.3-0.55)"
 typography:
   display:
     fontFamily: "'Avenir Next', 'Avenir', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -101,7 +103,7 @@ still uses it.
 
 - Near-black ground with cool off-white ink, and one cyan accent used sparingly
 - Heavy sans throughout — no serif anywhere; Geist Mono carries every numeral and column label
-- Flat, hairline-ruled surfaces at rest; shadow and lift appear only as a response to interaction
+- Depth comes from surface fills in dark and from soft warm shadow in light; lift on interaction in both
 - Full-pill buttons and chips; the primary button is ghost-outline first, filling on hover
 - Motion is one authored idea (a lens focus pull) expressed in CSS scroll timelines, never JS
   observers, and always collapses under `prefers-reduced-motion`
@@ -119,7 +121,7 @@ not a return to the retired Field Journal paper/terracotta world.
 
 ### Primary
 
-- **Signal Cyan** (`#35d0c4` dark / **`#00756e` light**): the one accent. CTA fills and outlines,
+- **Signal Cyan** (`#35d0c4` dark / **`#006f68` light**): the one accent. CTA fills and outlines,
   the active headline word, active filter chips, the live slide index, focus rings (`--ring`),
   progress fills. This is the one token that cannot simply invert: `#35d0c4` reads at ~10:1 on the
   near-black ground but only ~1.9:1 on a near-white one, so light mode uses a deepened rendition of
@@ -129,20 +131,18 @@ not a return to the retired Field Journal paper/terracotta world.
 
 ### Neutral
 
-- **Void** (`#05070a` dark / `#f6f3ef` light): page ground. Near-black rather than pure black; the
+- **Void** (`#05070a` dark / `#f1ede8` light): page ground. Near-black rather than pure black; the
   light counterpart is a warm off-white (~L 0.97 OKLCH at hue 78), never stark `#fff` — a pure-white
   ground under near-black ink glared and read clinical, which is what this rendition replaced.
 - **Ink** (`#f4f6f5` dark / `#1b1612` light): body text. 16.2:1 on its own ground.
-- **Surface** (`#0d1218` dark / `#fdfbf8` light): raised surfaces — cards, panels, popovers. The
+- **Surface** (`#0d1218` dark / `#fffefc` light): raised surfaces — cards, panels, popovers. The
   light value is a warm near-white one step above the ground, never `#ffffff`.
-- **Surface Muted** (`#10161d` dark / `#ece7e1` light): image placeholders, muted fills, inset
+- **Surface Muted** (`#10161d` dark / `#e8e2db` light): image placeholders, muted fills, inset
   wells.
 - **Muted Ink** (`#98a6a5` dark / `#6a635c` light): secondary and supporting copy. Both clear
   4.5:1 on their own ground — never dim body text with an opacity below ~60% instead.
-- **Fog** (`rgba(244, 246, 245, 0.14)` dark / `rgba(27, 22, 18, 0.15)` light): the only border
+- **Fog** (`rgba(244, 246, 245, 0.14)` dark / `rgba(27, 22, 18, 0.22)` light): the only border
   colour in the system — the ink at low opacity, never a gray.
-- **Deep Ink Band** (`--forest`: `#0d1a20` dark / `#17110d` light): the footer and other
-  always-dark bands that sit slightly apart from the page ground.
 - **Destructive** (`#ff6b6b` dark / `#c0392b` light): errors and destructive actions only.
 - **Shadow ink** (`rgba(27, 22, 18, 0.13)` soft / `rgba(27, 22, 18, 0.55)` deep): shadows are the
   warm foreground at low alpha, never neutral black — a black shadow on the warm ground reads as a
@@ -169,8 +169,10 @@ where they carry meaning rather than brand, and nowhere else.
 an inversion of the other. Before adding a literal colour, check it against both grounds; if it
 only works on one, it needs a token with two values, not a `dark:` override.
 
-**The Always-Dark Band Rule.** A few surfaces are permanently dark in BOTH themes because they are
-full-bleed photography under a scrim: the landing hero and the `.journiq-share` contribute band.
+**The Always-Dark Band Rule.** A couple of surfaces are permanently dark in BOTH themes because
+they are photography under a scrim: the landing hero plate and the `.journiq-share` contribute
+band. The footer used to be a third (`--forest`, the "Deep Ink Band"); it is not any more — see
+The One Dark Band Rule below.
 Tokens still flip underneath them, so anything token-driven inside one resolves to the _light_
 rendition against a near-black photo — which is how the hero's CTA once rendered as near-black ink
 on a near-black photo (1.1:1, effectively invisible) and the accent word came out as the deep teal
@@ -239,35 +241,76 @@ mobile shape is `[numeral | stacked content]`, and from `md` up an inner wrapper
 
 ## Elevation & Depth
 
-Flat-by-default, lift-on-response. Surfaces sit at rest with a subtle border (`--border-subtle`)
-and no shadow — story cards, chips, and inputs are all flat. Shadow and a small `translateY` lift
-appear only as a hover/interaction response (story card hover: `shadow-md` + `-translate-y-1`;
-buttons and icon controls: `-translate-y-0.5` to `-translate-y-1` plus, on the primary button hover
-state, `box-shadow: 0 10px 24px rgba(0,0,0,0.13)`). The one deliberate exception is the featured
-story-card-stack carousel, which uses a large diffuse shadow (`0 28px 78px rgba(0, 0, 0, 0.55)`)
-to read as a stack of physical photographs rather than flat UI — depth there is a
-content-specific, photo-like effect, not a general elevation system.
+**The two renditions do not express depth the same way, and they must not be asked to.**
 
-On the near-black ground a shadow does very little work; separation comes from the surface step
-(`--surface` above `--background`) and from hairline rules, with shadow reserved for the two cases
-below.
+Dark expresses elevation with **fills**. `#05070a` → `#0d1218` is only 1.07:1 by WCAG, but it is a
+2.8× jump in relative luminance (0.21% → 0.58%), and dark-adapted vision reads ratios at low
+luminance easily. A raised card separates from the ground on fill alone, and shadow does almost no
+work.
 
-### Shadow Vocabulary
+Light cannot do that. Mirroring dark's 1.07:1 gave 89.9% → 96.6% — a 1.07× luminance jump, which
+is perceptually nothing. Under the earlier flat-at-rest rule every card, panel, and modal in light
+mode was invisible as a distinct surface and the page read as one flat beige field. There is no
+headroom to fix that with fills (light surfaces are already near white), so **light carries
+elevation in shadow**, with the fills widened only slightly (to ~1.16:1) to support it.
 
-- **Hover lift** (`box-shadow: 0 10px 24px rgba(0, 0, 0, 0.13)`): primary button hover only.
-- **Card hover** (Tailwind `shadow-md`): story card hover, paired with a 1px translateY lift.
-- **Stack depth** (`box-shadow: 0 28px 78px rgba(0, 0, 0, 0.55)`): the featured story-card-stack
-  carousel only — a neutral-dark ink, and not reused elsewhere.
-- **Panel** (`box-shadow: 0 22px 70px rgba(0, 0, 0, 0.4)`): the destination-quiz card, the only
-  resting shadow in the system.
+### The elevation scale
 
-These four shadow inks are recorded in `.impeccable/design.json` under `extensions.shadows`, which
-is where the DESIGN.md format spec puts shadows; they are deliberately not palette colours.
+Five tokens, defined per theme in `app/globals.css` and aliased onto Tailwind's shadow scale via
+`@theme inline`, so every `shadow-*` utility in the app is theme-aware without touching its call
+site:
+
+| Token           | Tailwind                   | Use                                              |
+| --------------- | -------------------------- | ------------------------------------------------ |
+| `--elevation-1` | `shadow-xs` / `shadow-2xs` | hairline contact; rarely needed                  |
+| `--elevation-2` | `shadow-sm`                | **resting** cards, panels, the sticky header     |
+| `--elevation-3` | `shadow-md`                | small hover response                             |
+| `--elevation-4` | `shadow-lg` / `shadow-xl`  | card hover, primary-button hover                 |
+| `--elevation-5` | `shadow-2xl`               | the story-card stack, the destination-quiz panel |
+
+Light renders each as two layers — a tight contact shadow plus a wide ambient one — in **warm ink**
+(`rgba(27, 22, 18, …)` at 0.04–0.13), never neutral black, which reads as a cold grey smudge on the
+warm ground. Dark renders the same geometry in neutral black at low alpha, near-invisible by
+design: it exists only to stop a raised surface fusing with the ground at its edge.
+
+`@theme inline` (not plain `@theme`) is required — it emits `var(--elevation-N)` into the utility
+instead of snapshotting the value at build time, so the shadow re-resolves when `data-theme` flips.
 
 ### Named Rules
 
-**The Rest-Is-Flat Rule.** Nothing carries a shadow at rest except the story-card-stack. If a
-surface needs to look important while idle, reach for the border or a fill color, not a shadow.
+**The Recess Rule.** `--surface-muted` is a genuine **recess** — darker than the ground in light,
+lighter in dark. It is for inputs, image placeholders, insets, chips, and progress tracks. It must
+never be used to _group_ or _raise_ anything. A darker panel does not read as "raised" in daylight;
+it reads as dirty. (The `/stories` filter bar was exactly this mistake: a muted slab wrapping
+lighter inputs — elevation upside-down.)
+
+**The One-Ramp Rule.** Reach for `shadow-sm`/`shadow-lg`/`shadow-2xl`, never a hardcoded
+`shadow-[…]` arbitrary value. A literal shadow can only be tuned for one rendition, and will be
+wrong in the other — which is how `0 28px 78px rgba(27,22,18,0.55)` on the story-card stack and
+`0 22px 70px rgba(0,0,0,.4)` on the quiz panel both became grey smudges in light mode.
+
+**The Warm-Ink Rule.** If a shadow ever must be written literally, tint it with the palette's warm
+foreground in light. Never neutral black.
+
+**The One Dark Band Rule.** The light rendition gets exactly ONE full-width dark band: the
+`.journiq-share` contribute CTA. Everything else that used to be dark is either an inset plate (the
+hero) or flips with the theme (the footer, the header).
+
+The landing page used to open on a full-bleed near-black hero and close on the share band running
+straight into an always-dark footer — roughly 1400px of unbroken dark, with warm off-white body
+content sandwiched between them. It read as slabs from a different design pasted onto paper. It
+also hid a real bug: light `--forest` was `#17110d`, a warm brown-black left over from the retired
+Field Journal palette, butting directly against `.journiq-share`'s cool `rgba(2, 4, 6, …)` — two
+different blacks touching with a visible hue seam that existed only in light mode.
+
+Scarcity is what makes the remaining band mean something: with one dark band on the page, the
+contribute CTA is the emphatic beat it was always meant to be.
+
+**The Mounted Plate Rule.** Photography on the light ground goes in a rounded, shadowed container
+inside the page gutter (`rounded-[20px]` mobile / `rounded-[28px]` up, `shadow-2xl`), not
+edge-to-edge. A dark photo bled to the viewport edge reads as a slab; the same photo mounted reads
+as a photograph ON a page — which is also what an archive actually does with a plate. The hero
+follows this; new photographic sections should too.
 
 ## Shapes
 
@@ -324,11 +367,11 @@ text-accent-foreground`.
 
 ### Navigation
 
-- **Style:** sticky header, transparent-over-hero gradient (`.journiq-header`) on the home route
-  above the scroll threshold, solid (`.journiq-header-solid`, `var(--header-solid)`) everywhere
-  else and once scrolled. Because `--header-solid` and `text-foreground` both resolve per theme,
-  no route needs a special case — the header is one component in two states, not per-route
-  variants. Nav links use `.journiq-nav-link`'s underline-on-hover treatment (accent-coloured
+- **Style:** sticky header, ALWAYS solid (`.journiq-header-solid`, `var(--header-solid)`, plus
+  `shadow-sm` from the elevation ramp). There is no transparent-over-hero state: the home hero is
+  now an inset plate that begins below the header, so there is no photo to sit over, and a
+  transparent header would draw white nav text onto the light page ground. Because
+  `--header-solid` and `text-foreground` both resolve per theme, no route needs a special case. Nav links use `.journiq-nav-link`'s underline-on-hover treatment (accent-coloured
   underline that grows in from the left on hover).
 - **Mobile:** primary nav and auth controls collapse behind `MobileNavToggle`; a signed-in user
   instead sees `UserAvatarMenu`, which folds the primary nav links into its own dropdown
@@ -349,8 +392,10 @@ scale(0.96)` → resting state), backdrop fades independently. Fully collapses t
   underline — see The One Accent Rule.
 - **Do** decide every colour for both themes at once, and give it a token with two values rather
   than a `dark:` override — see The Two Renditions Rule.
-- **Do** keep surfaces flat at rest and reserve shadow for hover response, the story-card-stack's
-  photo-depth effect, or the quiz panel — see The Rest-Is-Flat Rule.
+- **Do** give resting surfaces `shadow-sm` from the shared ramp, and step up on hover — see the
+  One-Ramp Rule. Dark renders it as near-nothing; light needs it to read as a surface at all.
+- **Do** keep `--surface-muted` for genuine recesses only, never for grouping panels — see The
+  Recess Rule.
 - **Do** use full-pill shape for any new interactive control at button/chip scale.
 - **Do** set numerals, counts, and record fields in Geist Mono — see The Mono-Means-Record Rule.
 - **Do** gate all new motion behind `prefers-reduced-motion: reduce` **and**
@@ -368,7 +413,10 @@ scale(0.96)` → resting state), backdrop fades independently. Fully collapses t
   removed app-wide; primary actions take `bg-accent` / `text-accent-foreground`.
 - **Don't** reach for a raw `text-red-*` for errors; use `text-destructive`, the only error colour
   that clears contrast on both grounds.
-- **Don't** add a persistent shadow to a surface at rest outside the two documented exceptions.
+- **Don't** write a hardcoded `shadow-[…]` arbitrary value. It can only be tuned for one
+  rendition and will be wrong in the other — see The One-Ramp Rule.
+- **Don't** verify a light-mode change by checking contrast ratios alone. Equal ratios do not mean
+  equal perceptual separation across the two grounds — see Elevation & Depth.
 - **Don't** reintroduce a scroll reveal that defaults to `opacity: 0` — content must be readable
   with no JS and in browsers without scroll timelines.
 - **Don't** use emoji or Unicode glyphs as an icon system; icons are drawn SVG from

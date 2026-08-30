@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
 import { MobileNavToggle } from "@/components/mobile-nav-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -10,7 +9,6 @@ import { AuthModal } from "@/components/auth/auth-modal";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { SignUpForm } from "@/components/auth/sign-up-form";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
-import { useSyncedBoolean } from "@/lib/hooks/use-synced-boolean";
 import { createClient } from "@/lib/supabase/client";
 import type { AppRole } from "@/lib/auth/staff-guard";
 
@@ -24,21 +22,21 @@ const primaryNav = [
   { href: "/about", label: "About" },
 ];
 
-const SCROLL_THRESHOLD = 24;
-
 type AuthModalKind = "sign-in" | "sign-up" | null;
 
 /**
  * Shared across every public and auth route ((public)/layout.tsx AND
- * (auth)/layout.tsx both render this) -- only the home page has a photo
- * hero behind it, so the transparent-over-hero treatment is gated on both
- * the route (usePathname() === "/") and scroll position, not applied
- * unconditionally. Everywhere else -- and on home once scrolled past the
- * hero -- it's a normal solid header. The header's own box never changes
- * size when toggling (no negative margin here); the home page's hero
- * section supplies its own `-mt-[76px]` to tuck in behind the header
- * instead, so switching from transparent to solid never causes a layout
- * jump.
+ * (auth)/layout.tsx both render this). The header is ALWAYS a solid themed
+ * surface -- there is no transparent-over-hero state.
+ *
+ * There used to be one, gated on `pathname === "/" && !scrolled`, because
+ * the home hero ran full-bleed and tucked itself behind the header with a
+ * `-mt-[76px]`. That hero is now an inset plate that starts below the
+ * header (see app/(public)/page.tsx), so there is no longer a photo for a
+ * transparent header to sit over -- keeping the state would have drawn
+ * white nav text straight onto the light page ground. Removing it also
+ * removes a scroll listener from every public route and the `inverted`
+ * prop threading that went with it.
  *
  * "Sign in" and "Share your story" open a modal (components/auth/auth-modal.tsx)
  * wrapping the same SignInForm/SignUpForm the real /sign-in and /sign-up
@@ -73,20 +71,6 @@ type AuthModalKind = "sign-in" | "sign-up" | null;
  * is reading, so the public nav bar stays Stories/Destinations/About.
  */
 export function SiteHeader() {
-  const pathname = usePathname();
-  const scrolled = useSyncedBoolean(
-    (callback) => {
-      window.addEventListener("scroll", callback, { passive: true });
-      return () => window.removeEventListener("scroll", callback);
-    },
-    () => window.scrollY > SCROLL_THRESHOLD,
-  );
-  // Only the home page has a photo hero for the header to sit over. Once
-  // scrolled (and on every other route) the header is a normal themed
-  // surface -- `--header-solid` and `text-foreground` already resolve per
-  // theme, so no route needs a special case.
-  const transparent = pathname === "/" && !scrolled;
-  const inverted = transparent;
   const [authModal, setAuthModal] = useState<AuthModalKind>(null);
   const [signedIn, setSignedIn] = useState(false);
   const [avatarEmoji, setAvatarEmoji] = useState<string | null>(null);
@@ -147,12 +131,12 @@ export function SiteHeader() {
     };
   }, []);
 
-  const headerToneClasses = transparent
-    ? "journiq-header text-white"
-    : "journiq-header-solid border-b border-border-subtle text-foreground";
-  const signInToneClasses = inverted
-    ? "border-white/60"
-    : "border-border-subtle";
+  // shadow-sm resolves to the themed elevation ramp: a soft lift in light,
+  // where the bar shares --background with the page and a hairline alone
+  // barely separates it, and near-nothing in dark, where it already does.
+  const headerToneClasses =
+    "journiq-header-solid border-b border-border-subtle text-foreground shadow-sm";
+  const signInToneClasses = "border-border-subtle";
 
   return (
     <header
@@ -184,13 +168,9 @@ export function SiteHeader() {
           </div>
 
           <div className="flex items-center gap-2">
-            <ThemeToggle inverted={inverted} />
+            <ThemeToggle />
             {signedIn ? (
-              <UserAvatarMenu
-                emoji={avatarEmoji}
-                inverted={inverted}
-                role={role}
-              />
+              <UserAvatarMenu emoji={avatarEmoji} role={role} />
             ) : (
               <>
                 <button
@@ -213,20 +193,18 @@ export function SiteHeader() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2 md:hidden">
-          <ThemeToggle inverted={inverted} />
+          <ThemeToggle />
           {signedIn ? (
             // Replaces the hamburger entirely on mobile once signed in --
             // its dropdown carries the primary nav links too (extraItems),
             // so nothing from the old hamburger menu is lost.
             <UserAvatarMenu
               emoji={avatarEmoji}
-              inverted={inverted}
               extraItems={primaryNav}
               role={role}
             />
           ) : (
             <MobileNavToggle
-              inverted={inverted}
               navItems={[
                 ...primaryNav,
                 { label: "Sign in", onClick: () => setAuthModal("sign-in") },

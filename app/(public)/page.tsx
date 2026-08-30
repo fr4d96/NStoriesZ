@@ -17,9 +17,12 @@
  *   lead shows what a story looks like, the index proves there is a real
  *   body of them and lets the reader narrow by place and work, the model is
  *   explained, and the page closes on one contribute CTA.
- * FIRST VIEWPORT: full-bleed slideshow, heavy scrim, bottom-left headline
- *   with one cyan word, ghost-outline primary CTA plus a quiet text link,
- *   and a live numbered slide index tracking the actual active photo.
+ * FIRST VIEWPORT: an inset slideshow PLATE (rounded, elevated, inside the
+ *   page gutter -- not full-bleed; see The Mounted Plate Rule in DESIGN.md),
+ *   heavy scrim, bottom-left headline with one cyan word, ghost-outline
+ *   primary CTA plus a quiet text link, and a live numbered slide index
+ *   tracking the actual active photo. The header sits solid above it rather
+ *   than dissolving into it.
  * FORM: archive index. The Night Field palette this page introduced is now
  *   the app-wide token set (app/globals.css), so this page no longer scopes
  *   its own. Motion is one authored idea (a lens focus pull) expressed in
@@ -97,36 +100,49 @@ export default async function HomePage() {
         <span className="block h-full w-full bg-accent" />
       </div>
 
-      {/* -mt-[76px] tucks the hero behind the sticky header (which keeps its
-          normal 76px box -- see components/site-header.tsx) so the photo runs
-          full-bleed. svh rather than vh so a mobile URL bar collapsing does
-          not resize the hero mid-scroll; clamped so it stays cinematic on a
-          short phone and does not become a canyon on a tall desktop. */}
-      <section className="nf-dark-band relative isolate -mt-[76px] flex h-[92svh] max-h-[900px] min-h-[560px] overflow-hidden bg-[#05070a] text-white">
-        <HeroSlideshow />
-        <div className="relative mx-auto flex w-full max-w-[1440px] items-end px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
-          <div className="max-w-3xl">
-            <h1 className="nf-hero-pull font-sans text-[clamp(2.5rem,8vw,6.8rem)] leading-[0.95] font-extrabold tracking-[-.03em] text-balance text-white">
-              Real stories from across{" "}
-              <span className="text-accent">Aotearoa</span>.
-            </h1>
-            <p
-              className="nf-hero-pull mt-5 max-w-lg text-base text-white/80 sm:mt-6 sm:text-lg"
-              style={{ animationDelay: "140ms" }}
-            >
-              First-person accounts of the jobs, places, and moments from
-              travellers who have lived the working-holiday experience.
-            </p>
-            <div
-              className="nf-hero-pull mt-7 flex flex-wrap items-center gap-x-6 gap-y-4 sm:mt-8"
-              style={{ animationDelay: "260ms" }}
-            >
-              <Link href="#index" className="night-button-primary">
-                Read the stories <ArrowRightIcon className="h-4 w-4" />
-              </Link>
-              <Link href="#how" className="night-button-ghost">
-                or see how this works
-              </Link>
+      {/*
+        The hero is an inset PLATE, not a full-bleed band.
+
+        It used to run edge-to-edge with a `-mt-[76px]` tucking it behind a
+        transparent header. That reads as cinema in the dark rendition, but in
+        light mode it put a ~900px near-black slab hard against warm off-white
+        paper -- a slab from a different design, not a page. Mounting the photo
+        inside the page gutter with the palette's own radius and elevation makes
+        it read as a photograph ON the page in both renditions, which is also
+        truer to the archive thesis: an archive shows you a mounted plate.
+
+        `overflow-hidden` + `isolate` keep the Ken Burns zoom clipped to the
+        rounded box. svh rather than vh so a mobile URL bar collapsing does not
+        resize the hero mid-scroll; clamped so it stays cinematic on a short
+        phone and does not become a canyon on a tall desktop.
+      */}
+      <section className="px-4 pt-5 sm:px-6 sm:pt-6 lg:px-8">
+        <div className="nf-dark-band relative isolate mx-auto flex h-[74svh] max-h-[780px] min-h-[520px] w-full max-w-[1440px] overflow-hidden rounded-[20px] bg-[#05070a] text-white shadow-2xl sm:rounded-[28px]">
+          <HeroSlideshow />
+          <div className="relative flex w-full items-end px-6 pb-12 sm:px-10 sm:pb-14 lg:px-14">
+            <div className="max-w-3xl">
+              <h1 className="nf-hero-pull font-sans text-[clamp(2.5rem,8vw,6.8rem)] leading-[0.95] font-extrabold tracking-[-.03em] text-balance text-white">
+                Real stories from across{" "}
+                <span className="text-accent">Aotearoa</span>.
+              </h1>
+              <p
+                className="nf-hero-pull mt-5 max-w-lg text-base text-white/80 sm:mt-6 sm:text-lg"
+                style={{ animationDelay: "140ms" }}
+              >
+                First-person accounts of the jobs, places, and moments from
+                travellers who have lived the working-holiday experience.
+              </p>
+              <div
+                className="nf-hero-pull mt-7 flex flex-wrap items-center gap-x-6 gap-y-4 sm:mt-8"
+                style={{ animationDelay: "260ms" }}
+              >
+                <Link href="#index" className="night-button-primary">
+                  Read the stories <ArrowRightIcon className="h-4 w-4" />
+                </Link>
+                <Link href="#how" className="night-button-ghost">
+                  or see how this works
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -176,7 +192,7 @@ export default async function HomePage() {
             {steps.map(([title, body], index) => (
               <article
                 key={title}
-                className="nf-lift h-full rounded-2xl bg-surface p-6 transition-transform duration-300 hover:-translate-y-1.5 sm:p-7"
+                className="nf-lift h-full rounded-2xl border border-border-subtle bg-surface p-6 shadow-sm transition-[transform,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-lg sm:p-7"
                 style={{ animationDelay: `${index * 60}ms` }}
               >
                 {/* Deliberately not `.night-heading`: that class carries the
@@ -210,7 +226,7 @@ export default async function HomePage() {
                 point for browsing, not a recommendation.
               </p>
             </div>
-            <div className="nf-pull rounded-[28px] border border-border-subtle bg-surface p-4 shadow-[0_22px_70px_rgba(0,0,0,.4)] sm:p-8 lg:p-10">
+            <div className="nf-pull rounded-[28px] border border-border-subtle bg-surface p-4 shadow-2xl sm:p-8 lg:p-10">
               <DestinationQuiz />
             </div>
           </div>

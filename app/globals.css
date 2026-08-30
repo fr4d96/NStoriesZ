@@ -25,21 +25,42 @@
  *
  * Both themes speak the same language: dark is the signature rendition,
  * light is its counterpart -- the same archive seen in daylight rather than
- * a darkened room. The light ground is a warm off-white (#f6f3ef, ~L 0.97
- * OKLCH at hue 78) and raised surfaces are a warm near-white (#fdfbf8),
- * never stark #ffffff: a pure-white ground under a near-black ink glared
- * and read clinical, which is what this rendition was rewritten to fix.
- * Warmth lives ONLY in the neutrals -- the accent stays cool teal, so the
- * pairing is a warm ground against a cool signal, not the warm-on-warm
- * (cream + brown) cliché, and not a return to the retired Field Journal
- * paper/terracotta world.
+ * a darkened room. The light ground is a warm off-white (#f1ede8) and raised
+ * surfaces are a warm near-white (#fffefc), never stark #ffffff: a pure-white
+ * ground under a near-black ink glared and read clinical, which is what this
+ * rendition was rewritten to fix. Warmth lives ONLY in the neutrals -- the
+ * accent stays cool teal, so the pairing is a warm ground against a cool
+ * signal, not the warm-on-warm (cream + brown) cliché, and not a return to
+ * the retired Field Journal paper/terracotta world.
+ *
+ * WHERE DEPTH COMES FROM -- the two renditions do not agree here, and an
+ * earlier version of this file wrongly assumed they did.
+ *
+ * Dark expresses elevation with FILLS. #05070a -> #0d1218 is only 1.07:1 by
+ * WCAG, but it is a 2.8x jump in relative luminance (0.21% -> 0.58%), and
+ * dark-adapted vision reads ratios at low luminance easily, so a raised card
+ * separates from the ground on fill alone.
+ *
+ * Light cannot do that. Mirroring dark's 1.07:1 gave 89.9% -> 96.6%, a 1.07x
+ * luminance jump -- perceptually nothing. Every card, panel, and modal in the
+ * light rendition was therefore invisible as a distinct surface, and the
+ * whole page read as one flat beige field. The fix is not more contrast
+ * between the fills (there is no headroom left below white); it is to let
+ * light carry elevation in SHADOW instead, via the --elevation-* tokens
+ * below, with the fills only widening slightly to ~1.16:1 to support them.
+ *
+ * The corollary: --surface-muted is a genuine RECESS in light (darker than
+ * the ground -- inputs, image placeholders, insets), and must not be used to
+ * group or raise anything. A darker panel does not read as "raised" in
+ * daylight; it reads as dirty.
  *
  * The accent is the one token that cannot simply invert -- cyan #35d0c4
  * reads at ~10:1 on the near-black ground but only ~1.9:1 on a near-white
- * one, so light mode uses a deepened rendition of the same hue (#00756e,
- * hue 187 preserved), which clears 4.5:1 as text on the page ground, on
- * raised surfaces, AND on --surface-muted (its tightest pairing, 4.53:1),
- * as well as under white text as a fill.
+ * one, so light mode uses a deepened rendition of the same hue (#006f68,
+ * hue 187 preserved), which clears 4.5:1 as text on the page ground (5.2:1),
+ * on raised surfaces (6.0:1), AND on --surface-muted (its tightest pairing,
+ * 4.70:1), as well as under white text as a fill (6.05:1). It was #00756e
+ * until --surface-muted deepened above, which pulled that value to 4.33:1.
  *
  * Theme selection: `data-theme="light"|"dark"` on <html>, set by a blocking
  * inline script in app/layout.tsx before paint (reads localStorage, falls
@@ -53,18 +74,17 @@
  */
 :root {
   color-scheme: light;
-  --background: #f6f3ef;
+  --background: #f1ede8;
   --foreground: #1b1612;
-  --surface: #fdfbf8;
-  --surface-muted: #ece7e1;
-  --border-subtle: rgba(27, 22, 18, 0.15);
-  --accent: #00756e;
+  --surface: #fffefc;
+  --surface-muted: #e8e2db;
+  --border-subtle: rgba(27, 22, 18, 0.22);
+  --accent: #006f68;
   --accent-foreground: #ffffff;
-  --tag-background: rgba(0, 117, 110, 0.11);
+  --tag-background: rgba(0, 111, 104, 0.11);
   --tag-foreground: #005d57;
-  --forest: #17110d;
-  --fern: #00756e;
-  --header-solid: #f6f3ef;
+  --fern: #006f68;
+  --header-solid: #f1ede8;
   /* shadcn/ui + Plate registry component tokens -- deliberately mapped onto
      the palette above rather than shadcn's default gray/blue scale, so
      components pulled from the Plate registry (components/story/editor/*,
@@ -89,12 +109,30 @@
      carries the MOST contrast against its own ground: darkest in light,
      brightest in dark. Validated (single hue, monotone lightness, adjacent
      step gaps, near-surface end >= 2:1) against this rendition's --surface
-     (#fdfbf8 light / #0d1218 dark). Not a second accent: it is one hue,
+     (#fffefc light / #0d1218 dark). Not a second accent: it is one hue,
      and it never appears on a public route. */
   --chart-1: #63bcb2;
   --chart-2: #17968b;
   --chart-3: #00706a;
   --chart-4: #004b46;
+  /* Elevation. Light mode cannot express depth with fills -- see the note at
+     the top of this file -- so it carries the whole hierarchy in these
+     shadows: warm ink (never neutral black, which reads as a cold smudge on
+     this ground), low alpha, two layers each (a tight contact shadow plus a
+     wide ambient one) so a raised surface reads as lifted rather than
+     airbrushed. These feed Tailwind's own shadow-sm/md/lg/xl/2xl scale via
+     the @theme inline block, so every `shadow-*` utility in the app is
+     theme-aware without touching its call site. */
+  --elevation-1:
+    0 1px 2px rgba(27, 22, 18, 0.05), 0 1px 3px rgba(27, 22, 18, 0.04);
+  --elevation-2:
+    0 1px 2px rgba(27, 22, 18, 0.05), 0 4px 10px rgba(27, 22, 18, 0.07);
+  --elevation-3:
+    0 2px 4px rgba(27, 22, 18, 0.05), 0 10px 24px rgba(27, 22, 18, 0.09);
+  --elevation-4:
+    0 4px 8px rgba(27, 22, 18, 0.05), 0 20px 44px rgba(27, 22, 18, 0.11);
+  --elevation-5:
+    0 8px 16px rgba(27, 22, 18, 0.06), 0 32px 64px rgba(27, 22, 18, 0.13);
   --radius: 0.5rem;
 }
 
@@ -108,7 +146,6 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-tag-background: var(--tag-background);
   --color-tag-foreground: var(--tag-foreground);
-  --color-forest: var(--forest);
   --color-fern: var(--fern);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
@@ -128,6 +165,29 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
+  /*
+   * Rebind Tailwind's whole shadow scale onto the themed elevation tokens.
+   *
+   * Tailwind's stock shadows are a fixed neutral-black ramp designed for a
+   * white page. On this app's warm light ground they read as cold grey
+   * smudges, and on the near-black dark ground they are simply invisible --
+   * so every `shadow-md`/`shadow-lg`/`shadow-2xl` already written across the
+   * app was wrong in at least one rendition. Mapping the scale here fixes all
+   * of them at once and keeps future call sites correct by default, which is
+   * why these are aliased rather than introduced as a parallel `elevation-*`
+   * utility nobody would remember to use.
+   *
+   * `@theme inline` is required (not plain `@theme`): it emits `var(--elevation-N)`
+   * into the utility instead of snapshotting the value at build time, so the
+   * shadow re-resolves when `data-theme` flips.
+   */
+  --shadow-2xs: var(--elevation-1);
+  --shadow-xs: var(--elevation-1);
+  --shadow-sm: var(--elevation-2);
+  --shadow-md: var(--elevation-3);
+  --shadow-lg: var(--elevation-4);
+  --shadow-xl: var(--elevation-4);
+  --shadow-2xl: var(--elevation-5);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -164,7 +224,6 @@
     --accent-foreground: #05070a;
     --tag-background: rgba(53, 208, 196, 0.14);
     --tag-foreground: #8fe6da;
-    --forest: #0d1a20;
     --fern: #35d0c4;
     --header-solid: #05070a;
     --muted: var(--surface-muted);
@@ -185,23 +244,37 @@
     --chart-2: #2f9086;
     --chart-3: #3cbdb0;
     --chart-4: #7fe9df;
+    /* Dark's counterpart. Depth here already comes from the surface fills
+     (#05070a -> #0d1218 is a 2.8x luminance jump, which dark-adapted vision
+     reads clearly), so these stay near-invisible -- they exist only to keep a
+     raised surface from fusing with the ground at its edge, and to give the
+     modals/popovers that share these utilities the same geometry in both
+     renditions. Neutral black is correct here; there is no warm ground to
+     tint against. */
+    --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --elevation-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 10px rgba(0, 0, 0, 0.3);
+    --elevation-3:
+      0 2px 4px rgba(0, 0, 0, 0.35), 0 10px 24px rgba(0, 0, 0, 0.38);
+    --elevation-4:
+      0 4px 8px rgba(0, 0, 0, 0.4), 0 20px 44px rgba(0, 0, 0, 0.45);
+    --elevation-5:
+      0 8px 16px rgba(0, 0, 0, 0.45), 0 32px 64px rgba(0, 0, 0, 0.55);
   }
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --background: #f6f3ef;
+  --background: #f1ede8;
   --foreground: #1b1612;
-  --surface: #fdfbf8;
-  --surface-muted: #ece7e1;
-  --border-subtle: rgba(27, 22, 18, 0.15);
-  --accent: #00756e;
+  --surface: #fffefc;
+  --surface-muted: #e8e2db;
+  --border-subtle: rgba(27, 22, 18, 0.22);
+  --accent: #006f68;
   --accent-foreground: #ffffff;
-  --tag-background: rgba(0, 117, 110, 0.11);
+  --tag-background: rgba(0, 111, 104, 0.11);
   --tag-foreground: #005d57;
-  --forest: #17110d;
-  --fern: #00756e;
-  --header-solid: #f6f3ef;
+  --fern: #006f68;
+  --header-solid: #f1ede8;
   --muted: var(--surface-muted);
   --muted-foreground: #6a635c;
   --popover: var(--surface);
@@ -220,6 +293,24 @@
   --chart-2: #17968b;
   --chart-3: #00706a;
   --chart-4: #004b46;
+  /* Elevation. Light mode cannot express depth with fills -- see the note at
+     the top of this file -- so it carries the whole hierarchy in these
+     shadows: warm ink (never neutral black, which reads as a cold smudge on
+     this ground), low alpha, two layers each (a tight contact shadow plus a
+     wide ambient one) so a raised surface reads as lifted rather than
+     airbrushed. These feed Tailwind's own shadow-sm/md/lg/xl/2xl scale via
+     the @theme inline block, so every `shadow-*` utility in the app is
+     theme-aware without touching its call site. */
+  --elevation-1:
+    0 1px 2px rgba(27, 22, 18, 0.05), 0 1px 3px rgba(27, 22, 18, 0.04);
+  --elevation-2:
+    0 1px 2px rgba(27, 22, 18, 0.05), 0 4px 10px rgba(27, 22, 18, 0.07);
+  --elevation-3:
+    0 2px 4px rgba(27, 22, 18, 0.05), 0 10px 24px rgba(27, 22, 18, 0.09);
+  --elevation-4:
+    0 4px 8px rgba(27, 22, 18, 0.05), 0 20px 44px rgba(27, 22, 18, 0.11);
+  --elevation-5:
+    0 8px 16px rgba(27, 22, 18, 0.06), 0 32px 64px rgba(27, 22, 18, 0.13);
 }
 
 :root[data-theme="dark"] {
@@ -233,7 +324,6 @@
   --accent-foreground: #05070a;
   --tag-background: rgba(53, 208, 196, 0.14);
   --tag-foreground: #8fe6da;
-  --forest: #0d1a20;
   --fern: #35d0c4;
   --header-solid: #05070a;
   --muted: var(--surface-muted);
@@ -254,6 +344,19 @@
   --chart-2: #2f9086;
   --chart-3: #3cbdb0;
   --chart-4: #7fe9df;
+  /* Dark's counterpart. Depth here already comes from the surface fills
+     (#05070a -> #0d1218 is a 2.8x luminance jump, which dark-adapted vision
+     reads clearly), so these stay near-invisible -- they exist only to keep a
+     raised surface from fusing with the ground at its edge, and to give the
+     modals/popovers that share these utilities the same geometry in both
+     renditions. Neutral black is correct here; there is no warm ground to
+     tint against. */
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --elevation-2: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 10px rgba(0, 0, 0, 0.3);
+  --elevation-3: 0 2px 4px rgba(0, 0, 0, 0.35), 0 10px 24px rgba(0, 0, 0, 0.38);
+  --elevation-4: 0 4px 8px rgba(0, 0, 0, 0.4), 0 20px 44px rgba(0, 0, 0, 0.45);
+  --elevation-5:
+    0 8px 16px rgba(0, 0, 0, 0.45), 0 32px 64px rgba(0, 0, 0, 0.55);
 }
 
 html {
@@ -303,22 +406,13 @@ body {
 }
 .journiq-button:hover {
   transform: translateY(-2px);
-  /* Warm ink, not pure black: on the light rendition's warm ground
-     (#f6f3ef) a neutral-black shadow reads as a cold gray smudge. Same
-     alpha, same geometry -- only the hue is pulled onto the palette's ink. */
-  box-shadow: 0 10px 24px rgba(27, 22, 18, 0.13);
+  box-shadow: var(--elevation-4);
 }
 /* Applied by components/site-header.tsx only while on the home route and
    above the scroll threshold -- see that file for why the header itself
    never toggles a negative margin (the home hero supplies its own
    -mt-[76px] instead, so switching to/from this class never shifts
    layout). */
-/* Matches .hero-overlay's scrim ink so the header dissolves into the photo
-   rather than laying a differently-tinted band over it. (This was a
-   forest-green tint under the retired Field Journal palette.) */
-.journiq-header {
-  background: linear-gradient(rgba(2, 4, 6, 0.72), transparent);
-}
 .journiq-header-solid {
   background: var(--header-solid);
 }
@@ -511,7 +605,7 @@ body {
   --drag-rotate: 0deg;
   border-radius: 28px;
   overflow: hidden;
-  box-shadow: 0 28px 78px rgba(27, 22, 18, 0.55);
+  box-shadow: var(--elevation-5);
   transform-origin: 50% 96%;
   transform: translate3d(
       calc(var(--stack-x) + var(--drag-x)),
@@ -589,7 +683,7 @@ body {
  * them, so in light mode every token-driven colour inside was resolving to
  * its light rendition against a near-black photo -- the accent word
  * "Aotearoa" and the active slide numeral came out as the deep teal
- * (#00756e ≈ 2.5:1 on the scrimmed photo) instead of the signature cyan.
+ * (#006f68 ≈ 2.4:1 on the scrimmed photo) instead of the signature cyan.
  *
  * Pinning the handful of tokens that actually appear inside these bands to
  * their dark rendition makes the band behave exactly as it does in dark
