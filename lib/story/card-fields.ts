@@ -21,3 +21,14 @@ export function regionNames(regions: unknown): string[] {
     .map((entry) => (entry as RegionEntry)?.region_name)
     .filter((name): name is string => typeof name === "string");
 }
+
+/**
+ * Every destination (town/area) name a story is tagged with. A location row
+ * that names only a region and no destination contributes nothing here.
+ */
+export function destinationNames(regions: unknown): string[] {
+  if (!Array.isArray(regions)) return [];
+  return regions
+    .map((entry) => (entry as RegionEntry)?.destination_name)
+    .filter((name): name is string => typeof name === "string");
+}

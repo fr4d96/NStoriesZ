@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15";
+    PostgrestVersion: "14.5";
   };
   public: {
     Tables: {
@@ -1333,6 +1333,13 @@ export type Database = {
         };
         Returns: undefined;
       };
+      authorize_heic_transcode: {
+        Args: { p_media_id: string };
+        Returns: {
+          staging_path: string;
+          story_id: string;
+        }[];
+      };
       authorize_story_media_preview: {
         Args: { p_media_id: string };
         Returns: undefined;
@@ -1365,6 +1372,12 @@ export type Database = {
         Args: { p_revision_id: string };
         Returns: {
           revision_id: string;
+        }[];
+      };
+      can_view_user_account: {
+        Args: { p_user_id: string };
+        Returns: {
+          user_id: string;
         }[];
       };
       cancel_pending_story_media_upload: {
@@ -1732,6 +1745,30 @@ export type Database = {
           viewer_relationship: string;
         }[];
       };
+      get_user_account_detail: {
+        Args: { p_user_id: string };
+        Returns: {
+          avatar_emoji: string;
+          contributor_display_name: string;
+          contributor_id: string;
+          contributor_public_status: Database["public"]["Enums"]["contributor_status"];
+          created_at: string;
+          display_name: string;
+          email: string;
+          email_confirmed_at: string;
+          home_country_code: string;
+          last_sign_in_at: string;
+          public_profile_enabled: boolean;
+          public_slug: string;
+          recent_activity: Json;
+          role: Database["public"]["Enums"]["app_role"];
+          role_updated_at: string;
+          stories_assigned_as_editor: number;
+          stories_owned: number;
+          stories_published: number;
+          user_id: string;
+        }[];
+      };
       has_role: {
         Args: {
           p_role: Database["public"]["Enums"]["app_role"];
@@ -1813,6 +1850,7 @@ export type Database = {
           lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
           published_at: string;
           published_revision_id: string;
+          regions: Json;
           slug: string;
           source_kind: Database["public"]["Enums"]["story_source_kind"];
           submitted_at: string;
@@ -1900,6 +1938,24 @@ export type Database = {
           isSetofReturn: true;
         };
       };
+      list_user_accounts: {
+        Args: {
+          p_limit?: number;
+          p_offset?: number;
+          p_role?: string;
+          p_search?: string;
+        };
+        Returns: {
+          avatar_emoji: string;
+          created_at: string;
+          display_name: string;
+          email: string;
+          last_sign_in_at: string;
+          role: Database["public"]["Enums"]["app_role"];
+          total_count: number;
+          user_id: string;
+        }[];
+      };
       log_editorial_action: {
         Args: {
           p_action_type: string;
@@ -1938,6 +1994,10 @@ export type Database = {
           p_note?: string;
           p_story_id: string;
         };
+        Returns: undefined;
+      };
+      record_heic_transcoded_original: {
+        Args: { p_media_id: string; p_new_storage_path: string };
         Returns: undefined;
       };
       record_processed_story_media: {

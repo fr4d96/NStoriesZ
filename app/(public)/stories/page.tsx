@@ -11,7 +11,14 @@ import { parseStorySearchParams } from "@/lib/validation/discovery";
 import { FilterBar } from "@/components/story/filter-bar";
 import { StoryCard } from "@/components/story/story-card";
 
-export const revalidate = 60;
+// No `export const revalidate` here on purpose. This route awaits
+// `searchParams` (the filter state), which forces dynamic rendering in the App
+// Router -- confirmed in the production build output, where /stories is
+// `ƒ (Dynamic) server-rendered on demand` with no revalidate period, unlike
+// `/` which builds as `○` static with a 1m period. A `revalidate` export here
+// would be a silent no-op, so don't re-add one. Making this page genuinely
+// cacheable would mean moving the filtering client-side, which is a separate,
+// larger piece of work.
 
 export const metadata: Metadata = {
   title: "Stories",

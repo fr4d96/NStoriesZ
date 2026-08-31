@@ -26,7 +26,7 @@ import {
  * invent a parallel image-upload path: every step below is the same
  * begin_/finalize_story_media_upload -> raw storage upload ->
  * processStoryMedia sequence
- * `app/(contributor)/stories/[id]/edit/upload/route.ts` already uses for a
+ * `app/(contributor)/stories/[id]/edit/upload-actions.ts` already uses for a
  * manual upload, just driven in a loop over rendered PDF pages instead of
  * one `File` from a form.
  *

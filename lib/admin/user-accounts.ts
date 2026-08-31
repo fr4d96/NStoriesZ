@@ -1,6 +1,5 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 import type { AppRoleValue } from "@/lib/validation/admin";
 
 /**
@@ -11,9 +10,12 @@ import type { AppRoleValue } from "@/lib/validation/admin";
  * carries no authorization of its own and cannot accidentally become the
  * only gatekeeper.
  *
- * callUntypedRpc is used because types/database.ts has not been regenerated
- * since these functions landed; see that helper's own comment for the
- * cleanup path.
+ * These were routed through callUntypedRpc while types/database.ts was stale;
+ * the file has since been regenerated from the linked project, so all three
+ * RPCs are fully typed and called directly. The hand-written row types below
+ * are kept deliberately: they are what this module's callers depend on, and
+ * they are wider (nullable) than the generated Returns rows, which describe
+ * the SQL column list rather than each column's nullability.
  */
 
 export type UserAccountRow = {
@@ -34,12 +36,14 @@ export async function listUserAccounts(params: {
   offset: number;
 }): Promise<UserAccountRow[]> {
   const supabase = await createClient();
-  return callUntypedRpc<UserAccountRow[]>(supabase, "list_user_accounts", {
-    p_search: params.search ?? null,
-    p_role: params.role ?? null,
+  const { data, error } = await supabase.rpc("list_user_accounts", {
+    p_search: params.search ?? undefined,
+    p_role: params.role ?? undefined,
     p_limit: params.limit,
     p_offset: params.offset,
   });
+  if (error) throw error;
+  return (data ?? []) as UserAccountRow[];
 }
 
 /**
@@ -86,12 +90,11 @@ export async function getUserAccountDetail(
   userId: string,
 ): Promise<UserAccountDetail | null> {
   const supabase = await createClient();
-  const rows = await callUntypedRpc<UserAccountDetail[]>(
-    supabase,
-    "get_user_account_detail",
-    { p_user_id: userId },
-  );
-  return rows?.[0] ?? null;
+  const { data, error } = await supabase.rpc("get_user_account_detail", {
+    p_user_id: userId,
+  });
+  if (error) throw error;
+  return ((data ?? []) as UserAccountDetail[])[0] ?? null;
 }
 
 /**
@@ -106,8 +109,9 @@ export async function setUserRole(params: {
   role: AppRoleValue;
 }): Promise<void> {
   const supabase = await createClient();
-  await callUntypedRpc<void>(supabase, "admin_set_user_role", {
+  const { error } = await supabase.rpc("admin_set_user_role", {
     p_target_user_id: params.userId,
     p_role: params.role,
   });
+  if (error) throw error;
 }

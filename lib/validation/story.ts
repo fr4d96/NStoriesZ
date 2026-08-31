@@ -276,7 +276,11 @@ export const identifiablePeopleStates = [
 
 export const submitRevisionSchema = z.object({
   revisionId: z.uuid(),
-  expectedVersion: z.number().int(),
+  // .positive(), not just .int() -- see lib/validation/moderation.ts's
+  // "Server Action input schemas" header for the full reasoning: callers
+  // coerce with Number(), Number(null) is 0, and stories.version is always
+  // >= 1, so 0 or negative can only mean a malformed request.
+  expectedVersion: z.number().int().positive(),
   confirmationMethod: z.enum(confirmationMethods),
   publicationConfirmed: z.literal(true, {
     error: "You must confirm you have permission to publish this story.",

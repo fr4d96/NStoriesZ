@@ -6,7 +6,7 @@ import { pdfImportErrorMessage } from "@/lib/story/pdf-import-messages";
 
 // Node runtime (not Edge): pdfjs-dist/@napi-rs/canvas (lib/story/pdf-import.ts)
 // need real Node APIs, same reasoning as
-// app/(contributor)/stories/[id]/edit/upload/route.ts's own runtime pin.
+// app/(contributor)/stories/[id]/edit/upload-actions.ts's own runtime pin.
 export const runtime = "nodejs";
 
 /**
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
  *
  * POST /editorial/new/pdf-preview -- multipart form field: `file` (the raw
  * PDF). A Route Handler, not a Server Action, for the same reason
- * app/(contributor)/stories/[id]/edit/upload/route.ts is: Server Actions
+ * app/(contributor)/stories/[id]/edit/upload-actions.ts is: Server Actions
  * are bound by next.config.ts's `experimental.serverActions.bodySizeLimit`
  * (currently 2.5mb, sized for the separate text/HTML importer) regardless
  * of any in-code check, and MAX_PDF_IMPORT_INPUT_BYTES (75 MiB,

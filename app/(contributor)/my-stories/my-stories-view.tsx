@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
@@ -8,6 +8,8 @@ import { StoryCoverThumbnail } from "./story-cover-thumbnail";
 import { deleteDraftStoryAction } from "./actions";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ALL, FilterRow } from "@/components/story/filter-row";
+import { destinationNames, regionNames } from "@/lib/story/card-fields";
 import { EditorialPencilIcon, EyeIcon, TrashIcon } from "@/components/icons";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
 
@@ -240,11 +242,72 @@ function ListIcon() {
   );
 }
 
+// Client-side location filtering over the contributor's already-loaded
+// stories -- the same shape as the landing page's catalogue index
+// (components/home/story-index.tsx): each axis is built only from values
+// present in this list, and an axis earns its row only if it can actually
+// split the list (more than one value, or a single value that not every
+// story carries), so a chip can never lead to an empty result and a
+// do-nothing control is never rendered.
+type LocationAxis = {
+  key: "region" | "destination";
+  label: string;
+  read: (story: MyStoryWithCover) => string[];
+  options: string[];
+};
+
+function buildLocationAxes(stories: MyStoryWithCover[]): LocationAxis[] {
+  const defs: Array<Pick<LocationAxis, "key" | "label" | "read">> = [
+    { key: "region", label: "Region", read: (s) => regionNames(s.regions) },
+    {
+      key: "destination",
+      label: "Destination",
+      read: (s) => destinationNames(s.regions),
+    },
+  ];
+
+  const axes: LocationAxis[] = [];
+  for (const def of defs) {
+    const counts = new Map<string, number>();
+    for (const story of stories) {
+      for (const value of new Set(def.read(story))) {
+        counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+    }
+    const options = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([value]) => value);
+    const partitions =
+      options.length > 1 ||
+      (options.length === 1 && (counts.get(options[0]) ?? 0) < stories.length);
+    if (partitions) axes.push({ ...def, options });
+  }
+  return axes;
+}
+
 export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
   const view = useSyncExternalStore(
     subscribeToView,
     getViewSnapshot,
     getServerViewSnapshot,
+  );
+
+  const axes = useMemo(() => buildLocationAxes(stories), [stories]);
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>(
+    {},
+  );
+  const filtered = useMemo(
+    () =>
+      stories.filter((story) =>
+        axes.every((axis) => {
+          const value = activeFilters[axis.key];
+          return !value || value === ALL || axis.read(story).includes(value);
+        }),
+      ),
+    [stories, axes, activeFilters],
+  );
+  const isFiltered = axes.some(
+    (axis) => activeFilters[axis.key] && activeFilters[axis.key] !== ALL,
   );
 
   function changeView(next: ViewMode) {
@@ -325,166 +388,226 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
           </Link>
           .
         </p>
-      ) : view === "grid" ? (
-        <ul className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
-          {stories.map((story) => {
-            const { awaitingApproval, editable, deletable } =
-              storyStatusFlags(story);
-            const title = story.title ?? "Untitled story";
-            const href = primaryStoryHref(story);
-            return (
-              <li key={story.id}>
-                <Link
-                  href={href}
-                  className="relative block aspect-square overflow-hidden rounded-md border border-border-subtle"
-                >
-                  <StoryCoverThumbnail
-                    mediaId={story.coverMediaId}
-                    altText={story.coverAltText}
-                  />
-                  <div className="absolute right-2 top-2 rounded-full bg-surface/90 p-0.5 shadow-sm backdrop-blur-sm">
-                    <StatusBadge status={story.lifecycle_status} />
-                  </div>
-                </Link>
-                <div className="mt-2">
-                  <p className="truncate text-sm font-medium">{title}</p>
-                  <div className="-ml-1.5 mt-1 flex flex-wrap items-center">
-                    {editable && (
-                      <ActionIconLink
-                        href={`/stories/${story.id}/edit`}
-                        label={`Edit ${title}`}
-                        className="text-accent"
-                      >
-                        <EditorialPencilIcon className="h-4 w-4" />
-                      </ActionIconLink>
-                    )}
-                    {awaitingApproval ? (
-                      <ActionIconLink
-                        href={`/stories/${story.id}/preview`}
-                        label={`Review ${title}`}
-                        className="text-accent"
-                      >
-                        <EyeIcon className="h-4 w-4" />
-                      </ActionIconLink>
-                    ) : (
-                      <ActionIconLink
-                        href={`/stories/${story.id}/preview`}
-                        label={`Preview ${title}`}
-                        className="text-foreground/70"
-                      >
-                        <EyeIcon className="h-4 w-4" />
-                      </ActionIconLink>
-                    )}
-                    {deletable && (
-                      <DeleteDraftAction story={story} title={title} />
-                    )}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
       ) : (
-        // Styled after the landing page's catalogue index
-        // (components/home/story-index.tsx): hairline-ruled rows (.nf-entry),
-        // a mono tabular numeral, and a cover thumbnail beside the title.
-        // Unlike that index, a row here can't be one big <Link> -- each story
-        // carries its own Edit/Preview actions -- so the thumbnail and title
-        // are the linked targets and the actions sit alongside.
-        <ul className="mt-8">
-          {stories.map((story, index) => {
-            const { awaitingApproval, editable, deletable } =
-              storyStatusFlags(story);
-            const updated = formatDate(story.updated_at);
-            const title = story.title ?? "Untitled story";
-            const href = primaryStoryHref(story);
-            return (
-              <li key={story.id} className="nf-entry">
-                {/* One grid, two shapes. Mobile: [thumb | stacked content],
+        <>
+          {axes.length > 0 && (
+            <div className="mt-8 flex flex-col gap-4 border-b border-border-subtle pb-6">
+              {axes.map((axis) => (
+                <FilterRow
+                  key={axis.key}
+                  label={axis.label}
+                  options={[ALL, ...axis.options]}
+                  active={activeFilters[axis.key] ?? ALL}
+                  onChange={(value) =>
+                    setActiveFilters((current) => ({
+                      ...current,
+                      [axis.key]: value,
+                    }))
+                  }
+                />
+              ))}
+            </div>
+          )}
+
+          {axes.length > 0 && (
+            <p
+              className="mt-5 font-mono text-xs tracking-wider text-foreground/50 tabular-nums"
+              aria-live="polite"
+            >
+              {filtered.length} {filtered.length === 1 ? "STORY" : "STORIES"}
+              {isFiltered ? (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    onClick={() => setActiveFilters({})}
+                    className="underline underline-offset-4 hover:text-accent"
+                  >
+                    CLEAR
+                  </button>
+                </>
+              ) : null}
+            </p>
+          )}
+
+          {filtered.length === 0 ? (
+            <p className="mt-8 text-foreground/65">
+              No stories match those filters.{" "}
+              <button
+                type="button"
+                onClick={() => setActiveFilters({})}
+                className="text-accent underline underline-offset-2"
+              >
+                Clear filters
+              </button>
+              .
+            </p>
+          ) : view === "grid" ? (
+            <ul
+              className={`grid grid-cols-2 gap-4 sm:grid-cols-3 ${
+                axes.length > 0 ? "mt-4" : "mt-8"
+              }`}
+            >
+              {filtered.map((story) => {
+                const { awaitingApproval, editable, deletable } =
+                  storyStatusFlags(story);
+                const title = story.title ?? "Untitled story";
+                const href = primaryStoryHref(story);
+                return (
+                  <li key={story.id}>
+                    <Link
+                      href={href}
+                      className="relative block aspect-square overflow-hidden rounded-md border border-border-subtle"
+                    >
+                      <StoryCoverThumbnail
+                        mediaId={story.coverMediaId}
+                        altText={story.coverAltText}
+                      />
+                      <div className="absolute right-2 top-2 rounded-full bg-surface/90 p-0.5 shadow-sm backdrop-blur-sm">
+                        <StatusBadge status={story.lifecycle_status} />
+                      </div>
+                    </Link>
+                    <div className="mt-2">
+                      <p className="truncate text-sm font-medium">{title}</p>
+                      <div className="-ml-1.5 mt-1 flex flex-wrap items-center">
+                        {editable && (
+                          <ActionIconLink
+                            href={`/stories/${story.id}/edit`}
+                            label={`Edit ${title}`}
+                            className="text-accent"
+                          >
+                            <EditorialPencilIcon className="h-4 w-4" />
+                          </ActionIconLink>
+                        )}
+                        {awaitingApproval ? (
+                          <ActionIconLink
+                            href={`/stories/${story.id}/preview`}
+                            label={`Review ${title}`}
+                            className="text-accent"
+                          >
+                            <EyeIcon className="h-4 w-4" />
+                          </ActionIconLink>
+                        ) : (
+                          <ActionIconLink
+                            href={`/stories/${story.id}/preview`}
+                            label={`Preview ${title}`}
+                            className="text-foreground/70"
+                          >
+                            <EyeIcon className="h-4 w-4" />
+                          </ActionIconLink>
+                        )}
+                        {deletable && (
+                          <DeleteDraftAction story={story} title={title} />
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            // Styled after the landing page's catalogue index
+            // (components/home/story-index.tsx): hairline-ruled rows (.nf-entry),
+            // a mono tabular numeral, and a cover thumbnail beside the title.
+            // Unlike that index, a row here can't be one big <Link> -- each story
+            // carries its own Edit/Preview actions -- so the thumbnail and title
+            // are the linked targets and the actions sit alongside.
+            <ul className={axes.length > 0 ? "mt-4" : "mt-8"}>
+              {filtered.map((story, index) => {
+                const { awaitingApproval, editable, deletable } =
+                  storyStatusFlags(story);
+                const updated = formatDate(story.updated_at);
+                const title = story.title ?? "Untitled story";
+                const href = primaryStoryHref(story);
+                return (
+                  <li key={story.id} className="nf-entry">
+                    {/* One grid, two shapes. Mobile: [thumb | stacked content],
                     numeral hidden (display:none claims no track). From sm up
                     the inner wrapper becomes `display: contents` so its
                     children drop into the parent grid as real columns
                     [numeral | thumb | title+meta | actions]. */}
-                <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 py-4 sm:grid-cols-[2.5rem_5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-5">
-                  <span
-                    aria-hidden="true"
-                    className="hidden font-mono text-sm text-foreground/40 tabular-nums sm:block"
-                  >
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
+                    <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 py-4 sm:grid-cols-[2.5rem_5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-5">
+                      <span
+                        aria-hidden="true"
+                        className="hidden font-mono text-sm text-foreground/40 tabular-nums sm:block"
+                      >
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
 
-                  <Link
-                    href={href}
-                    tabIndex={-1}
-                    aria-hidden="true"
-                    className="block h-12 w-16 overflow-hidden rounded-md border border-border-subtle bg-surface-muted sm:h-14 sm:w-20"
-                  >
-                    <StoryCoverThumbnail
-                      mediaId={story.coverMediaId}
-                      altText={null}
-                    />
-                  </Link>
+                      <Link
+                        href={href}
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        className="block h-12 w-16 overflow-hidden rounded-md border border-border-subtle bg-surface-muted sm:h-14 sm:w-20"
+                      >
+                        <StoryCoverThumbnail
+                          mediaId={story.coverMediaId}
+                          altText={null}
+                        />
+                      </Link>
 
-                  <div className="sm:contents">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={href}
-                          className="font-medium hover:text-accent hover:underline underline-offset-2"
-                        >
-                          {title}
-                        </Link>
-                        <StatusBadge status={story.lifecycle_status} />
+                      <div className="sm:contents">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={href}
+                              className="font-medium hover:text-accent hover:underline underline-offset-2"
+                            >
+                              {title}
+                            </Link>
+                            <StatusBadge status={story.lifecycle_status} />
+                          </div>
+                          {story.excerpt && (
+                            <p className="mt-1 line-clamp-2 text-sm text-foreground/70">
+                              {story.excerpt}
+                            </p>
+                          )}
+                          {updated && (
+                            <p className="mt-1 font-mono text-xs text-foreground/45 tabular-nums">
+                              Updated {updated}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="-ml-1.5 mt-1 flex items-center sm:mt-0">
+                          {editable && (
+                            <ActionIconLink
+                              href={`/stories/${story.id}/edit`}
+                              label={`Edit ${title}`}
+                              className="text-accent"
+                            >
+                              <EditorialPencilIcon className="h-4 w-4" />
+                            </ActionIconLink>
+                          )}
+                          {awaitingApproval ? (
+                            <ActionIconLink
+                              href={`/stories/${story.id}/preview`}
+                              label={`Review ${title}`}
+                              className="text-accent"
+                            >
+                              <EyeIcon className="h-4 w-4" />
+                            </ActionIconLink>
+                          ) : (
+                            <ActionIconLink
+                              href={`/stories/${story.id}/preview`}
+                              label={`Preview ${title}`}
+                              className="text-foreground/70"
+                            >
+                              <EyeIcon className="h-4 w-4" />
+                            </ActionIconLink>
+                          )}
+                          {deletable && (
+                            <DeleteDraftAction story={story} title={title} />
+                          )}
+                        </div>
                       </div>
-                      {story.excerpt && (
-                        <p className="mt-1 line-clamp-2 text-sm text-foreground/70">
-                          {story.excerpt}
-                        </p>
-                      )}
-                      {updated && (
-                        <p className="mt-1 font-mono text-xs text-foreground/45 tabular-nums">
-                          Updated {updated}
-                        </p>
-                      )}
                     </div>
-
-                    <div className="-ml-1.5 mt-1 flex items-center sm:mt-0">
-                      {editable && (
-                        <ActionIconLink
-                          href={`/stories/${story.id}/edit`}
-                          label={`Edit ${title}`}
-                          className="text-accent"
-                        >
-                          <EditorialPencilIcon className="h-4 w-4" />
-                        </ActionIconLink>
-                      )}
-                      {awaitingApproval ? (
-                        <ActionIconLink
-                          href={`/stories/${story.id}/preview`}
-                          label={`Review ${title}`}
-                          className="text-accent"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </ActionIconLink>
-                      ) : (
-                        <ActionIconLink
-                          href={`/stories/${story.id}/preview`}
-                          label={`Preview ${title}`}
-                          className="text-foreground/70"
-                        >
-                          <EyeIcon className="h-4 w-4" />
-                        </ActionIconLink>
-                      )}
-                      {deletable && (
-                        <DeleteDraftAction story={story} title={title} />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

@@ -13,8 +13,13 @@ import type { Database } from "@/types/database";
  * -- verified by reading its implementation before assuming `revalidate`
  * would do anything on a page that only ever calls anon-granted RPCs.
  * Using this client instead of the cookie-bound one is what actually lets
- * `export const revalidate = 60` on the public story/contributor pages take
- * effect. Never used for anything that needs the caller's session (auth
+ * `export const revalidate = 60` take effect on the public pages that can
+ * cache at all: `/` (static), `/stories/[id]` and `/contributors/[slug]`
+ * (ISR per path). It does NOT make `/stories` or `/contributors` cacheable
+ * -- those await `searchParams`, which forces dynamic rendering whatever
+ * client they use, so they carry no `revalidate` export. Cookie-freeness is
+ * still the right choice there, it just buys freshness-for-free rather than
+ * a cache. Never used for anything that needs the caller's session (auth
  * state, ownership, RLS-scoped reads) -- those still go through
  * lib/supabase/server.ts.
  */

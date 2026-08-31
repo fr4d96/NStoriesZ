@@ -235,3 +235,73 @@ describe("reportNoteRequired", () => {
     expect(reportNoteRequired("other", "dismissed")).toBe(false);
   });
 });
+
+// Regression: expectedVersion used to be a bare z.number().int(), which
+// accepted 0. Every caller builds it as Number(formData.get(...)), and
+// Number(null) is 0 -- so a form that simply omitted the field passed
+// validation and only failed later, at the RPC, as a confusing "stale
+// version" error. stories.version is `not null default 1`, so a real version
+// is always >= 1.
+describe("expectedVersion", () => {
+  const base = {
+    revisionId: "11111111-1111-4111-8111-111111111111",
+    decision: "reject" as const,
+    userFacingReason: "Missing required trip dates.",
+  };
+
+  it("rejects 0, which is what Number(null) produces for a missing field", () => {
+    const result = moderateDecisionSchema.safeParse({
+      ...base,
+      expectedVersion: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a negative version", () => {
+    const result = moderateDecisionSchema.safeParse({
+      ...base,
+      expectedVersion: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects NaN, which is what Number('abc') produces", () => {
+    const result = moderateDecisionSchema.safeParse({
+      ...base,
+      expectedVersion: Number("abc"),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-integer version", () => {
+    const result = moderateDecisionSchema.safeParse({
+      ...base,
+      expectedVersion: 1.5,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts 1, the version every freshly created story starts at", () => {
+    const result = moderateDecisionSchema.safeParse({
+      ...base,
+      expectedVersion: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("applies the same rule to archiveStorySchema", () => {
+    const archiveBase = {
+      storyId: "22222222-2222-4222-8222-222222222222",
+      revisionId: "11111111-1111-4111-8111-111111111111",
+      reason: "Contributor asked for it to be taken down.",
+    };
+    expect(
+      archiveStorySchema.safeParse({ ...archiveBase, expectedVersion: 0 })
+        .success,
+    ).toBe(false);
+    expect(
+      archiveStorySchema.safeParse({ ...archiveBase, expectedVersion: 3 })
+        .success,
+    ).toBe(true);
+  });
+});

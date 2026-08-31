@@ -18,7 +18,10 @@ import {
 } from "@/lib/story/moderation";
 import { copyStoryMediaToPublic } from "@/lib/story/image-pipeline";
 import { runApproveOrchestration } from "@/lib/story/publish-orchestration";
-import { invalidateStoryPublicCache } from "@/lib/story/public-cache";
+import {
+  invalidateStoryPublicCache,
+  invalidateStoryListingsPublicCache,
+} from "@/lib/story/public-cache";
 import { logStaffAction } from "@/lib/log";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -32,9 +35,11 @@ import { getErrorMessage } from "@/lib/errors";
  * unhandled error to the moderator even though the underlying
  * approve/archive fully succeeded. Swallowed here (logged, never silently
  * dropped) so a cache-invalidation hiccup can never make a successful
- * publish/archive look like a failure; the public pages still
- * self-correct within their own `revalidate = 60` window either way (see
- * lib/story/public-cache.ts's own header comment).
+ * publish/archive look like a failure; the public pages still self-correct
+ * either way -- `/`, `/stories/[id]` and `/contributors/[slug]` within
+ * their own `revalidate = 60` window, and `/stories`/`/contributors`
+ * immediately, since those two are dynamic and re-query on every request
+ * (see lib/story/public-cache.ts's own header comment).
  */
 function invalidatePublicCacheSafely(slug: string, action: string) {
   try {
@@ -44,6 +49,26 @@ function invalidatePublicCacheSafely(slug: string, action: string) {
       actor: null,
       action: `${action}.cache_invalidation`,
       target: slug,
+      outcome: "error",
+      detail: getErrorMessage(error, "unknown error"),
+    });
+  }
+}
+
+/**
+ * Slug-less variant of the above, for the case where the story's slug could
+ * not be re-derived server-side (see archiveStoryAction). Same "an already-
+ * committed mutation must never be reported as a failure because
+ * revalidatePath() hiccuped" contract, same swallow-but-log behaviour.
+ */
+function invalidateListingsCacheSafely(target: string, action: string) {
+  try {
+    invalidateStoryListingsPublicCache();
+  } catch (error) {
+    logStaffAction({
+      actor: null,
+      action: `${action}.cache_invalidation`,
+      target,
       outcome: "error",
       detail: getErrorMessage(error, "unknown error"),
     });
@@ -242,20 +267,45 @@ export async function archiveStoryAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
+  const actorId = (await getCurrentUser())?.id ?? null;
+
+  // Archiving can still proceed even if this revision lookup fails or comes
+  // back mismatched -- the common case is archiving a long-published story
+  // with no in-flight revision at all, which get_story_for_moderator() has no
+  // row for. What must NOT happen is what used to happen here: the failure
+  // was swallowed silently, slug stayed null, and the cache invalidation below
+  // was skipped ENTIRELY, leaving a just-archived story publicly visible for
+  // up to 60s on /stories and / and up to an hour in the sitemap (Engineering
+  // Rule 12). Now the slug only decides WHICH surfaces get purged, never
+  // whether any do, and the lookup failure is logged rather than dropped.
+  // (approveStoryAction returns a hard error on its equivalent failure; that
+  // is not right for archive, where the mutation is still valid without it.)
   let slug: string | null = null;
   try {
     const rows = await getStoryForModerator(parsed.data.revisionId);
     const detail = rows[0];
     if (detail && detail.story_id === parsed.data.storyId) {
       slug = detail.slug;
+    } else {
+      logStaffAction({
+        actor: actorId,
+        action: "moderation.archive.slug_lookup",
+        target: parsed.data.storyId,
+        outcome: "error",
+        detail: detail
+          ? "revision does not belong to this story"
+          : "no moderator-visible revision for this story",
+      });
     }
-  } catch {
-    // Fall through -- archiving can still proceed even if this particular
-    // revision lookup fails (e.g. archiving a long-published story with no
-    // in-flight revision at all); cache invalidation is best-effort below.
+  } catch (error) {
+    logStaffAction({
+      actor: actorId,
+      action: "moderation.archive.slug_lookup",
+      target: parsed.data.storyId,
+      outcome: "error",
+      detail: getErrorMessage(error, "unknown error"),
+    });
   }
-
-  const actorId = (await getCurrentUser())?.id ?? null;
 
   try {
     await archiveStory({
@@ -276,7 +326,11 @@ export async function archiveStoryAction(
     };
   }
 
-  if (slug) invalidatePublicCacheSafely(slug, "moderation.archive");
+  if (slug) {
+    invalidatePublicCacheSafely(slug, "moderation.archive");
+  } else {
+    invalidateListingsCacheSafely(parsed.data.storyId, "moderation.archive");
+  }
   logStaffAction({
     actor: actorId,
     action: "moderation.archive",

@@ -9,9 +9,9 @@ import {
   stringList,
 } from "@/lib/story/card-fields";
 import type { StoryCardData } from "@/components/story/story-card";
+import { ALL, FilterRow } from "@/components/story/filter-row";
 import { ArrowRightIcon } from "@/components/icons";
 
-const ALL = "All";
 const MAX_OPTIONS = 6;
 
 /**
@@ -139,56 +139,6 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
         <Link href="/stories" className="night-button-primary">
           Browse the full catalogue <ArrowRightIcon className="h-4 w-4" />
         </Link>
-      </div>
-    </div>
-  );
-}
-
-function FilterRow({
-  label,
-  options,
-  active,
-  onChange,
-}: {
-  label: string;
-  options: string[];
-  active: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-      <span
-        aria-hidden="true"
-        className="font-mono text-xs tracking-[0.18em] text-foreground/45 sm:w-14 sm:shrink-0"
-      >
-        {label.toUpperCase()}
-      </span>
-      {/* Edge-to-edge horizontal scroll on phones so a long axis stays one
-          line and the cut-off chip reads as "there is more"; wraps normally
-          from sm up. */}
-      <div
-        role="group"
-        aria-label={`Filter stories by ${label.toLowerCase()}`}
-        className="nf-scroll-x -mx-4 flex snap-x gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
-      >
-        {options.map((option) => {
-          const isActive = option === active;
-          return (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => onChange(option)}
-              className={`shrink-0 snap-start rounded-full border px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
-                isActive
-                  ? "border-accent bg-accent text-accent-foreground"
-                  : "border-border-subtle text-foreground/80 hover:border-accent/60 hover:text-foreground"
-              }`}
-            >
-              {option}
-            </button>
-          );
-        })}
       </div>
     </div>
   );

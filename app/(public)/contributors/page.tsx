@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { listPublicContributors } from "@/lib/story/public-queries";
 
-export const revalidate = 60;
+// No `export const revalidate` here on purpose. This route awaits
+// `searchParams` (the keyset pagination cursor), which forces dynamic
+// rendering in the App Router -- confirmed in the production build output,
+// where /contributors is `ƒ (Dynamic) server-rendered on demand` with no
+// revalidate period. A `revalidate` export here would be a silent no-op, so
+// don't re-add one.
 
 export const metadata: Metadata = {
   title: "Contributors",

@@ -3,8 +3,263 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-24 (admin tooling Phase 2: the /admin dashboard, and the post-login
-redirect that sends admins to it).
+Last updated: 2026-08-31 (audit clean-up sweep: robots gap, `expectedVersion` hardening, silent
+PDF alt-text failure now logged, stale references to a deleted upload route).
+
+**2026-08-31 (latest) — Clean-up sweep: the low-severity findings from the codebase audit.**
+
+The last batch from the audit that produced the two entries below. Nothing here changes a user-visible
+flow; the value is closing small trust-boundary and observability gaps, and stopping the codebase
+pointing at a file that no longer exists.
+
+- **`app/robots.ts` was missing `/readiness` entirely.** Every other staff route group
+  (`/editorial`, `/moderation`, `/admin`) was listed; the content-readiness dashboard was not. It
+  already 404s for anyone without editor/moderator/admin (proxy.ts), so this is crawler hygiene,
+  not an access fix. **Correction to the audit that prompted this:** the audit claimed `/moderation`
+  and `/admin` also needed `/*` wildcard variants to match `/editorial/*`. That was wrong —
+  robots.txt `Disallow` is a _prefix_ match, so `/moderation` already covers
+  `/moderation/stories/:id`. The existing `/editorial/*` line is redundant rather than exemplary;
+  it is left in place to avoid churn, with a comment saying not to copy that shape onto new entries.
+
+- **`expectedVersion` is now `.positive()`, not just `.int()`** — three schemas in
+  `lib/validation/moderation.ts` and one in `lib/validation/story.ts`. Every caller builds the value
+  as `Number(formData.get("expectedVersion"))`, and `Number(null)` is `0`, so a request that simply
+  omitted the field used to pass validation and fail later at the RPC's optimistic-concurrency check
+  as a confusing "stale version" error. `stories.version` is `not null default 1`
+  (`20260803090100_stories.sql`), so a genuine version is always >= 1 and 0-or-negative can only mean
+  a malformed request — reject it at the trust boundary (Engineering Rule 2). NaN was already
+  rejected; Zod's number type refuses it by default. Six regression cases added to
+  `lib/validation/moderation.test.ts`.
+
+- **The PDF import's alt-text loop no longer fails silently.** Both
+  `app/(contributor)/stories/new/pdf-attach/route.ts` and its editorial twin apply per-page alt text
+  in a loop that threads `version` by hand, and a failure part-way hit a bare `catch { break }` — no
+  log, no response field, no trace anywhere. The `break` is kept (once one call's outcome is
+  uncertain, every later `expectedVersion` is a guess), but a partial apply now emits a
+  `pdf-import.alt_text_partial` event with an applied/requested count.
+  - **New `logAppEvent()` in `lib/log.ts`**, a sibling of `logStaffAction()`. That function is
+    explicitly scoped to staff actions and carries an `actor`; the contributor PDF route is not a
+    staff action, and stretching it would have started a per-user trail where none is wanted. The new
+    function carries **no actor** by design and tags `scope: "app-event"`. Both PDF routes use it —
+    including the editor-gated one, deliberately: it is the same event, and splitting one event
+    across two log scopes makes it harder to query. Covered by new `lib/log.test.ts`.
+  - **Not done, needs a UI decision first:** nothing surfaces this to the person importing. The
+    picker redirects to the editor the moment the route responds and reads only `storyId`/`error`, so
+    a user-facing warning needs somewhere to actually appear (a toast on the destination page, most
+    likely, plumbed through the redirect). Deliberately not invented here.
+
+- **Stale references to `app/(contributor)/stories/[id]/edit/upload/route.ts`**, deleted by the
+  2026-08-27 direct-to-storage change, were still directing readers to it from six live code
+  comments. Repointed to `upload-actions.ts`. Two references are left alone on purpose because they
+  correctly describe the file as historical (`upload-actions.ts`'s own "Replaces…" line, and
+  `lib/supabase/server.ts`). Dated entries elsewhere in this file, `docs/pdf-canva-import-plan.md`
+  and `docs/pdf-import-spike-findings.md` are historical records and were **not** rewritten.
+
+- **Found while chasing that:** `createClient()` in `lib/supabase/server.ts` takes a `fetch`
+  override that now has **zero callers** — the direct-to-storage change removed the only one, and the
+  image pipeline went further to raw `node:https` (`lib/story/raw-storage-http.ts`). The comment
+  claiming it had a caller is corrected; the parameter is kept as an extension point rather than
+  removed. **Decide:** delete it if no binary-body caller through the session-bound client ever
+  arrives.
+
+- **`docs/architecture.md`'s "Upload reservation flow" is stale and is now labelled as such.** The
+  folder-structure diagram was corrected to `upload-actions.ts`, but the prose below still describes
+  the deleted Route Handler in the present tense — buffering `request.formData()`, uploading via the
+  server client, and the whole `maxDuration` latency analysis that followed from routing bytes
+  through a Vercel function. A prominent SUPERSEDED banner now heads that subsection and points at
+  the current flow. **Follow-up: that subsection needs a real rewrite.** It was not attempted here
+  because the reservation/idempotency reasoning around it is still accurate and load-bearing, and
+  silently rewriting technical detail that would have to be re-derived is worse than labelling it.
+
+- **Still open, needs a product decision, not code:** private-bucket storage is unbounded per
+  authenticated user. `begin_story_media_upload()` caps images at 12 per revision, but nothing caps
+  revisions or stories per user, and the bucket's `file_size_limit` is 30 MiB. What the per-user
+  ceiling should be is a product call.
+
+**2026-08-31 (earlier) — Phantom ISR removed, and a migration written to kill the My Stories N+1.**
+
+_Two items. The first is a pure no-op deletion plus documentation correction. The second writes SQL
+and applies nothing — it is deliberately left as follow-up work, described in full below._
+
+- **Item 1 — `/stories` and `/contributors` were declaring a cache they never had.** Both carried
+  `export const revalidate = 60`, and both `await searchParams` (filter state on `/stories`, the
+  keyset pagination cursor on `/contributors`), which forces dynamic rendering in the App Router.
+  The `revalidate` export was a **silent no-op** on each. Confirmed against the production build's
+  route table before touching anything: `/` builds `○` with a `1m` revalidate period, while
+  `/stories` and `/contributors` are `ƒ (Dynamic) server-rendered on demand` with no period at all.
+  Both exports are removed and replaced with a comment explaining why a `revalidate` there would do
+  nothing, so nobody re-adds one. **Zero behaviour change** — the pages were already dynamic.
+- **What was NOT touched, and why.** `app/(public)/page.tsx` keeps its `revalidate = 60` (it builds
+  `○` static and works exactly as intended). `app/(public)/stories/[id]/page.tsx` and
+  `app/(public)/contributors/[slug]/page.tsx` keep theirs too: they show `ƒ` **only** because they
+  are dynamic-param routes with no `generateStaticParams` to prerender from, but they are genuinely
+  ISR-cached per path at runtime. `docs/architecture.md`'s "cookie-free public client" section had
+  previously lumped all four `ƒ` routes together and claimed `revalidate` had no practical effect on
+  any of them — that was wrong about the two detail routes, and is now corrected there.
+- **Comments corrected to match reality.** `lib/story/public-cache.ts`'s header claimed all five
+  public pages "carry `export const revalidate = 60`, so they're already eventually consistent
+  within a minute" — now split into the three that cache and the two that do not (and it notes that
+  `revalidatePath()` on an uncached path is a harmless no-op, which is why the purge lists still
+  name `/stories` and `/contributors`). Also corrected: `lib/story/public-queries.ts`'s header,
+  `lib/supabase/public.ts`'s doc comment, `app/(moderation)/moderation/stories/[id]/actions.ts`'s
+  `invalidatePublicCacheSafely` comment, and three passages in `docs/architecture.md`. The
+  cookie-free client itself is unchanged and is still the right choice for these two pages.
+- **The real cost this leaves in place (not fixed here).** `/stories` issues **five** Supabase round
+  trips per visit (regions, destinations, tags, travel styles, stories) plus middleware's
+  `get_published_story` existence check, on **every single request**, and now nothing in the code
+  pretends otherwise. Making it genuinely cacheable means moving the filtering client-side — a
+  separate, larger piece of work, not scheduled.
+- **Item 2 — a migration written, NOT applied: `supabase/migrations/20260831090000_list_my_stories_cover.sql`.**
+  `lib/story/contributor-queries.ts#listMyStoriesWithCovers()` calls `getStoryPreview(story.id)` once
+  per story via `Promise.all` purely to read one cover thumbnail. `get_story_preview()` builds the
+  entire preview payload each time — the revision's full `content_json` plus a `jsonb_agg` of every
+  attached media row — of which the caller keeps two scalars. A contributor with 30 drafts costs 31
+  round trips. The migration adds two trailing OUT columns to `list_my_stories()`,
+  `cover_media_id uuid` and `cover_alt_text text`, populated by a correlated subquery against the
+  same coalesced current-draft-or-published revision (`r.id`) the function already reads, exactly
+  the way `regions` does. Every existing OUT column is preserved; the WHERE clause, ordering and
+  grants are unchanged.
+- **Why a new file rather than editing 20260829090000.** That regions migration is untracked in git
+  but **is already applied** to the linked hosted dev project — confirmed independently by a clean
+  `supabase gen types typescript --linked`, which returned `regions: Json` on `list_my_stories`.
+  Editing it in place would desync migration history from the live dev schema.
+- **Security shape of the new columns (Rules 2, 13, 14).** They return **only** `media_id` and
+  `alt_text` — never `private_storage_path`, `approved_public_storage_path`, or any storage path.
+  The UI passes only a `mediaId` to `StoryCoverThumbnail`, which mints a signed URL separately after
+  independently re-checking authorization; a path here would bypass that. Schema facts verified in
+  `20260803090400_story_media.sql` before writing: the cover flag is
+  `public.story_revision_media.is_cover`, `alt_text` lives on that same join table (per-revision, not
+  on `story_media`), and the partial unique index `story_revision_media_one_cover_idx on
+(revision_id) where is_cover` already guarantees at most one cover per revision — the subquery's
+  `order by sort_order, id limit 1` is belt-and-braces on top of that. Null revision or no cover
+  yields NULL for both, matching the existing null `title`/`excerpt` and `'[]'` regions behaviour.
+- **Follow-up work — exactly what is left to do.** (1) Apply the migration. (2) Run
+  `npm run supabase:types:linked` to regenerate `types/database.ts` (the two new columns do not exist
+  in the generated types until then, which is why **no TypeScript was changed in this task** —
+  `lib/story/contributor-queries.ts` is untouched, since any TS change now would either fail
+  typecheck or need a hand-edit of the generated types, which CLAUDE.md forbids). (3) Rewrite
+  `listMyStoriesWithCovers()` to read `cover_media_id` / `cover_alt_text` straight off the
+  `list_my_stories()` rows and delete the per-story `getStoryPreview()` fan-out entirely; its
+  `MyStoryWithCover` type and the `coverMediaId`/`coverAltText` field names can stay as they are, so
+  no consumer component changes. **`getStoryPreview()` itself must stay** — it has other callers
+  (the edit and preview pages), it is only the fan-out from My Stories that goes away.
+- **Full gate:** `npm run verify` passes end to end — format:check clean, lint 0 errors /
+  155 warnings (unchanged), typecheck clean, **52 files / 515 tests passing**, build succeeds.
+  No test changes were needed: Item 1 deletes two no-op exports and edits comments, and Item 2 adds
+  a `.sql` file that no test exercises. **No database was written to and no types were regenerated.**
+
+**2026-08-31 — Audit follow-up: six diagnosed bugs fixed.**
+
+- **`npm run verify` was failing at step one.** `scripts/.bootstrap-tmp/` is untracked local
+  scratch but appeared in neither `.gitignore` nor `.prettierignore`, so `prettier --check .`
+  failed on it and nothing after it ever ran. Added to both.
+- **Archiving often skipped the public cache purge entirely (Rule 12).** `archiveStoryAction`
+  re-derives the story's slug via `getStoryForModerator(revisionId)` (never trusting a
+  client-supplied slug, Rule 2). When that lookup returned nothing — the common case, archiving
+  a long-published story with **no in-flight revision** — a bare `catch {}` swallowed it, `slug`
+  stayed null, and the guard `if (slug) invalidatePublicCacheSafely(...)` did nothing at all.
+  An archived story could stay publicly listed for up to 60s on `/` and `/stories`, and up to an
+  hour in the sitemap. Now: `lib/story/public-cache.ts` exports
+  `invalidateStoryListingsPublicCache()` (`/stories`, `/`, `/sitemap.xml` — everything that
+  needs no slug), `invalidateStoryPublicCache(slug)` delegates to it so there is one path list,
+  and the archive action falls back to the listings-only purge (wrapped in the same
+  swallow-and-log guard, since the archive has already committed). The failed lookup is now
+  logged via `logStaffAction` as `moderation.archive.slug_lookup` / `outcome: "error"` instead
+  of vanishing. **The slug now decides only WHICH surfaces get purged, never whether any do.**
+- **The proxy threw away refreshed Supabase auth cookies on every early return.** Supabase
+  rotates refresh tokens: `getClaims()` can mint a new one and hand it to the `setAll` callback,
+  which writes it onto the tracked `response`. But all ~17 early returns in `proxy()` (the
+  sign-in redirect, every `flatNotFound()`, every `publicNotFound()`) build a **fresh** response
+  that never carried it — so the new token was burned without ever reaching the browser and the
+  next request could not refresh. Real symptom: clicking one dead story link silently signed a
+  user out. Fixed by collecting each rotated cookie into a local array and replaying it onto the
+  outgoing response through a new `withAuthCookies()` helper, which every early return now goes
+  through. **No authorization logic, regex, status code, body, or header changed** — signed-out
+  and wrong-role callers still get the byte-identical flat 404.
+- **Middleware matcher gap on `/stories/new` subpaths.** The matcher listed `"/stories/new"` as
+  an exact path while `isProtectedPath()` also handles subpaths, so `/stories/new/import`,
+  `/pdf-preview` and `/pdf-attach` never ran the middleware at all. Not an auth hole (the
+  `(contributor)` layout guard and each route's own `getCurrentUser()` still gate them) — the
+  damage was the missing session refresh, which can 401 a long PDF import mid-flow. Changed to
+  `"/stories/new/:path*"`. Verified against the **compiled** matcher regexes in
+  `.next/static/*/_clientMiddlewareManifest.js`, not assumed: `:path*` matches zero segments, so
+  bare `/stories/new` still matches. One entry, not two.
+- **The proxy's Supabase client was untyped.** `createServerClient(...)` carried no `<Database>`
+  generic, so every `.rpc()` name and argument in middleware was unchecked — a typo there would
+  degrade silently into a 404 for real visitors. Now `createServerClient<Database>(...)`, with
+  the per-row helper signatures using a `ProxySupabaseClient` alias.
+- **`types/database.ts` regenerated cleanly (it had been hand-edited, against CLAUDE.md).**
+  `npm run supabase:types:linked` succeeded against the linked dev project. The regenerated file
+  keeps `list_my_stories`'s `regions` (it is really in the project, not just in the working
+  tree) and adds five RPCs that were missing: `can_view_user_account`,
+  `record_heic_transcoded_original`, `authorize_heic_transcode`, `list_user_accounts`,
+  `get_user_account_detail`. Only other delta is a `PostgrestVersion` string. All five
+  `callUntypedRpc` workarounds in `lib/story/mutations.ts` and `lib/admin/user-accounts.ts` are
+  gone, replaced by plain typed `supabase.rpc(...)` calls with explicit `error` handling; the
+  hand-written row types in `user-accounts.ts` are kept deliberately (they are wider/nullable
+  than the generated `Returns` rows, which describe the column list rather than nullability).
+  `lib/supabase/call-untyped-rpc.ts` now has **zero call sites** and is kept only as an escape
+  hatch for the next migration that lands ahead of a regeneration — its comment says so.
+- **Tests:** new `lib/story/public-cache.test.ts` (6 cases: the listings variant purges exactly
+  `/stories`, `/`, `/sitemap.xml` and never a slug path; the slug variant is a strict superset)
+  and new `app/(moderation)/moderation/stories/[id]/actions.test.ts` (8 cases, following
+  `app/(contributor)/actions.test.ts`'s module-boundary mocking pattern: slug resolves → detail
+  page purged; no in-flight revision / lookup throws / revision belongs to another story → the
+  listings are **still** purged; the lookup failure is logged; a throwing invalidation still
+  reports success; a failed archive invalidates nothing; a non-moderator is refused first).
+- **Full gate:** `npm run verify` passes end to end — format:check clean, lint 0 errors /
+  155 warnings (unchanged), typecheck clean, **52 files / 515 tests passing**, build succeeds.
+- **Not done here:** no Playwright spec for the cookie-rotation fix (it needs a real expiring
+  session to exercise, which the current e2e harness cannot stage); the archive fix is covered
+  by unit tests only, not an end-to-end archive-then-check-the-sitemap run.
+
+**2026-08-29 — My Stories can be filtered by location, the same way the landing page can.**
+
+- **What this adds:** the contributor's `/my-stories` page rendered every story it owns as one
+  flat grid/list with only a grid/list view toggle. It now carries client-side chip filter rows
+  for **Region** and **Destination**, modelled exactly on the public landing page's catalogue
+  index (`components/home/story-index.tsx`): each axis is built only from values present in the
+  contributor's own list, an axis only appears if it can actually split that list, and a chip
+  can never lead to an empty result the way a stale server option could.
+- **Migration `20260829090000_list_my_stories_regions.sql`:** `list_my_stories()` returned no
+  location data at all. It now returns a trailing `regions jsonb` column populated by the
+  _identical_ correlated subquery `list_published_stories()` has used since
+  `20260805100100_extend_list_published_stories.sql` — the only difference is the revision it
+  reads: the coalesced current-draft-or-published revision, so an unpublished draft's locations
+  show up too. `DROP FUNCTION` + `CREATE` (return shape change), everything else byte-for-byte
+  the same as the 2026-08-12 title/excerpt revision, including the
+  `revoke ... / grant execute ... to authenticated` tail.
+- **No RLS or grant change, no new data-access path (Rules 2, 3, 10–14):** the function was
+  already `security definer` and already joined `story_revisions` for this same revision;
+  `regions`/`destinations` are the anonymous-readable lookup tables the authoring-form pickers
+  already read (`lib/story/active-lookups.ts`). A story with no current/published revision
+  yields `[]`, matching the existing null `title`/`excerpt` behaviour. Applied to the linked
+  hosted-dev project (`ybhydepjaantkngngvuf`) and verified: the subquery returns
+  `[{"region_name": "...", "destination_name": null|"..."}]` per revision, `list_my_stories()`
+  itself executes clean.
+- **`FilterRow` is now shared, not copied.** The chip-group component was lifted verbatim out of
+  `story-index.tsx` into `components/story/filter-row.tsx` (exporting `ALL` too);
+  `StoryIndex` imports it, `MyStoriesView` imports it. One control, one behaviour (mobile
+  horizontal-scroll, `aria-pressed`, `role="group"` per axis).
+- **`lib/story/card-fields.ts`** gains `destinationNames(regions)`, the exact sibling of the
+  existing `regionNames(regions)` — both take `unknown` and tolerate malformed rows.
+- **`types/database.ts`** got a single surgical line (`regions: Json` on the `list_my_stories`
+  `Returns`). A full `supabase gen types typescript --linked` regeneration was **not** taken:
+  the committed file is stale against several unrelated in-flight RPCs from a parallel branch
+  (`authorize_heic_transcode`, `list_user_accounts`, …) plus a `PostgrestVersion` string drift,
+  and absorbing all of that here would have been noise. Whoever next regenerates types cleanly
+  will reconcile the rest.
+- **Tests:** `card-fields.test.ts` (+3 `destinationNames` cases), new
+  `components/story/filter-row.test.tsx`, and `my-stories-view.test.tsx` (+6: Region row
+  appears & filters, Destination axis filters, no rows when one region is shared, CLEAR resets,
+  distinct "no stories match those filters" empty state vs. the "haven't started" copy).
+  `makeStory()` gained a `regions: []` default. Full unit suite at the time: 50 files / 502
+  tests passing. (Corrected 2026-08-31 — this line previously claimed "53 files / 538 tests".
+  There are 51 `*.test.ts(x)` files on disk, but `tests/integration/story-rls.integration.test.ts`
+  is deliberately excluded from the default run by `vitest.config.ts`'s `exclude`, so 50 is what
+  `npm run test` actually executes.)
+- **Not done here:** no Playwright spec (there is no existing `my-stories` e2e); mobile-viewport
+  visual check (Rule 18) still to be done live against the dev server.
 
 **2026-08-24 — Admin tooling Phase 2: /admin is a real dashboard, and admins now land on it.**
 
@@ -228,57 +483,6 @@ charts, a "waiting longest" worklist, and a catalogue-health strip.
 - **Verified live** (hosted dev project, signed in as the RLS moderator fixture) at 1280px and
   390px in both renditions: zero horizontal overflow, charts render with real data, and the
   empty-queue state reads correctly. `npm run verify` clean (441 tests).
-
-**2026-08-21 — Supabase Storage → Cloudflare R2 migration: phase 1 (foundation) built.**
-
-Full phased plan:
-[`nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md`](../nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md).
-Architecture write-up: `docs/architecture.md` → "Migration in progress: Supabase Storage →
-Cloudflare R2".
-
-- **Runtime behavior is unchanged.** `lib/story/image-pipeline.ts`, the upload route, and
-  `lib/story/public-image-url.ts` all still use Supabase Storage via
-  `lib/story/raw-storage-http.ts`. Phase 2 (dual-write) is the first phase that changes anything a
-  user can observe. This phase is deliberately landable on its own.
-- **Built:** `lib/story/r2-storage.ts` (`r2Upload` / `r2Download` / `r2ObjectExists` / `r2Remove` /
-  `r2PresignedGetUrl`) over R2's S3-compatible API; `getR2Env()` in `lib/env.server.ts` (separate
-  lazy schema from `getAdminEnv()`, server-only per Rule 1); `.env.example` entries;
-  `lib/story/r2-storage.test.ts` (13 tests); `scripts/verify-r2-integrity.mjs`
-  (`npm run r2:verify-integrity`).
-- **Dependencies added** (Rule 20): `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` — R2's
-  documented S3-compatible client and its presigner, replacing Supabase Storage's REST API and
-  `createSignedUrl`. `@smithy/node-http-handler` — pinned explicitly rather than left to the SDK
-  default, to guarantee no `fetch`/`undici` in the binary write path (see next bullet). The 4 high
-  `npm audit` advisories are pre-existing (Next's transitive `sharp`/`postcss`), unchanged by this
-  install.
-- **The prior corruption bug is treated as live risk, not history.** `raw-storage-http.ts` exists
-  because binary upload bytes were intermittently corrupted in production (EF BF BD replacement-
-  character signature), and two plausible-looking fixes at the fetch/undici layer both still failed
-  under real load. So the R2 path pins `requestHandler: NodeHttpHandler` and sets
-  `requestChecksumCalculation: "WHEN_REQUIRED"`, and both choices are pinned by unit tests so a
-  future refactor that drops them fails CI rather than corrupting photos.
-- **Phase 1 exit gate, NOT yet run:** `npm run r2:verify-integrity` round-trips deliberately-
-  invalid-UTF-8 payloads (64 KiB → 14 MiB) concurrently against the real private bucket and
-  compares SHA-256. It needs real Cloudflare credentials, which don't exist yet. **Phase 2 must not
-  begin until this passes.**
-- **Blocked on user/infra (not code):** create the two R2 buckets and a bucket-scoped API token;
-  enable public access on the public bucket and take its `pub-<hash>.r2.dev` URL; populate
-  `R2_*` in `.env.local` and the Vercel project. **A custom domain is deliberately not required**
-  — revised 2026-08-21 from an earlier "custom domain before cutover" call that overstated the
-  urgency. It's worth having before public launch (r2.dev gets no CDN cache treatment, takes no
-  Cache Rules, and is documented as rate-limited/dev-only), but switching later is one env var
-  plus a redeploy because paths are stored relative and the hostname is composed at render time.
-  Added to the pre-public-launch checklist instead.
-- **Known accepted architectural regression, decided deliberately — see architecture.md for the
-  full reasoning.** Supabase Storage RLS (`_can_write_reserved_media_path()`) is currently a
-  _second, independent_ enforcement layer that re-derives authorization from Postgres on every
-  write. R2 has no equivalent and one cannot be built, so at cutover the app layer becomes the
-  _only_ layer. This is not Rule 21 ("never weaken a policy to route around a blocker") — there is
-  no R2 policy to weaken — but it does mean phase 2+ owes explicit tests that an unreserved or
-  wrong-owner key is rejected in application code. Tracked as a phase 2 requirement, not optional.
-  `_can_write_reserved_media_path()` / `_can_access_story_media()` are kept at decommission time;
-  only their use as Storage policies goes away.
-- `npm run verify` passes (0 lint errors, 425 tests, build OK).
 
 **2026-08-20 — Every image upload crashing on Vercel: sharp's native binary wasn't being packaged
 for the deployed Lambda (`ERR_DLOPEN_FAILED`), found from the user's own Vercel Function logs.**

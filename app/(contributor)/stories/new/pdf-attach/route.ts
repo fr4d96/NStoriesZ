@@ -16,9 +16,10 @@ import {
 } from "@/lib/story/mutations";
 import { getStoryPreview } from "@/lib/story/contributor-queries";
 import { getErrorMessage } from "@/lib/errors";
+import { logAppEvent } from "@/lib/log";
 
 // Node runtime (not Edge): same reasoning as pdf-preview/route.ts and
-// app/(contributor)/stories/[id]/edit/upload/route.ts.
+// app/(contributor)/stories/[id]/edit/upload-actions.ts.
 export const runtime = "nodejs";
 
 /**
@@ -181,6 +182,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Best-effort: alt text is a UX nicety on top of, never a precondition for,
+  // the draft existing. A failure part-way still stops the loop -- `version`
+  // is tracked optimistically here, so once one call's outcome is uncertain
+  // every later expectedVersion is a guess -- but it is no longer SILENT,
+  // which is what it used to be. Nothing surfaces this to the contributor yet:
+  // the picker redirects to the editor the moment this responds and reads only
+  // `storyId`/`error`, so a user-facing warning needs a UI decision about
+  // where it would even appear (tracked in docs/implementation-status.md).
+  // Until then the log line is what makes a partial apply diagnosable at all.
+  let altTextApplied = 0;
+  const altTextRequested = attachResult.attached.filter(
+    (page) => altTextMap[String(page.pageNumber)],
+  ).length;
   for (const page of attachResult.attached) {
     const text = altTextMap[String(page.pageNumber)];
     if (!text) continue;
@@ -194,9 +208,18 @@ export async function POST(request: NextRequest) {
         decorative: false,
       });
       version += 1;
+      altTextApplied += 1;
     } catch {
       break;
     }
+  }
+  if (altTextApplied < altTextRequested) {
+    logAppEvent({
+      event: "pdf-import.alt_text_partial",
+      target: storyId,
+      outcome: "error",
+      detail: `applied ${altTextApplied} of ${altTextRequested}`,
+    });
   }
 
   const { contentJson } = buildPdfImportContent(

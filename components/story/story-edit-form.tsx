@@ -514,7 +514,8 @@ export function StoryEditForm({
     }
     const isDuplicate = locations.some(
       (l) =>
-        l.regionId === match.regionId && l.destinationId === match.destinationId,
+        l.regionId === match.regionId &&
+        l.destinationId === match.destinationId,
     );
     if (isDuplicate) {
       setLocationSearchNotice(`"${label}" is already in the list below.`);
