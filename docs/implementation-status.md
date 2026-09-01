@@ -5285,3 +5285,51 @@ anyway, since it is the list, not the type, a future edit would get wrong.
 draft: three items listed and the button inert (clicking it does not navigate); each fix removes
 its line as it is made; adding the last tag makes the panel vanish, ticks step 5, and turns the
 button back into a real link.
+
+---
+
+## 2026-09-02 — "The record" pages five entries at a time
+
+`app/(public)/page.tsx` fetches `listPublishedStories({ limit: 24 })` and `StoryIndex` rendered
+all of it. At two dozen full-height entries the section stopped being a section and became the
+page: everything below it — the trust statements, the "not sure where to start" panel, the
+footer — sat behind a very long scroll.
+
+`components/home/story-index.tsx` now shows `PAGE_SIZE = 5` and pages the rest.
+
+- **Paging, not "show more".** This is an index with a numbered spine; a reader who walked to
+  entry 18 should be able to get back to it, which an append-only list cannot offer.
+- **Entry numerals stay continuous.** `position` is the index into the whole filtered record, not
+  into the page, so page two starts at 06 rather than restarting at 01. The numerals are the
+  record's spine; restarting them per page would make them meaningless.
+- **Page buttons render as `2`, not `02`.** Caught by a test that found two elements reading
+  "01" — a real ambiguity, not just a query problem: a pager styled like the entry numerals puts
+  a second "01" on screen meaning something else entirely.
+- **`SHOWING 1–5` joins the existing `16 ENTRIES` line**, which is already `aria-live="polite"`,
+  so a page change announces itself the way filtering already did. Without it the whole list
+  underneath is replaced silently.
+- **Changing a filter returns to page one.** Narrowing a 20-entry record while on page 4 would
+  otherwise land on a page that no longer exists. The render also clamps `page` to `pageCount`
+  independently, so a stale value can never slice past the end.
+- **Paging moves focus to the list** (`tabIndex={-1}` + `scroll-mt-24`) and scrolls it to the
+  top. Otherwise the reader is left at the bottom looking at the pager with the new page's first
+  entry somewhere above them, and a keyboard user's next Tab restarts at the filters. `instant`
+  scroll for the reason recorded earlier: globals.css sets `scroll-behavior: smooth` and the
+  `focus()` a line later cancels an animating scroll partway.
+- Prev/Next stay visible and `disabled` at the boundaries rather than disappearing, so reaching
+  page one does not shift every other control sideways. Page buttons are 32px tall to sit with
+  the 34px filter chips above them and clear WCAG 2.2's 24px target minimum.
+
+No ellipsis window in the pager: the landing page fetches at most 24 stories, so it tops out at
+five page buttons.
+
+7 new cases in `app/(public)/page.test.tsx`: five entries at first view, no pager when the record
+fits on one page, Next advances the window, numbering stays continuous, boundary buttons disable,
+`aria-current="page"` tracks the current page, and a filter change returns to page one.
+`npm run verify` clean: 0 lint errors, 649/649 tests, build compiles.
+
+Live-verified against the dev database's 16 published stories at 1280 and 375 wide: 5 entries,
+"16 ENTRIES · SHOWING 1–5", four page buttons, Prev disabled; page 3 shows entries 11–15 with the
+list focused and scrolled to 96px so it clears the sticky header. **Pre-existing, not introduced
+here:** the landing page has ~12px of horizontal overflow at 375px coming from the hero
+slideshow's `hero-slide` transforms — none of it from `#index`.
