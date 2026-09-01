@@ -1,73 +1,119 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { createDraftAction, type NewStoryFormState } from "./actions";
-import { Spinner } from "@/components/ui/spinner";
+
+const initialState: NewStoryFormState = {};
+
+const MAX_TITLE_LENGTH = 200;
 
 /**
- * Skips the old "type a working title, then click Start writing" page --
- * lands straight on the real editor, where Title is already a required,
- * clearly-marked field (see story-edit-form.tsx's RequiredMark). Fires
- * createDraftAction() itself, once, on mount, with a fixed placeholder
- * title -- calling a "use server" action directly as a function (not via a
- * <form action>) is a supported pattern and behaves identically, including
- * `redirect()` inside it, which is what actually navigates away once the
- * draft exists.
+ * Asks for a real title BEFORE any draft row exists.
  *
- * `started` is a ref, not state -- React 18 Strict Mode's dev-only
- * double-invoke of effects would otherwise create two draft stories per
- * visit; a ref survives that because it isn't reset between the two calls
- * the way component state would be by a remount.
+ * This deliberately replaces the previous zero-click behavior, where
+ * visiting /stories/new fired createDraftAction() from a mount effect with
+ * a hardcoded "Untitled story" and redirected straight into the editor.
+ * That created a story on every visit -- including accidental ones -- and
+ * every such story carried a placeholder title that had to be noticed and
+ * cleaned up later, in My Stories, in the delete-empty-draft flow, and in
+ * the editor's own required-Title field. A title is the one thing a
+ * contributor always already has in mind when they click "New Story", so
+ * asking for it is the cheapest possible gate and it means no untitled
+ * draft is ever written.
  *
- * A GET-navigated page.tsx doing this mutation directly (no client
- * component, no explicit action call) was deliberately avoided: Next.js
- * Link prefetching could then create a story every time this route's link
- * scrolls into view, not only on an actual click.
+ * Nothing is created until submit. `createDraftAction` still owns the whole
+ * server side unchanged -- auth, createDraftSchema validation (title
+ * trimmed, 1-200 chars), the contributor-identity error, and the
+ * `redirect()` into /stories/:id/edit on success. Submitting through
+ * `<form action={formAction}>` (rather than calling the action from an
+ * effect, as before) is what lets that redirect navigate normally and what
+ * makes a double-submit impossible: `pending` disables the button, and
+ * there is no Strict-Mode double-invoke to guard with a ref any more.
  *
- * Kept as the zero-click default for `/stories/new` -- every existing entry
- * point ("New Story" in the header/nav/my-stories, e2e tests) expects an
- * immediate redirect to a real draft's edit page. The PDF/Canva import
- * option lives at the separate `/stories/new/import` route
- * (pdf-import-picker.tsx) instead of replacing this behavior in place.
+ * The PDF/Canva import option still lives at /stories/new/import
+ * (pdf-import-picker.tsx), which has always asked for a title first too --
+ * the two entry points now behave the same way.
  */
 export function StartNewStory() {
-  const [error, setError] = useState<string | null>(null);
-  const started = useRef(false);
+  const [state, formAction, pending] = useActionState(
+    createDraftAction,
+    initialState,
+  );
+  const [title, setTitle] = useState("");
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-
-    const formData = new FormData();
-    formData.set("title", "Untitled story");
-    createDraftAction({} as NewStoryFormState, formData).then((result) => {
-      if (result.error) setError(result.error);
-      // No redirect() reached: the action itself already navigated away on
-      // success, so there is nothing further to do here in that case.
-    });
-  }, []);
-
-  if (error) {
-    return (
-      <div className="mx-auto max-w-md px-4 py-16 text-center sm:px-6">
-        <p role="alert" className="text-destructive">
-          {error}
-        </p>
-        <Link
-          href="/my-stories"
-          className="mt-4 inline-block text-sm underline underline-offset-2"
-        >
-          Back to My Stories
-        </Link>
-      </div>
-    );
-  }
+  const trimmedLength = title.trim().length;
+  const canSubmit = trimmedLength > 0 && !pending;
 
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-3 px-4 py-24 text-center sm:px-6">
-      <Spinner className="h-6 w-6 text-foreground/60" />
-      <p className="text-foreground/70">Starting your story…</p>
+    <div className="mx-auto max-w-md px-4 py-12 sm:px-6 sm:py-16">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        Name your story
+      </h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Give it a working title to start. You can change it any time while you
+        write.
+      </p>
+
+      <form action={formAction} className="mt-8 space-y-5" noValidate>
+        <div>
+          <label
+            htmlFor="new-story-title"
+            className="block text-sm font-medium"
+          >
+            Title
+            <span className="text-destructive">
+              <span aria-hidden="true"> *</span>
+              <span className="sr-only"> required</span>
+            </span>
+          </label>
+          <input
+            id="new-story-title"
+            name="title"
+            type="text"
+            required
+            autoFocus
+            maxLength={MAX_TITLE_LENGTH}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Six months picking kiwifruit in Te Puke"
+            className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {trimmedLength}/{MAX_TITLE_LENGTH}
+          </p>
+        </div>
+
+        {state.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {state.error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="w-full rounded-md bg-accent px-3 py-2 text-accent-foreground hover:opacity-90 disabled:opacity-60"
+        >
+          {pending ? "Starting…" : "Start writing"}
+        </button>
+
+        <p className="text-sm text-muted-foreground">
+          Have it as a PDF or Canva export?{" "}
+          <Link
+            href="/stories/new/import"
+            className="underline underline-offset-2"
+          >
+            Import it instead
+          </Link>
+          .
+        </p>
+        <p className="text-sm text-muted-foreground">
+          <Link href="/my-stories" className="hover:underline">
+            Back to My Stories
+          </Link>
+        </p>
+      </form>
     </div>
   );
 }

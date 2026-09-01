@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getPublicImageUrl } from "@/lib/story/public-image-url";
 import {
@@ -9,10 +9,24 @@ import {
   stringList,
 } from "@/lib/story/card-fields";
 import type { StoryCardData } from "@/components/story/story-card";
+import { ALL, FilterRow } from "@/components/story/filter-row";
 import { ArrowRightIcon } from "@/components/icons";
 
-const ALL = "All";
 const MAX_OPTIONS = 6;
+
+/**
+ * Entries shown at once. The record is the landing page's spine, and at
+ * `listPublishedStories({ limit: 24 })` an unpaged list put two dozen
+ * full-height entries between the filters and everything below them --
+ * the section became the page. Five is enough to show what the record is
+ * and how its entries read, without the rest of the page disappearing
+ * under it.
+ *
+ * Paging, not "show more": this is an index with a numbered spine, and a
+ * reader who has walked to entry 18 should be able to get back to it. The
+ * full, server-filtered catalogue is still one click away at /stories.
+ */
+const PAGE_SIZE = 5;
 
 /**
  * The catalogue index -- the landing page's single browse surface.
@@ -70,6 +84,22 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
   }, [stories]);
 
   const [active, setActive] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const listRef = useRef<HTMLUListElement>(null);
+  // Set only by goToPage(), so the focus effect fires on a real page change
+  // and never on first render.
+  const pageChangedRef = useRef(false);
+
+  /**
+   * Changing a filter returns to the first page. Without it, narrowing a
+   * 20-entry list while on page 4 lands on a page that no longer exists --
+   * the clamp below would rescue the render, but the reader would still
+   * have silently jumped pages without asking to.
+   */
+  function changeFilter(key: string, value: string) {
+    setActive((current) => ({ ...current, [key]: value }));
+    setPage(1);
+  }
 
   const filtered = useMemo(
     () =>
@@ -86,6 +116,33 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
 
   const isFiltered = axes.some((a) => active[a.key] && active[a.key] !== ALL);
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Clamped rather than trusted: `page` can outlive the list it indexed
+  // into (a filter applied from another axis, or a batch that shrank
+  // between renders), and slicing past the end would render an empty page
+  // with no way back except the browser's own back button.
+  const currentPage = Math.min(page, pageCount);
+  const firstIndex = (currentPage - 1) * PAGE_SIZE;
+  const visible = filtered.slice(firstIndex, firstIndex + PAGE_SIZE);
+
+  function goToPage(next: number) {
+    const clamped = Math.min(Math.max(1, next), pageCount);
+    if (clamped === currentPage) return;
+    pageChangedRef.current = true;
+    setPage(clamped);
+    // Paging is a navigation: without this the reader is left at the
+    // bottom of the section looking at the page controls, with the new
+    // page's first entry somewhere above them. Focus moves too, so a
+    // keyboard user's next Tab starts in the new page rather than back at
+    // the filters, and a screen reader is told where it landed.
+    // `instant` because app/globals.css sets `scroll-behavior: smooth` and
+    // the focus() a line later cancels an animating scroll partway.
+    requestAnimationFrame(() => {
+      listRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+      listRef.current?.focus({ preventScroll: true });
+    });
+  }
+
   return (
     <div>
       {axes.length > 0 ? (
@@ -96,9 +153,7 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
               label={axis.label}
               options={[ALL, ...axis.options]}
               active={active[axis.key] ?? ALL}
-              onChange={(value) =>
-                setActive((current) => ({ ...current, [axis.key]: value }))
-              }
+              onChange={(value) => changeFilter(axis.key, value)}
             />
           ))}
         </div>
@@ -109,12 +164,27 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
         aria-live="polite"
       >
         {filtered.length} {filtered.length === 1 ? "ENTRY" : "ENTRIES"}
+        {/* The showing-range lives inside the same aria-live region as the
+            count, so paging announces itself the way filtering already
+            did -- otherwise a page change is silent to a screen reader
+            even though the whole list underneath has been replaced. */}
+        {pageCount > 1 ? (
+          <>
+            {" · "}
+            <span>
+              SHOWING {firstIndex + 1}–{firstIndex + visible.length}
+            </span>
+          </>
+        ) : null}
         {isFiltered ? (
           <>
             {" · "}
             <button
               type="button"
-              onClick={() => setActive({})}
+              onClick={() => {
+                setActive({});
+                setPage(1);
+              }}
               className="underline underline-offset-4 hover:text-accent"
             >
               CLEAR
@@ -124,9 +194,23 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
       </p>
 
       {filtered.length > 0 ? (
-        <ul className="mt-4">
-          {filtered.map((story, index) => (
-            <IndexEntry key={story.story_id} story={story} position={index} />
+        <ul
+          ref={listRef}
+          // tabIndex -1 so goToPage() can move focus here without putting
+          // the list itself in the tab order. scroll-mt clears the site
+          // header, which is sticky at 76px.
+          tabIndex={-1}
+          className="mt-4 scroll-mt-24 outline-none"
+        >
+          {visible.map((story, index) => (
+            <IndexEntry
+              key={story.story_id}
+              story={story}
+              // Position in the WHOLE filtered record, not in this page --
+              // the numerals are the index's spine, so entry 06 has to
+              // stay entry 06 on page two rather than restarting at 01.
+              position={firstIndex + index}
+            />
           ))}
         </ul>
       ) : (
@@ -134,6 +218,47 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
           No stories carry all of those yet. Try clearing a filter.
         </p>
       )}
+
+      {pageCount > 1 ? (
+        <nav
+          aria-label="Record pages"
+          className="mt-8 flex flex-wrap items-center gap-2 border-t border-border-subtle pt-6"
+        >
+          <PageButton
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1}
+            label="Previous page"
+          >
+            ← Prev
+          </PageButton>
+
+          {/* Every page number, no ellipsis window: the landing page fetches
+              at most 24 stories (see app/(public)/page.tsx), so this tops
+              out at five buttons. */}
+          {Array.from({ length: pageCount }, (_, i) => i + 1).map((number) => (
+            <PageButton
+              key={number}
+              onClick={() => goToPage(number)}
+              current={number === currentPage}
+              label={`Page ${number} of ${pageCount}`}
+            >
+              {/* Plain "2", not the zero-padded "02" the entries use. The
+                  numerals down the left of the record are its spine, and a
+                  pager that renders in the same style puts a second "01" on
+                  screen meaning something else entirely. */}
+              {number}
+            </PageButton>
+          ))}
+
+          <PageButton
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={currentPage === pageCount}
+            label="Next page"
+          >
+            Next →
+          </PageButton>
+        </nav>
+      ) : null}
 
       <div className="mt-10">
         <Link href="/stories" className="night-button-primary">
@@ -144,53 +269,44 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
   );
 }
 
-function FilterRow({
+/**
+ * One control in the pager. A real <button disabled> at the ends rather
+ * than a hidden or styled-down one: the boundary stays visible, so "Prev"
+ * does not vanish and shift every other control sideways the moment you
+ * reach page one.
+ */
+function PageButton({
+  children,
+  onClick,
+  current = false,
+  disabled = false,
   label,
-  options,
-  active,
-  onChange,
 }: {
+  children: React.ReactNode;
+  onClick: () => void;
+  current?: boolean;
+  disabled?: boolean;
   label: string;
-  options: string[];
-  active: string;
-  onChange: (value: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-      <span
-        aria-hidden="true"
-        className="font-mono text-xs tracking-[0.18em] text-foreground/45 sm:w-14 sm:shrink-0"
-      >
-        {label.toUpperCase()}
-      </span>
-      {/* Edge-to-edge horizontal scroll on phones so a long axis stays one
-          line and the cut-off chip reads as "there is more"; wraps normally
-          from sm up. */}
-      <div
-        role="group"
-        aria-label={`Filter stories by ${label.toLowerCase()}`}
-        className="nf-scroll-x -mx-4 flex snap-x gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
-      >
-        {options.map((option) => {
-          const isActive = option === active;
-          return (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => onChange(option)}
-              className={`shrink-0 snap-start rounded-full border px-3.5 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
-                isActive
-                  ? "border-accent bg-accent text-accent-foreground"
-                  : "border-border-subtle text-foreground/80 hover:border-accent/60 hover:text-foreground"
-              }`}
-            >
-              {option}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-current={current ? "page" : undefined}
+      // px-3.5 py-2 rather than something tighter: it lands the control at
+      // the same 34px as the filter chips directly above it, so the two
+      // rows of controls in this section read as one family, and it clears
+      // WCAG 2.2's 24px minimum target with room for a thumb.
+      className={`rounded-full px-3.5 py-2 font-mono text-xs tracking-wider tabular-nums transition-colors ${
+        current
+          ? "bg-accent text-accent-foreground"
+          : "text-foreground/60 hover:text-accent disabled:pointer-events-none disabled:opacity-35"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

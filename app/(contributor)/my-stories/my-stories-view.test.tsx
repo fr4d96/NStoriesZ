@@ -34,6 +34,7 @@ function makeStory(overrides: Partial<MyStoryWithCover> = {}) {
     published_revision_id: null,
     version: 1,
     updated_at: "2026-08-01T00:00:00.000Z",
+    regions: [],
     coverMediaId: "33333333-3333-4333-8333-333333333333",
     coverAltText: "An orchard at dawn",
     ...overrides,
@@ -241,5 +242,130 @@ describe("MyStoriesView", () => {
       "11111111-1111-4111-8111-111111111111",
       1,
     );
+  });
+
+  describe("location filtering", () => {
+    const otago = makeStory({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      title: "A season in Otago",
+      regions: [{ region_name: "Otago", destination_name: "Queenstown" }],
+    });
+    const nelson = makeStory({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+      title: "Nelson apples",
+      regions: [{ region_name: "Nelson", destination_name: "Motueka" }],
+    });
+
+    it("shows a Region chip row only when the stories span more than one region, and narrows the list", async () => {
+      const user = userEvent.setup();
+      render(<MyStoriesView stories={[otago, nelson]} />);
+
+      const regionGroup = screen.getByRole("group", {
+        name: "Filter stories by region",
+      });
+      expect(
+        within(regionGroup).getByRole("button", { name: "Nelson" }),
+      ).toBeInTheDocument();
+      // Both stories visible before filtering.
+      expect(
+        screen.getByRole("link", { name: "A season in Otago" }),
+      ).toBeInTheDocument();
+
+      await user.click(
+        within(regionGroup).getByRole("button", { name: "Otago" }),
+      );
+
+      expect(
+        screen.getByRole("link", { name: "A season in Otago" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Nelson apples" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("filters on the Destination axis", async () => {
+      const user = userEvent.setup();
+      render(<MyStoriesView stories={[otago, nelson]} />);
+
+      const destinationGroup = screen.getByRole("group", {
+        name: "Filter stories by destination",
+      });
+      await user.click(
+        within(destinationGroup).getByRole("button", { name: "Motueka" }),
+      );
+
+      expect(
+        screen.queryByRole("link", { name: "A season in Otago" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: "Nelson apples" }),
+      ).toBeInTheDocument();
+    });
+
+    it("renders no chip rows when every story shares one region", () => {
+      render(
+        <MyStoriesView
+          stories={[
+            otago,
+            makeStory({
+              id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
+              title: "Another Otago story",
+              regions: [
+                { region_name: "Otago", destination_name: "Queenstown" },
+              ],
+            }),
+          ]}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("group", { name: /^Filter stories by/ }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("clears an active filter", async () => {
+      const user = userEvent.setup();
+      render(<MyStoriesView stories={[otago, nelson]} />);
+
+      const regionGroup = screen.getByRole("group", {
+        name: "Filter stories by region",
+      });
+      await user.click(
+        within(regionGroup).getByRole("button", { name: "Otago" }),
+      );
+      expect(
+        screen.queryByRole("link", { name: "Nelson apples" }),
+      ).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "CLEAR" }));
+      expect(
+        screen.getByRole("link", { name: "Nelson apples" }),
+      ).toBeInTheDocument();
+    });
+
+    it("shows a distinct empty message when a filter matches nothing", async () => {
+      const user = userEvent.setup();
+      render(<MyStoriesView stories={[otago, nelson]} />);
+
+      const regionGroup = screen.getByRole("group", {
+        name: "Filter stories by region",
+      });
+      const destinationGroup = screen.getByRole("group", {
+        name: "Filter stories by destination",
+      });
+      await user.click(
+        within(regionGroup).getByRole("button", { name: "Otago" }),
+      );
+      await user.click(
+        within(destinationGroup).getByRole("button", { name: "Motueka" }),
+      );
+
+      expect(
+        screen.getByText(/No stories match those filters/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/haven't started a story yet/i),
+      ).not.toBeInTheDocument();
+    });
   });
 });

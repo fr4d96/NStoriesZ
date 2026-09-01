@@ -44,6 +44,9 @@ test-results/
 
 # throwaway local exploration output (not source, not test fixtures)
 /scratch/
+# Scratch working directory for one-off bootstrap/maintenance scripts run
+# locally -- generated output, not source.
+scripts/.bootstrap-tmp/
 
 # debug logs
 npm-debug.log*

@@ -20,6 +20,10 @@ import {
   markdownToStoryContent,
   type StoryContentBlock,
 } from "@/lib/validation/story";
+import {
+  escapeLeadingMarker,
+  escapeMarkdownText,
+} from "@/lib/story/markdown-escape";
 
 // Server Action body limit (next.config.ts) is set to this value + 25%
 // margin for JSON/wire-protocol overhead -- see next.config.ts's own
@@ -163,20 +167,10 @@ function finalize(blockLines: string[], report: ImportReport): ImportResult {
   return { ok: true, blocks: parsed.data, report };
 }
 
-// Escapes literal Markdown syntax characters in imported text so they
-// render as themselves rather than being reinterpreted as formatting.
-function escapeMarkdownText(text: string): string {
-  return text.replace(/[\\`*_[\]~]/g, "\\$&");
-}
-
-// A paragraph/list-item/quote line starting with a character sequence that
-// LOOKS like a block marker (heading/list/quote/fence) would silently
-// become one when rendered -- escape just the first character to prevent
-// that, matching how a real Markdown editor would type it.
-const LEADING_MARKER_RE = /^(#{1,6}\s|>|[-*+]\s|\d+[.)]\s|```|~~~)/;
-function escapeLeadingMarker(line: string): string {
-  return LEADING_MARKER_RE.test(line) ? `\\${line}` : line;
-}
+// Escaping now lives in lib/story/markdown-escape.ts (imported above), shared
+// with the browser-side paste converter (lib/story/html-paste.ts) so the two
+// "external text -> our Markdown" paths can never drift apart. Behaviour is
+// byte-for-byte what it was when both functions were defined here.
 
 // --- Plain text --------------------------------------------------------
 

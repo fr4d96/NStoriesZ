@@ -13,11 +13,10 @@ export const dynamic = "force-dynamic";
  * feature editors already have at /editorial/new (see
  * app/(editor)/editorial/new/pdf-import-picker.tsx), now available to any
  * signed-in contributor for their own story rather than staff-only.
- * Deliberately kept as a separate route from /stories/new (which stays a
- * zero-click "start a blank draft" redirect, per start-new-story.tsx's own
- * comment) so every existing "New Story" entry point's behavior is
- * unchanged; this page is linked from those same entry points as a second
- * option instead.
+ * Kept as a separate route from /stories/new, which is the blank-story
+ * path: both now ask for a title before anything is created, and each one
+ * links across to the other, so a contributor who lands on the wrong one
+ * is a single click from the right one.
  */
 export default function NewStoryImportPage() {
   return (

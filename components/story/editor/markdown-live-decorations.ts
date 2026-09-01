@@ -12,6 +12,7 @@ import {
   clampEmbedWidth,
   mediaEmbedToken,
   removeMediaEmbeds,
+  moveMediaEmbed,
 } from "@/lib/story/markdown-media";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -137,6 +138,163 @@ function createMediaUrlCache() {
 }
 type MediaUrlCache = ReturnType<typeof createMediaUrlCache>;
 
+/**
+ * The image currently being dragged, if any. Module-level rather than
+ * carried in dataTransfer: dataTransfer only holds strings, and the drop
+ * handler needs the token's exact source range in the document, which a
+ * string round-trip cannot give back unambiguously when the same photo is
+ * embedded twice.
+ */
+let activeImageDrag: {
+  view: EditorView;
+  from: number;
+  to: number;
+  /** The dragged photo's own element, so a drop onto itself is ignored. */
+  wrap: HTMLElement;
+} | null = null;
+
+/**
+ * Applies moveMediaEmbed() (lib/story/markdown-media.ts, where the actual
+ * text transform lives and is unit-tested) to the editor's document.
+ *
+ * Replaces the document wholesale, which is the same approach the remove
+ * button above already takes -- CodeMirror records it as one undoable
+ * change either way.
+ */
+function moveEmbed(
+  view: EditorView,
+  from: number,
+  to: number,
+  targetPos: number,
+  mode: "line" | "inline" = "line",
+): void {
+  const doc = view.state.doc.toString();
+  const next = moveMediaEmbed(doc, from, to, targetPos, mode);
+  if (next === doc) return;
+  view.dispatch({
+    changes: { from: 0, to: doc.length, insert: next },
+    // Park the cursor after the moved token so the next keystroke types
+    // where the photo now is, not wherever it used to be.
+    selection: { anchor: Math.min(next.length, targetPos) },
+  });
+  view.focus();
+}
+
+/**
+ * Where a dragged photo would land, given the pointer position.
+ *
+ * Two shapes, because there are two things a drop can mean. Over another
+ * photo, the horizontal half decides: left of it or right of it, on the
+ * SAME line, which is how photos end up side by side. Anywhere else, the
+ * vertical half of the line under the pointer decides above or below — the
+ * convention every list reorder uses, and the reason a drop indicator is
+ * drawn at all: from a raw character position, dropping a photo
+ * mid-sentence would split the sentence, which is never what was meant.
+ */
+type DropTarget =
+  | { mode: "line"; pos: number }
+  | { mode: "inline"; pos: number; rect: DOMRect; side: "left" | "right" };
+
+/** The document range of the embed token rendered by `wrap`, if it is one. */
+function tokenRangeAtDOM(
+  view: EditorView,
+  wrap: HTMLElement,
+): { from: number; to: number } | null {
+  const from = view.posAtDOM(wrap);
+  const rest = view.state.sliceDoc(
+    from,
+    Math.min(view.state.doc.length, from + 64),
+  );
+  const match = new RegExp(`^${MEDIA_EMBED_REGEX.source}`, "i").exec(rest);
+  if (!match) return null;
+  return { from, to: from + match[0].length };
+}
+
+/**
+ * The photo whose box contains this point, if any.
+ *
+ * Geometry, deliberately, rather than `document.elementFromPoint` or
+ * `event.target`. An image widget is `contentEditable="false"` inside
+ * CodeMirror's editable host, and the browser will not treat such an island
+ * as a drop target: `dragover` fires happily over `.cm-line` and then STOPS
+ * the moment the pointer crosses onto a photo (observed directly — the
+ * event log for a real drag goes dragenter(.cm-line), dragover(.cm-line),
+ * dragenter(.cm-md-image), dragend, with no dragover and no drop). Any
+ * detection keyed on what the pointer is "over" therefore never fires
+ * exactly where side-by-side placement needs it to.
+ *
+ * The companion half of the fix is `.cm-md-image-wrap { pointer-events:
+ * none }` while a drag is running (see the dragging class below), which
+ * lets those dragover events keep reaching the editable line underneath.
+ * Together they mean the drop target no longer depends on hit-testing at
+ * all — only on where the pointer actually is.
+ */
+function wrapAtPoint(
+  view: EditorView,
+  x: number,
+  y: number,
+  exclude: HTMLElement | null,
+): HTMLElement | null {
+  const wraps = view.dom.querySelectorAll<HTMLElement>(".cm-md-image-wrap");
+  for (const wrap of wraps) {
+    if (wrap === exclude) continue;
+    const r = wrap.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      return wrap;
+    }
+  }
+  return null;
+}
+
+function resolveDropTarget(
+  view: EditorView,
+  x: number,
+  y: number,
+  draggedWrap: HTMLElement | null,
+): DropTarget | null {
+  const overWrap = wrapAtPoint(view, x, y, draggedWrap);
+  if (overWrap) {
+    const range = tokenRangeAtDOM(view, overWrap);
+    if (range) {
+      const rect = overWrap.getBoundingClientRect();
+      const side = x < rect.left + rect.width / 2 ? "left" : "right";
+      return {
+        mode: "inline",
+        pos: side === "left" ? range.from : range.to,
+        rect,
+        side,
+      };
+    }
+  }
+
+  const pos = view.posAtCoords({ x, y });
+  if (pos == null) return null;
+  const block = view.lineBlockAt(pos);
+  const line = view.state.doc.lineAt(pos);
+  return {
+    mode: "line",
+    pos: y < block.top + block.height / 2 ? line.from : line.to,
+  };
+}
+
+/** Moves an embed one non-blank line earlier (-1) or later (+1). */
+function moveEmbedByLine(
+  view: EditorView,
+  from: number,
+  to: number,
+  direction: -1 | 1,
+): void {
+  const doc = view.state.doc;
+  const line = doc.lineAt(from);
+  let n = line.number + direction;
+  while (n >= 1 && n <= doc.lines && doc.line(n).text.trim() === "") {
+    n += direction;
+  }
+  if (n < 1 || n > doc.lines) return;
+  const neighbour = doc.line(n);
+  moveEmbed(view, from, to, direction === -1 ? neighbour.from : neighbour.to);
+}
+
 class MediaImageWidget extends WidgetType {
   // A snapshot of the cache's CURRENT entry, taken once at construction --
   // not read live from `cache` inside eq(). Both the old and new widget
@@ -231,10 +389,105 @@ class MediaImageWidget extends WidgetType {
     });
     wrap.appendChild(removeButton);
 
+    // --- Move: drag, or the two buttons for everyone who cannot drag ---
+    //
+    // The photos in a story stack vertically, and before this the only way
+    // to reorder them was to delete an embed and re-add it from the Photos
+    // step. The whole wrap is the drag surface (dragging the photo itself
+    // is what people try first); the grip is the affordance that says so.
+    const controls = document.createElement("span");
+    controls.className = "cm-md-image-controls";
+
+    const grip = document.createElement("span");
+    grip.className = "cm-md-image-grip";
+    grip.setAttribute("aria-hidden", "true");
+    grip.title = "Drag to move this photo";
+    grip.textContent = "⠿";
+    controls.appendChild(grip);
+
+    const currentRange = () => {
+      const from = view.posAtDOM(wrap);
+      return { from, to: from + this.tokenLength };
+    };
+
+    // Drag-and-drop is pointer-only, so it can never be the sole way to do
+    // something (Engineering Rule 19 / WCAG 2.1.1). These buttons are the
+    // keyboard and touch path to the identical operation, and they are
+    // genuinely faster for a one-place nudge.
+    for (const [direction, glyph, label] of [
+      [-1, "↑", "Move photo earlier"],
+      [1, "↓", "Move photo later"],
+    ] as const) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cm-md-image-move-button";
+      button.setAttribute("aria-label", label);
+      button.title = label;
+      button.textContent = glyph;
+      // mousedown default would move the text cursor into the widget and
+      // also start the wrap's own drag; neither is wanted from a button.
+      button.addEventListener("mousedown", (e) => e.preventDefault());
+      button.addEventListener("click", (e) => {
+        e.preventDefault();
+        const { from, to } = currentRange();
+        moveEmbedByLine(view, from, to, direction);
+      });
+      controls.appendChild(button);
+    }
+    wrap.appendChild(controls);
+
+    wrap.draggable = true;
+    wrap.addEventListener("dragstart", (e) => {
+      const { from, to } = currentRange();
+      activeImageDrag = { view, from, to, wrap };
+      if (e.dataTransfer) {
+        // Firefox refuses to start a drag with an empty dataTransfer, and
+        // the token is the honest plain-text representation anyway -- a
+        // drop into some other app pastes something meaningful.
+        e.dataTransfer.setData("text/plain", view.state.sliceDoc(from, to));
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setDragImage(img, img.width / 2, 20);
+      }
+      wrap.classList.add("cm-md-image-dragging");
+      // Lets dragover keep firing while the pointer is over ANY photo --
+      // see wrapAtPoint()'s comment. Without it the browser stops
+      // delivering drag events the moment the cursor crosses onto a
+      // contentEditable="false" widget, which is precisely where a
+      // side-by-side drop has to be detected.
+      // contentDOM, NOT view.dom: EditorView.theme() scopes every selector
+      // it generates *under* the editor root, so a rule written as
+      // ".cm-md-dragging-images .cm-md-image-wrap" compiles to
+      // ".cm-editor .cm-md-dragging-images .cm-md-image-wrap" and can never
+      // match a class sitting on the root itself. .cm-content is a
+      // descendant, and the wraps are inside it.
+      view.contentDOM.classList.add("cm-md-dragging-images");
+    });
+    wrap.addEventListener("dragend", () => {
+      activeImageDrag = null;
+      wrap.classList.remove("cm-md-image-dragging");
+      view.contentDOM.classList.remove("cm-md-dragging-images");
+      hideDropIndicator(view);
+    });
+
     const handle = document.createElement("span");
     handle.className = "cm-md-image-resize-handle";
     handle.setAttribute("aria-hidden", "true");
     wrap.appendChild(handle);
+
+    // The resize handle and the remove button live INSIDE the drag surface,
+    // so without this, grabbing either one starts a move instead of doing
+    // its own job. Toggling `draggable` on hover is the reliable way --
+    // stopPropagation on their pointer events does not prevent the drag,
+    // because the drag originates from the element the pointer is over.
+    for (const control of [handle, removeButton, ...controls.children]) {
+      if (control === grip) continue;
+      control.addEventListener("mouseenter", () => {
+        wrap.draggable = false;
+      });
+      control.addEventListener("mouseleave", () => {
+        wrap.draggable = true;
+      });
+    }
 
     let startX = 0;
     let startWidth = 0;
@@ -588,6 +841,127 @@ const imageAtomicRangesPlugin = ViewPlugin.fromClass(
 );
 
 /**
+ * A horizontal accent rule showing exactly which line boundary a dragged
+ * photo will land on. Without it the drop is a guess -- the pointer is
+ * somewhere over a paragraph and "above or below this line?" is invisible.
+ *
+ * One element per editor, parented to the scroller and positioned in the
+ * scroller's own coordinate space, so it stays put while the document
+ * scrolls under a long drag.
+ */
+const dropIndicators = new WeakMap<EditorView, HTMLElement>();
+
+function indicatorFor(view: EditorView): HTMLElement {
+  let el = dropIndicators.get(view);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "cm-md-image-drop-indicator";
+    view.scrollDOM.appendChild(el);
+    dropIndicators.set(view, el);
+  }
+  return el;
+}
+
+function showDropIndicator(view: EditorView, target: DropTarget): void {
+  const scrollerBox = view.scrollDOM.getBoundingClientRect();
+  const el = indicatorFor(view);
+
+  if (target.mode === "inline") {
+    // A vertical bar down the edge of the photo you are dropping beside --
+    // the same shape a column-reorder shows, and unmistakably different
+    // from the horizontal "new line here" rule.
+    const x =
+      (target.side === "left" ? target.rect.left : target.rect.right) -
+      scrollerBox.left +
+      view.scrollDOM.scrollLeft;
+    el.style.left = `${x - 1}px`;
+    el.style.right = "auto";
+    el.style.top = `${target.rect.top - scrollerBox.top + view.scrollDOM.scrollTop}px`;
+    el.style.width = "2px";
+    el.style.height = `${target.rect.height}px`;
+    el.style.display = "block";
+    return;
+  }
+
+  const coords = view.coordsAtPos(target.pos);
+  if (!coords) return;
+  el.style.left = "0";
+  el.style.right = "0";
+  el.style.width = "auto";
+  el.style.height = "2px";
+  el.style.top = `${coords.top - scrollerBox.top + view.scrollDOM.scrollTop}px`;
+  el.style.display = "block";
+}
+
+function hideDropIndicator(view: EditorView): void {
+  const el = dropIndicators.get(view);
+  if (el) el.style.display = "none";
+}
+
+/**
+ * Editor-level drag handling for image embeds. Only engages while one of
+ * THIS editor's images is being dragged: any other drag (text, a file
+ * dropped in from the desktop) falls through to CodeMirror's own handling
+ * untouched, which is what returning false from these handlers means.
+ */
+const imageDragHandlers = EditorView.domEventHandlers({
+  // Cancelling dragenter is what marks the editor a valid drop target.
+  // Chrome mostly infers it from dragover alone; Firefox does not, and
+  // without this a drop there is refused outright.
+  dragenter(event, view) {
+    if (!activeImageDrag || activeImageDrag.view !== view) return false;
+    event.preventDefault();
+    return true;
+  },
+  dragover(event, view) {
+    const drag = activeImageDrag;
+    if (!drag || drag.view !== view) return false;
+    const target = resolveDropTarget(
+      view,
+      event.clientX,
+      event.clientY,
+      drag.wrap,
+    );
+    if (!target) return false;
+    // preventDefault is what actually permits a drop here -- without it the
+    // browser treats the editor as an invalid target and the drop never
+    // fires at all.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    showDropIndicator(view, target);
+    return true;
+  },
+  dragleave(event, view) {
+    if (!activeImageDrag || activeImageDrag.view !== view) return false;
+    // Only when the pointer has left the scroller itself, not on the
+    // dragleave fired for every child element it passes over.
+    if (view.scrollDOM.contains(event.relatedTarget as Node | null)) {
+      return false;
+    }
+    hideDropIndicator(view);
+    return false;
+  },
+  drop(event, view) {
+    const drag = activeImageDrag;
+    if (!drag || drag.view !== view) return false;
+    event.preventDefault();
+    hideDropIndicator(view);
+    view.contentDOM.classList.remove("cm-md-dragging-images");
+    drag.wrap.classList.remove("cm-md-image-dragging");
+    const target = resolveDropTarget(
+      view,
+      event.clientX,
+      event.clientY,
+      drag.wrap,
+    );
+    activeImageDrag = null;
+    if (!target) return true;
+    moveEmbed(view, drag.from, drag.to, target.pos, target.mode);
+    return true;
+  },
+});
+
+/**
  * Builds the full live-preview extension set for one editor instance. A
  * factory (not a static export) because the inline-image URL cache
  * (createMediaUrlCache) must be scoped per editor, not shared globally.
@@ -620,6 +994,7 @@ export function createMarkdownLiveExtensions(): Extension[] {
   return [
     decorationsPlugin,
     imageAtomicRangesPlugin,
+    imageDragHandlers,
     EditorView.atomicRanges.of(
       (view) => view.plugin(imageAtomicRangesPlugin)?.ranges ?? Decoration.none,
     ),
@@ -702,7 +1077,11 @@ const markdownLiveTheme = EditorView.baseTheme({
     display: "inline-block",
     maxWidth: "100%",
     verticalAlign: "top",
-    margin: "0.25em 0",
+    // Right margin, not just vertical: two embeds on one line render as two
+    // inline-block images, and without it they touch. The space character
+    // moveMediaEmbed() inserts between them collapses to almost nothing at
+    // this line-height.
+    margin: "0.25em 0.4em 0.25em 0",
     lineHeight: "0",
   },
   ".cm-md-image": {
@@ -733,6 +1112,81 @@ const markdownLiveTheme = EditorView.baseTheme({
     transition: "opacity 120ms ease",
   },
   ".cm-md-image-wrap:hover .cm-md-image-resize-handle": { opacity: "0.85" },
+  ".cm-md-image-controls": {
+    position: "absolute",
+    top: "4px",
+    left: "4px",
+    display: "flex",
+    alignItems: "center",
+    gap: "2px",
+    opacity: "0",
+    transition: "opacity 120ms ease",
+  },
+  ".cm-md-image-wrap:hover .cm-md-image-controls": { opacity: "0.9" },
+  // Keyboard users never trigger :hover, so the controls must also appear
+  // when anything inside them takes focus -- otherwise the move buttons are
+  // reachable by Tab but invisible.
+  ".cm-md-image-controls:focus-within": { opacity: "1" },
+  ".cm-md-image-grip": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    // 24px, not the 20px the older remove/resize chrome uses: these are new
+    // controls and WCAG 2.2's 24x24 minimum target size applies to them.
+    width: "24px",
+    height: "24px",
+    borderRadius: "4px",
+    fontSize: "12px",
+    lineHeight: "1",
+    color: "canvas",
+    backgroundColor: "color-mix(in srgb, currentColor 70%, transparent)",
+    boxShadow: "0 0 0 2px color-mix(in srgb, canvas 80%, transparent)",
+    cursor: "grab",
+  },
+  ".cm-md-image-move-button": {
+    width: "24px",
+    height: "24px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "12px",
+    lineHeight: "1",
+    color: "canvas",
+    backgroundColor: "color-mix(in srgb, currentColor 70%, transparent)",
+    boxShadow: "0 0 0 2px color-mix(in srgb, canvas 80%, transparent)",
+    cursor: "pointer",
+  },
+  ".cm-md-image-move-button:hover": {
+    backgroundColor: "color-mix(in srgb, currentColor 90%, transparent)",
+  },
+  ".cm-md-image-dragging": { opacity: "0.4" },
+  // Only while a photo is being dragged. See wrapAtPoint(): a
+  // contentEditable="false" widget silently stops receiving drag events
+  // inside an editable host, so the photos are made transparent to
+  // hit-testing and the editable line underneath keeps delivering them.
+  // `:not(.cm-md-image-dragging)` matters: making the DRAG SOURCE itself
+  // non-hit-testable mid-drag makes Chrome abandon the drag outright
+  // (observed — the event log collapses to dragstart, dragend, with no
+  // dragenter or dragover at all). Only the other photos need to be
+  // transparent, and the source is excluded from targeting anyway.
+  ".cm-md-dragging-images .cm-md-image-wrap:not(.cm-md-image-dragging)": {
+    pointerEvents: "none",
+  },
+  ".cm-md-image-drop-indicator": {
+    position: "absolute",
+    // left/right/top/width/height are all set inline by
+    // showDropIndicator(): the same element serves as a horizontal "new
+    // line here" rule and a vertical "beside this photo" bar.
+    borderRadius: "2px",
+    backgroundColor: "currentColor",
+    opacity: "0.75",
+    pointerEvents: "none",
+    display: "none",
+    zIndex: "5",
+  },
   ".cm-md-image-remove-button": {
     position: "absolute",
     top: "4px",

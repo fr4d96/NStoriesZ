@@ -57,11 +57,14 @@ describe("FeaturedStoryStack", () => {
     );
   });
 
-  it("renders the 'no photo' fallback when cover_image_path is null", () => {
-    render(
+  it("renders the drawn cover fallback when cover_image_path is null", () => {
+    const { container } = render(
       <FeaturedStoryStack stories={[makeStory({ cover_image_path: null })]} />,
     );
-    expect(screen.getByText("No photo")).toBeInTheDocument();
+    // Queried by src, not by text or alt: the fallback is decorative
+    // (alt="") precisely so a screen reader does not announce a missing
+    // photo before every card, so there is nothing accessible to match on.
+    expect(container.querySelector('img[src*="NoImage"]')).toBeInTheDocument();
   });
 
   it("handles malformed regions/tags without throwing", () => {

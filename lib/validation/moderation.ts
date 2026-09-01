@@ -157,10 +157,20 @@ export function parseReportsQueueSearchParams(
 }
 
 // --- Server Action input schemas ------------------------------------------
+//
+// `expectedVersion` is `.positive()`, not merely `.int()`. Every caller builds
+// it as `Number(formData.get("expectedVersion"))`, and Number(null) is 0 -- so
+// a form that simply omitted the field used to sail through validation and
+// only fail later, at the RPC's optimistic-concurrency check, as a confusing
+// "stale version" error. stories.version is `not null default 1`
+// (20260803090100_stories.sql), so a real version is always >= 1 and zero or
+// negative can only ever mean a malformed request. Reject it at the trust
+// boundary instead (Engineering Rule 2). NaN was already rejected: Zod's
+// number type refuses it by default.
 
 export const moderateDecisionSchema = z.object({
   revisionId: z.uuid(),
-  expectedVersion: z.number().int(),
+  expectedVersion: z.number().int().positive(),
   decision: z.enum(["reject", "changes_requested"]),
   userFacingReason: z
     .string()
@@ -187,7 +197,7 @@ export const archiveStorySchema = z.object({
   // slug server-side (via getStoryForModerator) for cache invalidation --
   // never trust a client-supplied slug directly (Engineering Rule 2).
   revisionId: z.uuid(),
-  expectedVersion: z.number().int(),
+  expectedVersion: z.number().int().positive(),
   reason: z
     .string()
     .trim()
@@ -201,7 +211,7 @@ export type ArchiveStoryInput = z.infer<typeof archiveStorySchema>;
 export const reassignEditorialStorySchema = z.object({
   storyId: z.uuid(),
   editorId: z.uuid(),
-  expectedVersion: z.number().int(),
+  expectedVersion: z.number().int().positive(),
   note: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 

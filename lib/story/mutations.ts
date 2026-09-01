@@ -1,7 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
-import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 import type {
   RevisionInput,
   SubmitRevisionInput,
@@ -330,10 +329,11 @@ export async function beginStoryMediaUpload(
 export async function authorizeHeicTranscode(mediaId: string) {
   await requireUser();
   const supabase = await createClient();
-  const result = await callUntypedRpc<
-    { story_id: string; staging_path: string }[]
-  >(supabase, "authorize_heic_transcode", { p_media_id: mediaId });
-  return result[0];
+  const { data, error } = await supabase.rpc("authorize_heic_transcode", {
+    p_media_id: mediaId,
+  });
+  if (error) throw error;
+  return data[0];
 }
 
 /**
@@ -348,10 +348,11 @@ export async function recordHeicTranscodedOriginal(
 ) {
   await requireUser();
   const supabase = await createClient();
-  await callUntypedRpc(supabase, "record_heic_transcoded_original", {
+  const { error } = await supabase.rpc("record_heic_transcoded_original", {
     p_media_id: mediaId,
     p_new_storage_path: newStoragePath,
   });
+  if (error) throw error;
 }
 
 /**

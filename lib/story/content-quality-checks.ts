@@ -2,6 +2,7 @@ import {
   storyContentText,
   type StoryContentBlock,
 } from "@/lib/validation/story";
+import { markdownToPlainText } from "@/lib/story/markdown-text";
 
 // Advisory-only heuristics for the founding-catalogue readiness workflow.
 // These never block submission/approval and are not run as part of any
@@ -36,16 +37,15 @@ export type QualityCheckInput = {
 };
 
 // Strips Markdown syntax down to roughly what a reader would see -- good
-// enough for word-count/regex heuristics below, not a full renderer. Media
-// embed tokens (![[mediaId]]) contribute no words, matching the old image
-// block's "" contribution.
+// enough for word-count/regex heuristics below, not a full renderer. The
+// stripping itself now lives in lib/story/markdown-text.ts, shared with the
+// contributor-facing live word count so the two can't disagree. That move
+// also fixed a real gap: the old embed-token pattern here
+// (`!\[\[[0-9a-fA-F-]{36}\]\]`) predated the `|<width>` suffix added on
+// 2026-08-12, so a resized image's token leaked "320" into this plain text
+// and was counted as a word.
 function extractPlainText(blocks: StoryContentBlock[]): string {
-  return storyContentText(blocks)
-    .replace(/!\[\[[0-9a-fA-F-]{36}\]\]/g, "")
-    .replace(/^ {0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
-    .replace(/(\*\*|__|~~|`)/g, "")
-    .replace(/(?<!\*)\*(?!\*)|(?<!_)_(?!_)/g, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  return markdownToPlainText(storyContentText(blocks));
 }
 
 const MARKDOWN_LINK_RE = /\[[^\]\n]*\]\([^)\n]*\)/g;

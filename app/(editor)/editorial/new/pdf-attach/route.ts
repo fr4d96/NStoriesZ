@@ -17,9 +17,10 @@ import {
 import { getStoryPreview } from "@/lib/story/contributor-queries";
 import { resolveContributorIdFromFormData } from "../actions";
 import { getErrorMessage } from "@/lib/errors";
+import { logAppEvent } from "@/lib/log";
 
 // Node runtime (not Edge): same reasoning as pdf-preview/route.ts and
-// app/(contributor)/stories/[id]/edit/upload/route.ts.
+// app/(contributor)/stories/[id]/edit/upload-actions.ts.
 export const runtime = "nodejs";
 
 /**
@@ -272,6 +273,18 @@ export async function POST(request: NextRequest) {
   // stops but the request still proceeds to save the draft -- alt text is a
   // UX nicety on top of, never a precondition for, the draft existing (see
   // this route's own doc comment on `altText`).
+  //
+  // That stop is now LOGGED rather than silent, matching the contributor twin
+  // (app/(contributor)/stories/new/pdf-attach/route.ts). logAppEvent, not
+  // logStaffAction, even though this route is editor/admin-gated: it is the
+  // same event as the contributor route's, and splitting one event across two
+  // log scopes would make it harder to query, not easier. Nothing surfaces it
+  // to the editor yet -- see the contributor twin for why that needs a UI
+  // decision first.
+  let altTextApplied = 0;
+  const altTextRequested = attachResult.attached.filter(
+    (page) => altTextMap[String(page.pageNumber)],
+  ).length;
   for (const page of attachResult.attached) {
     const text = altTextMap[String(page.pageNumber)];
     if (!text) continue;
@@ -285,9 +298,18 @@ export async function POST(request: NextRequest) {
         decorative: false,
       });
       version += 1;
+      altTextApplied += 1;
     } catch {
       break;
     }
+  }
+  if (altTextApplied < altTextRequested) {
+    logAppEvent({
+      event: "pdf-import.alt_text_partial",
+      target: storyId,
+      outcome: "error",
+      detail: `applied ${altTextApplied} of ${altTextRequested}`,
+    });
   }
 
   const { contentJson } = buildPdfImportContent(

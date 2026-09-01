@@ -194,7 +194,7 @@ describe("processStoryMedia", () => {
     );
   });
 
-  // The upload route (app/(contributor)/stories/[id]/edit/upload/route.ts)
+  // The upload route (app/(contributor)/stories/[id]/edit/upload-actions.ts)
   // calls processStoryMedia synchronously, right after uploading these
   // exact bytes -- passing them through here skips a real, measured
   // redundant download of the *original* (see processStoryMedia's own doc

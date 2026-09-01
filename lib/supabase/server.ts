@@ -11,12 +11,22 @@ import type { Database } from "@/types/database";
  * *can* set cookies, so setAll still works there.
  *
  * `fetch` is an opt-in override, left unset (Supabase's own default) for
- * every ordinary caller. The one caller that needs it —
- * app/(contributor)/stories/[id]/edit/upload/route.ts's original-file
- * storage upload — pins it to undici's fetch instead of `globalThis.fetch`
- * to avoid Next.js's Data Cache fetch patching, which does not reliably
- * preserve a binary request/response body (see the matching comment on
- * lib/supabase/admin.ts's createAdminClient for the full story).
+ * every caller. It exists because the old
+ * app/(contributor)/stories/[id]/edit/upload/route.ts relayed original-file
+ * bytes through this server and had to pin undici's fetch instead of
+ * `globalThis.fetch`, which Next.js patches for the Data Cache in a way that
+ * does not reliably preserve a binary request/response body (see the matching
+ * comment on lib/supabase/admin.ts's createAdminClient for the full story).
+ *
+ * That route no longer exists: the direct-to-storage change
+ * (20260827090000_direct_to_storage_uploads.sql,
+ * app/(contributor)/stories/[id]/edit/upload-actions.ts) moved those bytes off
+ * this server entirely, and the image pipeline went further still, dropping to
+ * raw node:https via lib/story/raw-storage-http.ts. So this parameter
+ * currently has NO callers -- grepped and confirmed. Kept as an extension
+ * point rather than removed, since any future binary-body caller through the
+ * session-bound client would need exactly this; delete it if that never
+ * arrives.
  */
 export async function createClient(overrides?: { fetch?: typeof fetch }) {
   const cookieStore = await cookies();

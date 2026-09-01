@@ -369,9 +369,21 @@ body {
   font-family: var(--font-sans);
 }
 
+/* The app's ONE focus ring. Deliberately not restated anywhere else: a
+   later, more specific `a:focus-visible` rule would win and silently change
+   the ring's width app-wide, which is exactly what happened when the
+   interaction-motion block below was first written (it re-declared this at
+   2px and quietly downgraded every focus indicator in the product). Add
+   behaviour here; never a second ring. */
 :focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
+  transition: outline-offset 140ms cubic-bezier(0.16, 0.84, 0.28, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  :focus-visible {
+    transition: none;
+  }
 }
 
 /* Reusable presentational utilities for the landing page's editorial
@@ -491,10 +503,18 @@ body {
   }
 }
 
+/*
+ * The closing contribute band. The photo behind it used to be a red sandstone
+ * canyon road -- unmistakably the American southwest, closing a page whose
+ * whole subject is Aotearoa. Nobody had looked at it; it was inherited from an
+ * early HTML mockup. Replaced with layered ridgeline haze, which reads as
+ * backcountry without claiming a specific landmark, sits dark enough for the
+ * scrim to carry white text, and does not contradict the page around it.
+ */
 .journiq-share {
   background:
     linear-gradient(90deg, rgba(2, 4, 6, 0.95), rgba(2, 4, 6, 0.45)),
-    url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1800&q=85")
+    url("https://images.unsplash.com/photo-1444927714506-8492d94b4e3d?auto=format&fit=crop&w=1800&q=85")
       center/cover;
 }
 
@@ -886,4 +906,105 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---------- Motion, second pass ----------
+ * Requested as "more animations all around." Deliberately NOT more entrance
+ * animations: this world pins motion to one authored idea (the focus pull
+ * above), and a page where every section announces itself separately reads
+ * as a template, not a record. What was actually thin here was FEEDBACK --
+ * the page had almost nothing to say when you hovered, pressed, or tabbed
+ * to something. That is the gap this block fills, in the same grammar:
+ * short, exponential ease-out, from an already-correct resting state.
+ *
+ * Every rule below degrades to "no motion, same appearance" under
+ * prefers-reduced-motion (the global override at the end of this file zeroes
+ * transitions), so nothing here is load-bearing for comprehension.
+ */
+
+/* One easing curve for the whole interaction layer, so a press and a hover
+   feel like the same hand. Exponential-ish ease-out: fast to start, long
+   settle -- the opposite of the linear scroll-driven timeline above, which
+   is what keeps the two motion layers legible as different things. */
+:root {
+  --nf-ease-out: cubic-bezier(0.16, 0.84, 0.28, 1);
+  --nf-fast: 140ms;
+  --nf-medium: 260ms;
+}
+
+/* Press feedback. A button that does not move under the finger feels
+   broken on touch, where there is no hover state to confirm the target. */
+.night-button-primary,
+.night-button-ghost,
+.journiq-button {
+  transition:
+    transform var(--nf-fast) var(--nf-ease-out),
+    border-color var(--nf-medium) var(--nf-ease-out),
+    background-color var(--nf-medium) var(--nf-ease-out),
+    color var(--nf-medium) var(--nf-ease-out),
+    box-shadow var(--nf-medium) var(--nf-ease-out);
+}
+.night-button-primary:active,
+.night-button-ghost:active,
+.journiq-button:active {
+  transform: scale(0.97);
+}
+
+/* Index rows: the accent hairline wipes in from the left on hover/focus,
+   so a row confirms it is a target without shifting layout. transform on a
+   pseudo-element, so no reflow and nothing to lay out. */
+.nf-entry {
+  position: relative;
+}
+.nf-entry::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform var(--nf-medium) var(--nf-ease-out);
+  pointer-events: none;
+}
+.nf-entry:hover::after,
+.nf-entry:focus-within::after {
+  transform: scaleX(1);
+}
+
+/* Story thumbnails settle rather than snap. Scoped to the image inside an
+   overflow-hidden frame, so the frame's own corners stay crisp. */
+.nf-entry img,
+.story-stack-card img {
+  transition: transform 420ms var(--nf-ease-out);
+}
+.nf-entry:hover img {
+  transform: scale(1.04);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .night-button-primary:active,
+  .night-button-ghost:active,
+  .journiq-button:active,
+  .nf-entry:hover img {
+    transform: none;
+  }
+  .nf-entry::after {
+    transition: none;
+  }
+}
+
+/* Segmented control (the authoring form's trip-date mode switch). The real
+   <input type="radio"> is kept -- it is what supplies arrow-key traversal and
+   the "1 of 2" announcement -- but visually hidden, so its focus ring would
+   be clipped to the 1px sr-only box and effectively disappear. Mirror the
+   app's ONE focus ring onto the visible segment instead: same width, offset
+   and colour as the :focus-visible rule near the top of this file. This is a
+   relocation of that ring, never a second ring style -- if that rule changes,
+   change this with it. */
+.nf-segment:has(:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }

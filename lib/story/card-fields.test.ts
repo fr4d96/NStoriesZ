@@ -3,6 +3,7 @@ import {
   firstRegionLabel,
   stringList,
   regionNames,
+  destinationNames,
 } from "@/lib/story/card-fields";
 
 describe("firstRegionLabel", () => {
@@ -52,5 +53,31 @@ describe("regionNames", () => {
 
   it("returns an empty array for malformed input", () => {
     expect(regionNames("not-an-array")).toEqual([]);
+  });
+});
+
+describe("destinationNames", () => {
+  it("returns every destination name a story is tagged with", () => {
+    expect(
+      destinationNames([
+        { region_name: "Otago", destination_name: "Queenstown" },
+        { region_name: "Otago", destination_name: "Wanaka" },
+      ]),
+    ).toEqual(["Queenstown", "Wanaka"]);
+  });
+
+  it("skips locations that name only a region", () => {
+    expect(
+      destinationNames([
+        { region_name: "Otago" },
+        { region_name: "Otago", destination_name: "Queenstown" },
+        { region_name: "Nelson", destination_name: null },
+      ]),
+    ).toEqual(["Queenstown"]);
+  });
+
+  it("returns an empty array for malformed input", () => {
+    expect(destinationNames(null)).toEqual([]);
+    expect(destinationNames("not-an-array")).toEqual([]);
   });
 });

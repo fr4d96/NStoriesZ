@@ -86,7 +86,7 @@ describe("HomePage", () => {
         name: "Featured Working Holiday stories",
       }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("Storiesss")).not.toBeInTheDocument();
+    expect(screen.queryByText("The record")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Not sure where to start reading?"),
     ).not.toBeInTheDocument();
@@ -123,7 +123,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
 
     // The entry links to the story and exposes the fields it actually carries.
@@ -148,7 +148,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
 
     const placeFilters = within(index).getByRole("group", {
@@ -190,7 +190,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
 
     expect(
@@ -205,7 +205,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
     expect(within(index).getByText("2 ENTRIES")).toBeInTheDocument();
 
@@ -237,5 +237,141 @@ describe("HomePage", () => {
     expect(
       screen.getByText("Not sure where to start reading?"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("the record — pagination", () => {
+  /** `count` stories, all in one region/tag so no filter axis appears. */
+  function batchOf(count: number) {
+    return Array.from({ length: count }, (_, i) => ({
+      ...fixtureStory,
+      story_id: `p${i + 1}`,
+      slug: `paged-${i + 1}`,
+      title: `Paged story ${i + 1}`,
+    }));
+  }
+
+  function recordSection() {
+    return screen.getByText("The record").closest("section") as HTMLElement;
+  }
+
+  it("shows at most five entries at first view", async () => {
+    mockStories(...batchOf(12));
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    expect(index.getByText("Paged story 1")).toBeInTheDocument();
+    expect(index.getByText("Paged story 5")).toBeInTheDocument();
+    expect(index.queryByText("Paged story 6")).not.toBeInTheDocument();
+    // The count still reports the whole record, not the page.
+    expect(index.getByText(/12 ENTRIES/)).toBeInTheDocument();
+    expect(index.getByText(/SHOWING 1–5/)).toBeInTheDocument();
+  });
+
+  it("does not paginate a record that fits on one page", async () => {
+    mockStories(...batchOf(5));
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    expect(index.getByText("Paged story 5")).toBeInTheDocument();
+    expect(
+      index.queryByRole("navigation", { name: "Record pages" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("moves to the next page of entries", async () => {
+    const user = userEvent.setup();
+    mockStories(...batchOf(12));
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    await user.click(index.getByRole("button", { name: "Next page" }));
+
+    expect(index.queryByText("Paged story 5")).not.toBeInTheDocument();
+    expect(index.getByText("Paged story 6")).toBeInTheDocument();
+    expect(index.getByText("Paged story 10")).toBeInTheDocument();
+    expect(index.getByText(/SHOWING 6–10/)).toBeInTheDocument();
+  });
+
+  // The numerals are the index's spine -- entry 06 has to stay entry 06 on
+  // page two rather than the page restarting the count at 01.
+  it("keeps entry numbering continuous across pages", async () => {
+    const user = userEvent.setup();
+    mockStories(...batchOf(12));
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    expect(index.getByText("01")).toBeInTheDocument();
+    await user.click(index.getByRole("button", { name: "Page 2 of 3" }));
+    expect(index.getByText("06")).toBeInTheDocument();
+    expect(index.queryByText("01")).not.toBeInTheDocument();
+  });
+
+  it("disables Prev on the first page and Next on the last", async () => {
+    const user = userEvent.setup();
+    mockStories(...batchOf(12));
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    expect(index.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    await user.click(index.getByRole("button", { name: "Page 3 of 3" }));
+    expect(index.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(index.getByRole("button", { name: "Previous page" })).toBeEnabled();
+  });
+
+  it("marks the current page for assistive technology", async () => {
+    const user = userEvent.setup();
+    mockStories(...batchOf(12));
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    expect(index.getByRole("button", { name: "Page 1 of 3" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await user.click(index.getByRole("button", { name: "Page 2 of 3" }));
+    expect(index.getByRole("button", { name: "Page 2 of 3" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(
+      index.getByRole("button", { name: "Page 1 of 3" }),
+    ).not.toHaveAttribute("aria-current");
+  });
+
+  // Narrowing the record while on a later page must not strand the reader
+  // on a page the filtered list no longer has.
+  it("returns to the first page when a filter changes", async () => {
+    const user = userEvent.setup();
+    // 6 Otago stories + 1 Canterbury: two pages, and a place axis that can
+    // split them.
+    mockStories(...batchOf(6), {
+      ...otherStory,
+      story_id: "c1",
+      slug: "cant-1",
+      title: "Canterbury one",
+    });
+
+    render(await HomePage());
+    const index = within(recordSection());
+
+    await user.click(index.getByRole("button", { name: "Page 2 of 2" }));
+    expect(index.getByText(/SHOWING 6–7/)).toBeInTheDocument();
+
+    const placeFilters = index.getByRole("group", {
+      name: "Filter stories by place",
+    });
+    await user.click(
+      within(placeFilters).getByRole("button", { name: "Canterbury" }),
+    );
+
+    expect(index.getByText("Canterbury one")).toBeInTheDocument();
+    expect(index.getByText(/1 ENTRY/)).toBeInTheDocument();
   });
 });

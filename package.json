@@ -30,6 +30,7 @@
     "e2e:cleanup:editorial-fixtures": "node --env-file=.env.maintenance.local scripts/cleanup-editorial-e2e-fixtures.mjs"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/state": "^6.7.1",

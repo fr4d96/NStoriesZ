@@ -3,11 +3,32 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "@/lib/hooks/use-prefers-reduced-motion";
 
-// Same three images as journiq_landing_page_card_stack.html's hero slideshow.
+// Four plates: the three inherited landscapes plus Auckland's waterfront, so
+// the sequence carries a city as well as backcountry -- most working-holiday
+// arrivals start in a city, and a hero of nothing but empty alpine valleys
+// quietly misrepresents the catalogue.
+//
+// EVERY IMAGE HERE HAS BEEN LOOKED AT, not merely checked for a 200. That
+// distinction cost something: a candidate that loaded perfectly turned out to
+// be a portrait of an alpaca, and another was an aurora over what is plainly
+// not New Zealand. On a page whose entire claim is "these places are real and
+// these accounts are true," a stock photo from the wrong hemisphere is a
+// content bug, not a decorative one. Look at the picture before you ship it.
+//
+// These are still remote Unsplash URLs, inherited from the previous hero.
+// That is fine for a founding catalogue and it is NOT fine forever: hotlinking
+// puts a third party in the critical path of the first viewport. When the real
+// founding-catalogue imagery lands, these should become local, processed
+// assets served from our own storage like every story image already is.
 const SLIDES = [
-  "https://images.unsplash.com/photo-1469521669194-babb45599def?auto=format&fit=crop&w=2000&q=88",
-  "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=2000&q=88",
-  "https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2000&q=88",
+  // Alpine lake and cloud.
+  "https://images.unsplash.com/photo-1469521669194-babb45599def?auto=format&fit=crop&w=2400&q=85",
+  // Auckland waterfront at dusk, Sky Tower visible.
+  "https://images.unsplash.com/photo-1507699622108-4be3abd695ad?auto=format&fit=crop&w=2400&q=85",
+  // Open road through hill country.
+  "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=2400&q=85",
+  // Coastal light.
+  "https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&w=2400&q=85",
 ];
 
 const SLIDE_INTERVAL_MS = 6500;
@@ -100,9 +121,26 @@ export function HeroSlideshow() {
           aria-pressed={paused}
           aria-label={label}
           title={label}
-          className="absolute right-4 bottom-4 z-10 flex h-9 items-center gap-1.5 rounded-full border border-white/40 bg-black/35 px-3 text-xs font-semibold text-white backdrop-blur-sm sm:right-6 sm:bottom-6"
+          className="absolute right-4 bottom-4 z-10 flex h-9 items-center gap-2 rounded-full border border-white/35 bg-black/40 px-3.5 text-xs font-semibold text-white backdrop-blur-sm transition-colors hover:border-white/70 hover:bg-black/60 sm:right-6 sm:bottom-6"
         >
-          <span aria-hidden="true">{paused ? "▶" : "Ⅱ"}</span>
+          {/* Drawn, not a Unicode glyph: ▶ and Ⅱ render at different
+              optical weights across platforms and read as text to a
+              screen reader that ignores aria-hidden. */}
+          <svg
+            viewBox="0 0 12 12"
+            className="h-3 w-3 shrink-0"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            {paused ? (
+              <path d="M3 1.6 10 6l-7 4.4z" />
+            ) : (
+              <>
+                <rect x="2.6" y="1.6" width="2.6" height="8.8" rx="0.7" />
+                <rect x="6.8" y="1.6" width="2.6" height="8.8" rx="0.7" />
+              </>
+            )}
+          </svg>
           <span className="hidden sm:inline">
             {paused ? "Play motion" : "Pause motion"}
           </span>

@@ -34,7 +34,9 @@ app/
     stories/new/                 # real: title-only form -> create_self_service_draft -> redirect
     stories/[id]/
       edit/page.tsx, actions.ts   # authoring form (Server Actions) + mutation-queue-driven client form
-      edit/upload/route.ts        # Node-runtime Route Handler — see "Upload reservation flow"
+      edit/upload-actions.ts      # 'use server' — begin/transcode-HEIC/finalize; bytes go
+                                   # browser -> Storage directly, never through this server.
+                                   # See "Upload reservation flow"
       preview/page.tsx             # force-dynamic, no-store, noindex — get_story_preview() only
       media-actions.ts             # shared signed-URL minting, used by edit + preview
     account/                    # real: profile form, contributor-identity form, sign-out
@@ -74,15 +76,37 @@ lib/
     image-validation.ts, image-pipeline.ts  # magic-byte sniffing + the sharp-based pipeline (Sub-phase 2)
     active-lookups.ts           # active-only regions/destinations/tags (Sub-phase 3;
                                 #   work_types reader removed 2026-08-16, see "Taxonomy" below)
-    rich-text-serialize.ts      # pure Tiptap JSON <-> canonical block/run/mark schema converters
+    markdown-media.ts           # the ![[mediaId|width]] embed token: parse, extract, clamp, strip
+    markdown-escape.ts          # escapeMarkdownText/escapeLeadingMarker — shared by BOTH
+                                #   "external text -> our Markdown" paths (content-import.ts and
+                                #   html-paste.ts) so they can never diverge
+    markdown-text.ts            # Markdown -> rough reader text, word count, Ghost-style reading
+                                #   time; shared by the editor's live counter and the moderation
+                                #   quality heuristics so the two can't disagree
+    content-import.ts           # SERVER: editorial HTML/plain-text import (node-html-parser)
+    html-paste.ts               # BROWSER: clipboard text/html -> Markdown for the editor's paste
+                                #   handler. DOMParser only — no node-html-parser, no Buffer, so
+                                #   neither reaches the client bundle. Same tag/link/escape policy
+                                #   as content-import.ts. See Engineering Rule 7.
     mutation-queue.ts           # client-side serialized, per-slot-coalescing async mutation queue
 components/
   site-header.tsx, site-footer.tsx, mobile-nav-toggle.tsx, contributor-nav.tsx,
   placeholder-page.tsx
   story/
-    rich-text-editor.tsx        # Tiptap, constrained to exactly the canonical schema's node/mark set
+    story-content-editor.tsx    # adapter between content_json and the Markdown editor below
+    editor/
+      markdown-editor.tsx           # CodeMirror 6 surface: toolbar (sticky under the site header),
+                                    #   Cmd/Ctrl-B/I/K, rich paste, live word count + reading time
+      markdown-commands.ts          # the plain-text transforms the toolbar, the shortcuts and the
+                                    #   slash menu all share (split out to avoid a module cycle)
+      markdown-live-decorations.ts  # Bear-style live preview + inline, drag-resizable images
+      slash-commands.ts             # the "/" menu, on @codemirror/autocomplete for its built-in
+                                    #   listbox/option/aria-activedescendant behaviour, plus the
+                                    #   theme that makes the popup follow the app's light/dark tokens
     content-block-renderer.tsx  # renders the canonical schema as JSX, never dangerouslySetInnerHTML
-    image-upload-manager.tsx    # client-side pre-checks + reorder/cover/detach/caption UI
+    image-upload-manager.tsx    # client-side pre-checks + reorder/cover/detach/caption UI, in two
+                                #   groups: images not yet placed in the text, and images already
+                                #   in it (still describable — alt text/caption)
     preview-gallery.tsx         # signed-URL image gallery for the preview page
     story-edit-form.tsx         # the authoring form, owns the shared MutationQueue + version ref
 proxy.ts                       # session-cookie refresh AND the redirect-to-sign-in-with-next
@@ -619,18 +643,6 @@ Rules, enforced by convention (no script does these automatically):
 
 - `npm run dev` / `build` / `start`: read `.env.local` (untracked), copied from `.env.example` and
   pointed at a dedicated Supabase **development** project.
-- `R2_*` (Cloudflare R2 image storage): read only by `getR2Env()` in `lib/env.server.ts`, which is
-  read only by `lib/story/r2-storage.ts`. Server-only and account-scoped — the R2 equivalent of the
-  service-role key (Engineering Rule 1). `NEXT_PUBLIC_R2_PUBLIC_BASE_URL` is the one deliberately
-  public R2 var: it is the base URL fronting the public bucket, and is read by
-  `lib/story/public-image-url.ts`, which Client Components import. It holds the
-  Cloudflare-assigned `pub-<hash>.r2.dev` domain for now; a custom domain is a pre-public-launch
-  item, not a migration gate, because `story_media` stores bucket-relative paths and the hostname
-  is composed at render time — so switching is one env var plus a redeploy, no data migration.
-  Never persist absolute image URLs anywhere; that property is what keeps this cheap.
-  `getR2Env()` is lazy, so routes that never touch image storage don't fail on a deployment that
-  hasn't configured R2 yet — which is what makes the phased migration safe to land
-  incrementally.
 - Vitest: unit tests never make a live Supabase call — Supabase modules are mocked at the import
   boundary (see `lib/auth/contributor-guard.test.ts` for the pattern: test the pure decision
   function, not the Server Component that calls Supabase).
@@ -740,57 +752,6 @@ Two buckets, created in `20260804090700_story_media_storage_buckets.sql`:
   `copyStoryMediaToPublic()` in `lib/story/image-pipeline.ts`, and only as part of an active
   publication attempt.
 
-### Migration in progress: Supabase Storage → Cloudflare R2 (phase 1 of 5)
-
-The two buckets above are being replaced by two Cloudflare R2 buckets of the same names. The
-full phased plan lives in
-[`nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md`](../nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md);
-this section records what is **built today** and the one architectural property that changes.
-
-**Phase 1 (built): the storage layer, not yet wired to anything.** `lib/story/r2-storage.ts`
-provides `r2Upload` / `r2Download` / `r2ObjectExists` / `r2Remove` / `r2PresignedGetUrl` over
-R2's S3-compatible API. Nothing calls it yet — `image-pipeline.ts` and the upload route still
-use Supabase Storage via `raw-storage-http.ts`. Phase 2 (dual-write) is the first phase that
-changes runtime behavior. Credentials come from `getR2Env()` in `lib/env.server.ts` — a
-separate lazy schema from `getAdminEnv()`, for the same reason: server-only, never
-`NEXT_PUBLIC_*` (Engineering Rule 1).
-
-**Two configuration choices in that module are load-bearing and must not be "cleaned up":**
-
-- `requestHandler: NodeHttpHandler` is pinned explicitly instead of relying on the AWS SDK's
-  runtime default. This preserves the property `raw-storage-http.ts` was written to obtain —
-  no `fetch`/`undici` anywhere in the binary write path (see "A real bug class found during
-  live verification" precedent, and `raw-storage-http.ts`'s own doc comment, for why a default
-  is not good enough here).
-- `requestChecksumCalculation: "WHEN_REQUIRED"` suppresses the SDK's default flexible-checksum
-  headers, which S3-compatible third-party stores handle inconsistently. The codebase's own
-  re-read-and-SHA-256-compare (`verifyUploadedBytes`) is a stronger end-to-end guarantee.
-
-`scripts/verify-r2-integrity.mjs` (`npm run r2:verify-integrity`) is the **phase 1 exit gate**:
-it round-trips random, deliberately-invalid-UTF-8 payloads at realistic sizes (64 KiB → 14 MiB)
-concurrently against the real private bucket, compares SHA-256, and explicitly detects and names
-the `EF BF BD` replacement-character corruption signature if it reappears. It must pass before
-phase 2 begins.
-
-**The property that changes — read this before reviewing phase 2.** Under Supabase Storage,
-bucket RLS is a _second, independent_ enforcement layer: `_can_write_reserved_media_path()` runs
-inside the storage write path itself and re-derives authorization from live Postgres state on
-every write, so a direct Storage API call to an arbitrary or another user's path fails at the
-storage layer regardless of what application code did or intended. R2 — like any S3-compatible
-store — has no policy engine that can evaluate SQL against Postgres, so **that second layer
-cannot be reproduced**. It is replaced by: (a) the R2 credential being server-only, so no
-browser can address the bucket at all, and (b) all writes going through server code that only
-ever passes a key the DB itself just minted (`begin_story_media_upload`'s `reserved_path`),
-never a client-supplied one. This is a real, accepted reduction in defense-in-depth, signed off
-deliberately rather than discovered later — Engineering Rule 21 forbids weakening a policy to
-route around a blocker, and this is not that: the policy has no R2 equivalent to weaken. The
-compensating requirement is that the app-layer checks are now the _only_ layer, so phase 2+ must
-add explicit tests asserting an unreserved or wrong-owner key is rejected in application code.
-
-Consequently `_can_write_reserved_media_path()` and `_can_access_story_media()` are **kept** at
-decommission time — only their use as Storage policies goes away. They remain the authorization
-logic the RPCs themselves call.
-
 ### The media processing-state machine
 
 `story_media.processing_state`: `pending_upload → uploaded → processing → processed | failed →
@@ -831,46 +792,74 @@ call after the row has already moved past `pending_upload` is a no-op. No automa
 inside these functions; an abandoned reservation is cleaned up only by explicit cancellation or the
 maintenance script (below).
 
-Concrete upload endpoint: `app/(contributor)/stories/[id]/edit/upload/route.ts` (Sub-phase 3,
-built), `export const runtime = "nodejs"`, `MAX_UPLOAD_BYTES = 15 MiB`. The Route Handler
-authenticates, rejects an oversized `Content-Length` header early, buffers the multipart body via
-`request.formData()`, sniffs real magic bytes from the buffered bytes (never trusts the client's
-reported `File.type`), **normalizes a HEIC upload to JPEG** (see "HEIC normalization" below),
-calls `begin_story_media_upload()`, uploads via the regular (RLS-respecting)
-server client — never the admin client — to the reserved path, calls
-`finalize_story_media_upload()`, and then calls `processStoryMedia()` **synchronously, in the same
-request**, passing it the just-uploaded bytes directly — there is no background worker/queue in
-this phase, so the upload response doesn't return until processing has actually finished (or
-recorded a specific failure). Any failure after the reservation step (storage upload fails,
-`finalize_` rejects a stale version) cancels the reservation (`cancelPendingStoryMediaUpload`) and
-best-effort removes any already-uploaded bytes, so a failed request never leaves an orphaned
-`pending_upload` row for longer than the request itself — the maintenance script below is a
-backstop for the cases that still slip through (e.g. the client's connection dropping mid-request),
-not the primary cleanup path.
+**Where the bytes travel: the browser writes to Storage directly, never through this server.**
+Until 2026-08-27 the contributor's raw file was POSTed to
+`app/(contributor)/stories/[id]/edit/upload/route.ts`, which relayed it on to Storage. That route no
+longer exists (`20260827090000_direct_to_storage_uploads.sql` is the change that removed it). The
+reason it had to go is a platform ceiling this app cannot configure away: Vercel's Node.js Functions
+are invoked synchronously through AWS Lambda, whose request payload is base64-encoded for binary
+bodies, working out to an effective **~4.5 MiB** on the raw bytes a Function can receive. Root-caused
+live: a 24MP iPhone HEIC (4.1 MB) was rejected with a 413 carrying a **non-JSON** body — proof the
+platform refused the request before this app's own code, which always answers JSON, ever ran — while
+a 12MP HEIC from the same phone succeeded every time. No in-code limit could have fixed that,
+because our code was never reached.
 
-**Real-world latency, measured, and why `maxDuration` matters.** This whole flow is synchronous and
-sequential: reserve (RPC) → upload original → finalize (RPC) → download-or-reuse original → decode
-→ resize/re-encode → upload processed → download processed to verify → record (RPC). Instrumented
-live against this project's actual Supabase project with a real 5.4 MB HEIC-origin photo: **8.3s**
-to upload the original alone, ~1.8-2.7s for each subsequent storage round trip, ~1.4s total across
-the four RPCs, and ~13.7-16.6s end to end even after eliminating the one avoidable round trip
-(`processStoryMedia`'s second parameter below) — comfortably past a serverless platform's default
-Function timeout. `export const maxDuration = 60` on the route exists specifically because of this:
-without it, a real-world upload of any non-trivial photo is likely to be killed by the platform
-mid-request in production while working fine in local dev/`next start` (neither of which impose
-such a ceiling) — the exact "works locally, fails in production" shape this was found to explain.
-60s is deliberately the ceiling supported on every Vercel plan tier without risking a build-time
-rejection for exceeding a lower plan's maximum; raise it (Pro: up to 300s, Enterprise: up to 800s)
-if uploads still time out on a plan that supports more. `processStoryMedia(mediaId,
-knownOriginalBytes?)`'s second, optional parameter is the one already-shipped mitigation: the route
-passes the bytes it just uploaded directly, skipping a real, measured redundant download of the
-same object it downloaded moments after uploading it (worth ~2-3s on its own, more for larger
-files) — real savings, but nowhere near enough on its own to make the request reliably fast; the
-`maxDuration` bump is what actually keeps the platform from killing a slow-but-legitimate upload.
-This entire flow remains a genuine architectural limitation, not fully solved by either change: a
-synchronous multi-round-trip request per upload does not scale gracefully to larger files or a
-slower network path to Supabase, and a real background job/queue (outside this phase's scope) is
-the durable fix if this keeps being a problem in practice.
+The authorization model did **not** change. Storage RLS was already scoped to the caller's own
+`auth.uid()` via `_can_write_reserved_media_path()`, never to "the request came from our server", so
+moving the bytes off this server removes a hop without removing a check. That policy still parses the
+object name strictly (exactly three segments, two real UUIDs, an `original.(jpg|png|webp|heic)`
+filename), requires a matching row that is still `pending_upload` at the reserved path, and re-derives
+edit rights on the owning story.
+
+**The current sequence.** Three bytes-free Server Actions in
+`app/(contributor)/stories/[id]/edit/upload-actions.ts` — UUIDs and short strings only, no file ever
+crosses them — driven by `components/story/image-upload-manager.tsx`:
+
+1. `beginMediaUploadAction(revisionId, sourceMimeType)` → `begin_story_media_upload()`. Reserves the
+   row and returns `{ mediaId, reservedPath }`.
+2. The browser reads its own Supabase session and `POST`s the file straight to
+   `/storage/v1/object/story-images-private/<reservedPath>` with `x-upsert: false`, using its own
+   access token.
+3. **HEIC only:** `transcodeHeicUploadAction(mediaId)` → `authorize_heic_transcode()` verifies the
+   staged object exists and is within the HEIC ceiling, the server downloads it (an _outbound_
+   request, never subject to the inbound body limit), transcodes via the unchanged
+   `lib/story/heic.ts`, and `record_heic_transcoded_original()` rewrites the reservation onto the
+   resulting `original.jpg`. A raw `.heic` is therefore only ever a transient staging object in the
+   private bucket, and is gone before anything downstream can see a fourth format.
+4. `finalizeMediaUploadAction(mediaId, expectedVersion)` → `finalize_story_media_upload()`, which
+   reads the object's **true** stored size from `storage.objects` (never a client claim), enforces
+   15 MiB, creates the revision-media join, and bumps the authoring version exactly once.
+5. Still inside that same action, `processStoryMedia(mediaId)` runs synchronously (see "Processing"
+   below).
+
+**Three size ceilings, deliberately nested.** The private bucket's own `file_size_limit` is 30 MiB —
+a coarse outer bound that exists only so a large HEIC's staging write is not capped below the ceiling
+`authorize_heic_transcode()` enforces. It is not a loosening: the final `original.*` is still held to
+15 MiB by `finalize_story_media_upload()`, and the processed derivative to `MAX_PROCESSED_BYTES`
+(8 MiB) by `record_processed_story_media()`. Those two remain the precise inner bounds.
+
+**Failure handling.** If `finalize_` throws, the action calls `cancelPendingStoryMediaUpload()` so a
+failed attempt does not leave a live `pending_upload` reservation. Bytes already written to the
+private bucket are _not_ deleted inline — `scripts/cleanup-abandoned-media-uploads.mjs` (below) is
+the sweeper for those, and is now the primary cleanup path for orphaned objects rather than the
+backstop it used to be, since the server no longer holds the bytes it would need to clean up. A
+processing failure after a successful finalize is not an upload failure: `processStoryMedia()`
+records its own specific error state and the action still returns success, because the image _is_
+attached — just not yet usable. The client polls `processingState` to find out.
+
+**What this fixed, and what it did not.** The 8.3s original-upload leg is gone from the serverless
+function entirely, and with it the `export const maxDuration = 60` that used to exist purely to stop
+the platform killing that leg mid-request — there is no `maxDuration` anywhere in the codebase now.
+But **processing is still synchronous inside a serverless function**: download the original, decode,
+resize/re-encode, upload the derivative, download it again to verify its bytes, record. Worse, the
+`processStoryMedia(mediaId, knownOriginalBytes?)` fast path is no longer used — the old route passed
+the bytes it had just uploaded, and the Server Action has no bytes to pass, so the download in step
+one is back. That was measured at ~2-3s on a real 5.4 MB photo.
+
+> **Open risk, not a solved problem.** Nobody has re-measured the processing half on its own since
+> the upload leg moved off the function, and `maxDuration` is no longer set to protect it. If image
+> processing starts failing in production while working locally, this is the first place to look —
+> the honest fix remains a background job or queue, which is still outside this phase's scope.
 
 ### HEIC normalization (`lib/story/heic.ts`)
 
@@ -1267,11 +1256,27 @@ plain `@supabase/supabase-js` client (no cookies, `persistSession: false`) used 
 `listPublicRegions`/`listPublicDestinations`/`listPublicTags`, kept separate
 from `lib/story/active-lookups.ts` so the authoring UI's existing cookie-bound queries are
 untouched). This is what lets `/` and `/sitemap.xml` (revalidate 60/3600) actually build as static
-(`○`) routes. `/stories`, `/stories/[id]`, `/contributors`, `/contributors/[slug]` still render
-dynamically (`ƒ`) — `searchParams` usage and un-enumerated dynamic segments (no
-`generateStaticParams`) force per-request rendering in the App Router independent of the Supabase
-client used; `export const revalidate` on those pages has no practical effect without
-`generateStaticParams`, documented here rather than silently overclaimed. `createStoryReport()`
+(`○`) routes.
+
+The other four public routes all show `ƒ` in the build table, but for two different reasons, and
+only one of them means "not cached" (corrected 2026-08-31 — this section previously lumped all four
+together and claimed `revalidate` had no practical effect on any of them):
+
+- `/stories/[id]` and `/contributors/[slug]` show `ƒ` only because they have no
+  `generateStaticParams`, so there is nothing to prerender at build time. They keep
+  `export const revalidate = 60` and **are** genuinely ISR-cached per path at runtime: the first
+  request for a given slug renders and caches it, later requests inside the window serve the cached
+  copy. Leave those exports alone.
+- `/stories` and `/contributors` `await searchParams` (filter state and the keyset pagination
+  cursor respectively), which forces per-request dynamic rendering in the App Router independent of
+  the Supabase client used. A `revalidate` export there is a **silent no-op**, so both have been
+  removed and replaced with a comment saying why, to stop anyone re-adding them. These two pages are
+  always fresh, and they pay for it: `/stories` issues five Supabase round trips per visit (regions,
+  destinations, tags, travel styles, stories) plus middleware's `get_published_story` existence
+  check, on every single request. Making it genuinely cacheable would mean moving the filtering
+  client-side — a separate, larger piece of work, not yet scheduled.
+
+`createStoryReport()`
 (the one mutation this prompt's UI performs) still goes through the cookie-bound server client,
 since it genuinely needs the caller's session.
 
@@ -1322,10 +1327,10 @@ belongs at the Server Action/Route Handler orchestration boundary that calls a r
 domain/repository function, not inside the function itself. Grepped and confirmed at the time of
 writing: neither function has any real UI caller yet (Prompt 6, not started, is what will add the
 actual publish/archive Server Actions). Until then, the only real mechanism keeping public pages
-eventually consistent is the `export const revalidate = 60` on `/` and `/stories`/`/stories/[id]`/
-`/contributors`/`/contributors/[slug]` (the latter four's practical effect is limited per the
-"cookie-free public client" section above, since they're forced dynamic anyway — meaning they're
-already fresh on every request without needing invalidation) and `revalidate = 3600` on
+eventually consistent is the `export const revalidate = 60` on `/`, `/stories/[id]` and
+`/contributors/[slug]` (the two index pages `/stories` and `/contributors` are forced dynamic and
+carry no `revalidate` — they are already fresh on every request and need no invalidation; see the
+"cookie-free public client" section above) and `revalidate = 3600` on
 `/sitemap.xml`. Every future Server Action that calls `finalize_story_publication()`, `archiveStory()`,
 or `revokePublicationConsent()` successfully must call the matching helper immediately after — see
 the doc comment in `lib/story/public-cache.ts` for the exact call sites.
@@ -1763,9 +1768,10 @@ Reviewed against the brief's own list of recovery scenarios:
   the DB mutation had already committed — a successful publish/archive would look like a failure.
   Fixed with a new `invalidatePublicCacheSafely(slug, action)` wrapper in that same file: catches
   and logs (via the new `lib/log.ts#logStaffAction()`, below) rather than letting the exception
-  propagate, so a cache-invalidation hiccup can never mask a successful mutation. The public pages'
-  own `revalidate = 60` window (documented in `lib/story/public-cache.ts`'s header comment) is the
-  existing fallback if on-demand invalidation itself fails.
+  propagate, so a cache-invalidation hiccup can never mask a successful mutation. The fallback if
+  on-demand invalidation itself fails is the `revalidate = 60` window on `/`, `/stories/[id]` and
+  `/contributors/[slug]`; `/stories` and `/contributors` are dynamic and self-correct immediately
+  (documented in `lib/story/public-cache.ts`'s header comment).
 
 ### Minimal structured operational logging
 

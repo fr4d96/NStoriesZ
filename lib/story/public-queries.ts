@@ -11,6 +11,23 @@ import type { CostBand } from "@/lib/validation/discovery";
 // list_published_stories, get_published_story_media,
 // list_distinct_public_travel_styles, list_public_contributors,
 // get_public_contributor), so no session was ever needed to answer them.
+//
+// Which callers that cookie-freeness actually buys caching for (checked
+// against the production build's route table, not assumed):
+//   - app/(public)/page.tsx builds `○` static with a 1m revalidate.
+//   - app/(public)/stories/[id] and app/(public)/contributors/[slug] are
+//     ISR-cached per path at runtime with their own `revalidate = 60`.
+//   - app/(public)/stories and app/(public)/contributors are NOT cached and
+//     cannot be: both await searchParams, which forces dynamic rendering
+//     regardless of the Supabase client used. Their `revalidate` exports
+//     were no-ops and have been removed.
+// The cookie-free client is still the right call for those two dynamic
+// pages -- it keeps them off the session path entirely for reads that never
+// needed a session -- it just isn't buying them a cache. Note the cost that
+// leaves in place: /stories issues 5 round trips per visit (regions,
+// destinations, tags, travel styles, stories) plus middleware's
+// get_published_story existence check, on every request. Making it
+// genuinely cacheable would mean moving filtering client-side.
 
 export type PublishedStoriesFilter = {
   cursorPublishedAt?: string;

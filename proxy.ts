@@ -1,5 +1,50 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import type { Database } from "@/types/database";
+
+// The Supabase client built below is generic over the generated schema, so
+// every `.rpc()` name and argument in this file is checked against
+// types/database.ts. Without the <Database> generic every RPC call here
+// degrades to `any`, and a typo in an RPC name silently becomes a 404 for
+// real visitors instead of a build error.
+type ProxySupabaseClient = ReturnType<typeof createServerClient<Database>>;
+
+// Cookies Supabase asked us to write during this request (see setAll in
+// proxy() below).
+type PendingAuthCookie = {
+  name: string;
+  value: string;
+  options?: CookieOptions;
+};
+
+/**
+ * Copies the auth cookies Supabase rotated during this request onto whatever
+ * response we are about to return.
+ *
+ * WHY this exists: Supabase uses refresh-token ROTATION. When
+ * `supabase.auth.getClaims()` refreshes an expiring session it hands us a
+ * brand-new refresh token via the `setAll` callback and immediately
+ * invalidates the old one. `setAll` writes that onto the tracked `response`
+ * object — but every early return in proxy() (the sign-in redirect, every
+ * flatNotFound(), every publicNotFound()) builds a FRESH response that never
+ * carried those cookies. The rotated token then gets burned without ever
+ * reaching the browser, which still holds the now-dead old one: the next
+ * request fails to refresh and the user is silently signed out. Clicking one
+ * dead story link was enough to do it.
+ *
+ * So every early return goes through this helper. It only replays cookies —
+ * it never touches the response's status, body, or other headers, so the
+ * flat 404s below keep their exact existing shape.
+ */
+function withAuthCookies<T extends NextResponse>(
+  outgoing: T,
+  pending: PendingAuthCookie[],
+): T {
+  for (const { name, value, options } of pending) {
+    outgoing.cookies.set(name, value, options);
+  }
+  return outgoing;
+}
 
 const PROTECTED_PATHS = ["/my-stories", "/stories/new", "/account"];
 // Dynamic authoring routes added in Prompt 4 Sub-phase 3 — /stories/:id/edit
@@ -140,7 +185,7 @@ function flatNotFound() {
 // Rules 2/3; RLS/the RPC itself remains the authoritative check, this is
 // just the layer that can actually surface a true HTTP status for it).
 async function canReadStoryDraft(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: ProxySupabaseClient,
   storyId: string,
 ) {
   const { data, error } = await supabase.rpc("get_my_story_with_draft", {
@@ -149,10 +194,7 @@ async function canReadStoryDraft(
   return !error && Array.isArray(data) && data.length > 0;
 }
 
-async function canPreviewStory(
-  supabase: ReturnType<typeof createServerClient>,
-  storyId: string,
-) {
+async function canPreviewStory(supabase: ProxySupabaseClient, storyId: string) {
   const { data, error } = await supabase.rpc("get_story_preview", {
     p_story_id: storyId,
   });
@@ -171,7 +213,7 @@ async function canPreviewStory(
  * leaked" shape as canReadStoryDraft/canPreviewStory above.
  */
 async function canViewModerationReview(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: ProxySupabaseClient,
   revisionId: string,
 ) {
   const { data, error } = await supabase.rpc("can_view_moderation_review", {
@@ -186,7 +228,7 @@ async function canViewModerationReview(
  * (supabase/migrations/20260806100000_moderation_report_existence_check.sql).
  */
 async function canViewModerationReport(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: ProxySupabaseClient,
   reportId: string,
 ) {
   const { data, error } = await supabase.rpc("can_view_moderation_report", {
@@ -210,7 +252,7 @@ async function canViewModerationReport(
  * confirmed happening before this was added.
  */
 async function adminUserAccountExists(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: ProxySupabaseClient,
   userId: string,
 ) {
   const { data, error } = await supabase.rpc("can_view_user_account", {
@@ -220,7 +262,7 @@ async function adminUserAccountExists(
 }
 
 async function publishedStoryExists(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: ProxySupabaseClient,
   slug: string,
 ) {
   const { data, error } = await supabase.rpc("get_published_story", {
@@ -230,7 +272,7 @@ async function publishedStoryExists(
 }
 
 async function publicContributorExists(
-  supabase: ReturnType<typeof createServerClient>,
+  supabase: ProxySupabaseClient,
   slug: string,
 ) {
   const { data, error } = await supabase.rpc("get_public_contributor", {
@@ -251,7 +293,12 @@ async function publicContributorExists(
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
+  // Also tracked separately from `response`, because most of the returns
+  // below never return `response` at all — see withAuthCookies() above for
+  // why dropping these silently signs people out.
+  const pendingAuthCookies: PendingAuthCookie[] = [];
+
+  const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
@@ -264,9 +311,10 @@ export async function proxy(request: NextRequest) {
             request.cookies.set(name, value),
           );
           response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+            pendingAuthCookies.push({ name, value, options });
+          });
         },
       },
     },
@@ -281,7 +329,10 @@ export async function proxy(request: NextRequest) {
       "next",
       `${request.nextUrl.pathname}${request.nextUrl.search}`,
     );
-    return NextResponse.redirect(signInUrl);
+    return withAuthCookies(
+      NextResponse.redirect(signInUrl),
+      pendingAuthCookies,
+    );
   }
 
   if (STAFF_EDITORIAL_PATH.test(request.nextUrl.pathname)) {
@@ -289,7 +340,7 @@ export async function proxy(request: NextRequest) {
     // 404 — no information leak about which case it was, same convention
     // as every other staff route in this app.
     if (!data?.claims?.sub) {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
     const { data: roleRow } = await supabase
       .from("user_roles")
@@ -297,7 +348,7 @@ export async function proxy(request: NextRequest) {
       .eq("user_id", data.claims.sub)
       .single();
     if (roleRow?.role !== "editor" && roleRow?.role !== "admin") {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
 
     // Role-level check above only proves this user is SOME editor/admin --
@@ -313,7 +364,7 @@ export async function proxy(request: NextRequest) {
     if (editorialEditMatch) {
       const allowed = await canReadStoryDraft(supabase, editorialEditMatch[1]);
       if (!allowed) {
-        return flatNotFound();
+        return withAuthCookies(flatNotFound(), pendingAuthCookies);
       }
     }
   }
@@ -322,7 +373,7 @@ export async function proxy(request: NextRequest) {
     // Signed-out and signed-in-with-the-wrong-role get the IDENTICAL flat
     // 404, same convention as every other staff route in this app.
     if (!data?.claims?.sub) {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
     const { data: roleRow } = await supabase
       .from("user_roles")
@@ -330,7 +381,7 @@ export async function proxy(request: NextRequest) {
       .eq("user_id", data.claims.sub)
       .single();
     if (roleRow?.role !== "moderator" && roleRow?.role !== "admin") {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
 
     // Role-level check above only proves this user is SOME moderator/admin
@@ -344,7 +395,7 @@ export async function proxy(request: NextRequest) {
     if (reviewMatch) {
       const allowed = await canViewModerationReview(supabase, reviewMatch[1]);
       if (!allowed) {
-        return flatNotFound();
+        return withAuthCookies(flatNotFound(), pendingAuthCookies);
       }
     }
 
@@ -354,7 +405,7 @@ export async function proxy(request: NextRequest) {
     if (reportMatch) {
       const allowed = await canViewModerationReport(supabase, reportMatch[1]);
       if (!allowed) {
-        return flatNotFound();
+        return withAuthCookies(flatNotFound(), pendingAuthCookies);
       }
     }
   }
@@ -364,7 +415,7 @@ export async function proxy(request: NextRequest) {
     // 404, same convention as every other staff route in this app. Admin
     // is the narrowest gate in the app -- no editor/moderator fallthrough.
     if (!data?.claims?.sub) {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
     const { data: roleRow } = await supabase
       .from("user_roles")
@@ -372,7 +423,7 @@ export async function proxy(request: NextRequest) {
       .eq("user_id", data.claims.sub)
       .single();
     if (roleRow?.role !== "admin") {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
 
     // Not an authorization check (an admin may see every account) -- an
@@ -385,7 +436,7 @@ export async function proxy(request: NextRequest) {
     if (accountMatch) {
       const exists = await adminUserAccountExists(supabase, accountMatch[1]);
       if (!exists) {
-        return flatNotFound();
+        return withAuthCookies(flatNotFound(), pendingAuthCookies);
       }
     }
   }
@@ -394,7 +445,7 @@ export async function proxy(request: NextRequest) {
     // Signed-out and signed-in-with-the-wrong-role get the IDENTICAL flat
     // 404, same convention as every other staff route in this app.
     if (!data?.claims?.sub) {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
     const { data: roleRow } = await supabase
       .from("user_roles")
@@ -406,7 +457,7 @@ export async function proxy(request: NextRequest) {
       roleRow?.role !== "moderator" &&
       roleRow?.role !== "admin"
     ) {
-      return flatNotFound();
+      return withAuthCookies(flatNotFound(), pendingAuthCookies);
     }
   }
 
@@ -421,7 +472,7 @@ export async function proxy(request: NextRequest) {
     if (editMatch) {
       const allowed = await canReadStoryDraft(supabase, editMatch[1]);
       if (!allowed) {
-        return flatNotFound();
+        return withAuthCookies(flatNotFound(), pendingAuthCookies);
       }
     }
 
@@ -431,7 +482,7 @@ export async function proxy(request: NextRequest) {
     if (previewMatch) {
       const allowed = await canPreviewStory(supabase, previewMatch[1]);
       if (!allowed) {
-        return flatNotFound();
+        return withAuthCookies(flatNotFound(), pendingAuthCookies);
       }
     }
   }
@@ -453,7 +504,7 @@ export async function proxy(request: NextRequest) {
   if (storyDetailMatch && storyDetailMatch[1] !== "new") {
     const exists = await publishedStoryExists(supabase, storyDetailMatch[1]);
     if (!exists) {
-      return publicNotFound();
+      return withAuthCookies(publicNotFound(), pendingAuthCookies);
     }
   }
 
@@ -466,7 +517,7 @@ export async function proxy(request: NextRequest) {
       contributorDetailMatch[1],
     );
     if (!exists) {
-      return publicNotFound();
+      return withAuthCookies(publicNotFound(), pendingAuthCookies);
     }
   }
 
@@ -476,7 +527,16 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/my-stories/:path*",
-    "/stories/new",
+    // Wildcard, not the bare "/stories/new": isProtectedPath() already covers
+    // subpaths (its `startsWith(`${path}/`)` branch), but the matcher decides
+    // whether this middleware runs AT ALL. As an exact entry it skipped
+    // /stories/new/import, /stories/new/pdf-preview and /stories/new/pdf-attach
+    // entirely — not an auth hole (the (contributor) layout guard and each
+    // route's own getCurrentUser() still gate them), but no session refresh
+    // ran either, which can 401 a long PDF import mid-flow. ":path*" matches
+    // ZERO or more segments, so bare /stories/new is still covered (verified
+    // against the compiled middleware matcher in .next's middleware-manifest).
+    "/stories/new/:path*",
     "/account/:path*",
     "/stories/:id/edit/:path*",
     "/stories/:id/preview/:path*",

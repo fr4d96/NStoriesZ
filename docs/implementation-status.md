@@ -3,8 +3,515 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-24 (admin tooling Phase 2: the /admin dashboard, and the post-login
-redirect that sends admins to it).
+Last updated: 2026-08-31 (trip-date control redesign — segmented mode switch, designed native date
+fields, range readback).
+
+**2026-08-31 (latest) — "When did you travel?" redesigned: `components/story/trip-date-field.tsx`.**
+
+User: "The New story date picker looks plain. Replace it with a more modern design." It was plain —
+two browser-default radios (rendering as blue dots, off-palette, and with **no shared `name`, so
+they were not even one radio group**) over two native date inputs carrying nothing but
+`rounded-md border px-3 py-2`, with mismatched inline "From"/"To" labels that left the two fields
+different widths on a phone.
+
+**The judgement call: the native `<input type="date">` stays.** A hand-rolled calendar popover was
+considered and rejected on two grounds. On a phone — the primary viewport per Engineering Rule 18 —
+the native input opens the OS date picker, which is full-height, thumb-reachable, localised and
+screen-reader-native; no custom grid inside a 375px column beats it, so replacing it would have been
+a mobile regression dressed as a redesign. And a custom grid must re-implement roving focus,
+Home/End, PageUp/PageDown, Escape-and-restore, and `aria-selected` correctly or it is _worse_ than
+what it replaced (Rule 19) — the platform already ships all of that. What was actually missing was
+never the `<input>`; it was any design around it. No date library added (Rule 20): `Intl` and plain
+UTC arithmetic cover formatting and the day count.
+
+Built (extracted to its own component; `story-edit-form.tsx` is otherwise untouched):
+
+- **Segmented control** for the mode switch — `--surface-muted` track (the Recess Rule), a solid
+  accent thumb that slides on `translate` with `--nf-medium` / `--nf-ease-out`, matching
+  `FilterRow`'s existing active-chip idiom. Still two real `<input type="radio">` sharing a `name`,
+  so native arrow-key traversal, the roving tabstop and the "1 of 2" announcement all come from the
+  platform; only the paint is ours. Because the radio is `sr-only` its focus ring would be clipped
+  to a 1px box, so `.nf-segment:has(:focus-visible)` in `globals.css` **relocates** the app's one
+  focus ring (3px accent, 3px offset) onto the visible segment — a move, never a second ring style.
+- **Each date in a labelled well** on `--surface-muted`, mono micro-label above (the
+  Mono-Means-Record Rule), hover and focus border states on `--nf-fast`. Equal-width and stacked on
+  mobile, side by side from `sm`. `aria-label` was deliberately _not_ used: a `sr-only` suffix
+  extends the visible "From"/"To" instead, so the visible word stays a prefix of the accessible name
+  (WCAG "Label in Name").
+- **Range readback** — once both dates parse, the control states the range and an inclusive day
+  count in Geist Mono (`14 Mar 2025 → 2 Nov 2025 / 234 days`), with the arrow as drawn SVG
+  (`ArrowRightIcon`), never a Unicode glyph. Nothing renders while the range is half-filled (the
+  Real Fields Rule — no placeholder dash). Formatting is pinned to `en-GB`/UTC so server and client
+  agree (no hydration mismatch) and a calendar date never shifts by a day.
+
+**Data contract unchanged, deliberately.** `TripDateField` is fully controlled and holds no value
+state; `tripStartDate`/`tripEndDate` stay the input's own `YYYY-MM-DD` strings and `tripYear` the
+raw field string, handed back unmodified (Rule 9). Every handler is the same
+`setState`-then-`scheduleSave` pair that was previously inline, so the debounce window, the `fields`
+mutation-queue slot, and the exact value reaching `scheduleSave` are all byte-identical to before.
+
+**Validation not duplicated.** `revisionInputSchema` already enforces ISO dates, the 2000–2100 year
+bound and `start <= end`. Its order message became one exported constant
+(`TRIP_DATE_ORDER_MESSAGE`), which the control echoes inline beside the fields instead of only in
+the save-error banner at the top of a long form. The schema's `refine()` is still the sole enforcer —
+nothing saves while that message shows.
+
+Shared surface: the editorial edit page renders the same `StoryEditForm`, so this lands on both the
+contributor and editor surfaces.
+
+Verified in a real browser against the live signed-in editor at 375×812 first, then desktop, in both
+themes. Tokens confirmed to flip: thumb `#35d0c4`→`#006f68`, track/well `#10161d`→`#e8e2db`, shadow
+neutral-black→warm-ink with real offset and blur, error `#ff6b6b`→`#c0392b`. Keyboard path exercised
+live (Tab reaches one tabstop; ArrowLeft/Right move focus and selection and the thumb follows) and
+the mirrored ring measured at `3px solid rgb(53,208,196)` / `3px` offset. Outbound POSTs were
+stubbed during that inspection so nothing typed could autosave — the draft was re-loaded afterwards
+and confirmed unchanged (**no database write**).
+
+New tests: `components/story/trip-date-field.test.tsx` (17) — UTC parsing, rejection of
+`2025-02-30`, inclusive day counts across a DST boundary, the shared radio `name`, arrow-key
+traversal, tab-stop count, that a typed date still yields an unmodified `YYYY-MM-DD`, that the year
+stays a string, and the readback/inverted-range states.
+
+**2026-08-31 — Story editor: competitive research, then the safe wins from it.**
+
+User asked for the new-story editor to be easier and more flexible to write in, informed by what
+comparable platforms actually do. Two phases: research written up first, then build only the items
+that fit the constraints. Scope was **additive only** and explicitly ruled out swapping CodeMirror,
+changing `content_json`'s block schema (Engineering Rule 6), changing the `![[mediaId]]` embed flow,
+or restructuring `story-edit-form.tsx`.
+
+**Research: [docs/editor-competitive-research.md](editor-competitive-research.md)** (new). Covers
+Medium, Substack, Ghost/Koenig, WordPress/Gutenberg, Tumblr, Polarsteps, Journi, Steller,
+Exposure.co, Atlas Obscura, WHV/backpacker blogs, StoryWorth, StoryCorps, Notion, Bear and Craft;
+what to copy from each, what not to, and a prioritised list scored value-vs-cost. Also records what
+our editor **already** does and needed no work: undo/redo (`history()` via `basicSetup`), Enter
+continuing a list and Backspace removing a marker (`markdownKeymap`, on by default in `markdown()`),
+paste-a-URL-over-a-selection making a link (`pasteURLAsLink`, likewise), and Cmd/Ctrl-F find
+(`searchKeymap`). Every one of those was checked against the installed packages, not assumed.
+
+Built (all additive; no migration, no database write, `content_json` untouched):
+
+- **Rich paste — the biggest single win.** CodeMirror pastes `text/plain`, so pasting a story out of
+  Google Docs / Word / Notion lost every heading, bold, italic, link and list. Since CLAUDE.md says
+  contributor content already exists elsewhere, that was the worst-supported action in the editor.
+  New **`lib/story/html-paste.ts`** converts the clipboard's `text/html` flavour to our Markdown and
+  `markdown-editor.tsx` inserts the result; anything else falls back to the ordinary plain-text
+  paste, so pasting Markdown still behaves exactly as before.
+  - Engineering Rule 7 is met structurally: parsed with `DOMParser.parseFromString(html,"text/html")`
+    into a document with no browsing context (scripts never run, subresources never load), never
+    attached to the page, `innerHTML` never assigned, and the only output is a plain Markdown string
+    that then travels the identical path as typed text. Same tag policy, same `isSafeHref()` link
+    policy and same escaping as the editorial importer.
+  - **Not** `sanitizeHtmlToBlocks()` from `lib/story/content-import.ts`: that measures input with
+    Node's `Buffer` (absent in browsers) and parses with `node-html-parser` (~200 KB of client
+    bundle for a parser the browser already has). The genuinely shared parts were extracted instead
+    — new **`lib/story/markdown-escape.ts`** now owns `escapeMarkdownText`/`escapeLeadingMarker` and
+    both converters import it, so they cannot drift.
+  - **Reads Google Docs' inline styles**, not just tags. Google Docs emits
+    `<span style="font-weight:700">` rather than `<strong>`, and wraps the whole document in
+    `<b style="font-weight:normal" id="docs-internal-guid-…">` — a tag-only converter loses every
+    bit of emphasis from the most likely source AND bolds the entire paste. Only `font-weight`,
+    `font-style` and `text-decoration: line-through` are read; the style attribute is inspected and
+    discarded, never propagated.
+  - `<br>` becomes a Markdown **hard** break (two trailing spaces), a deliberate difference from the
+    editorial importer's bare `\n` — a soft break renders as a space and silently merges two lines
+    the writer separated on purpose.
+  - Never truncates: over a cap or any failure returns `{ok:false}` and the plain-text paste runs.
+    Caps are looser than the importer's (2,000,000 chars / 20,000 nodes / depth 60) because this
+    runs in the contributor's own browser on their own clipboard — and because Google Docs emits one
+    `<span>` per formatting run, so a long story legitimately passes 5,000 nodes.
+  - An unsafe href (including `mailto:`) drops the link but keeps the words, and the editor shows a
+    one-line note saying so.
+- **Slash-command menu** (`components/story/editor/slash-commands.ts`): type `/` at the start of a
+  line for Heading, Smaller heading, Bulleted/Numbered list, Checklist, Quote, Link, Table and
+  Photo. Built on `@codemirror/autocomplete` rather than a hand-rolled popup **because of**
+  Engineering Rule 19: CodeMirror's completion tooltip already renders `role="listbox"` /
+  `role="option"` / `aria-selected` and drives `aria-activedescendant`, `aria-autocomplete`,
+  `aria-haspopup` and `aria-controls` on the editor, with Arrows/Enter/Escape/Ctrl-Space bound.
+  Confirmed in a real browser, not assumed (see verification below). Anchored to the start of a line
+  so "24/7", a date or a URL never pops it open mid-sentence.
+  - **`slashMenuTheme` was not optional.** CodeMirror's completion theme picks `&light`/`&dark` from
+    the `EditorView.darkTheme` facet, and this editor sets `theme="none"` so it can inherit the
+    page's colours — leaving `darkTheme` false. First browser check showed a white popup with
+    near-white inherited text in the app's dark mode: every option after the selected one was
+    invisible. Now painted from `--surface`/`--foreground`/`--accent`, correct in both themes.
+  - "Photo" does not upload anything. `image-upload-manager.tsx` still owns the whole reservation /
+    direct-to-storage / embed-token flow; the entry focuses and scrolls to the Images panel
+    (`onRequestImages` → `focusImagesPanel()` in `story-edit-form.tsx`, which moves real focus, not
+    just the viewport). A toolbar button does the same.
+- **Keyboard shortcuts**: Cmd/Ctrl-B, -I and -K, at `Prec.high`. Toolbar tooltips now name them.
+- **Word count and reading time** under the editor, live. New **`lib/story/markdown-text.ts`** holds
+  the plain-text extraction, the count and Ghost's reading-time model (275 wpm plus a decreasing
+  per-image allowance), and `lib/story/content-quality-checks.ts` now uses the same function — so a
+  contributor and a moderator can never see different word counts. **That move fixed a real bug**:
+  the private regex in content-quality-checks predated the `|<width>` embed suffix added 2026-08-12,
+  so a resized image leaked its width into the "plain text" and `320` was counted as a word.
+  Deliberately not an `aria-live` region — it changes on every keystroke.
+- **Sticky toolbar**, at `top-[76px]` (not `top-0`) because `components/site-header.tsx` is itself
+  `sticky top-0 z-40` over a `min-h-[76px]` bar. On a 375px viewport the eleven buttons wrapped to
+  three stacked rows, so the button group scrolls sideways instead — one row on a phone, one row on
+  desktop. The photo button uses `GalleryIcon` from the app's own icon set rather than the 🖼 emoji,
+  which rendered in full colour against otherwise monochrome glyphs.
+- **Alt text and captions for images already placed in the story.** `image-upload-manager.tsx`
+  filtered placed images out of the panel entirely (`!inlineMediaIds.has(...)`), and alt text/caption
+  are only editable there — so the natural order (place the photo where it belongs, then describe
+  it) was **impossible**, which is a WCAG problem and the likely reason stories reach moderation
+  with the `images_missing_alt_text` warning. Placed images now get their own "N images in your
+  story" group with alt text, caption and decorative editable, plus Set-as-cover and Remove; no
+  "Add to story" (already there) and no reorder (their order is their order in the text). The shared
+  fields were extracted into a `MediaTextFields` component, which also gained the `aria-label`s
+  those inputs never had — a placeholder is not an accessible name.
+
+Deliberately **not** built, and why (full reasoning in the research doc):
+
+- **Writing prompts / an outline starter.** The highest-value idea in the entire survey — StoryWorth's
+  whole product is this insight — and the mechanism is cheap. What is not cheap and not an
+  engineering call is the **prompt copy**. WHV section headings sit right next to the line the
+  product spec draws between personal experience and personalised visa/legal/employment/tax advice.
+  "Explain how to get your visa" invites exactly what moderation exists to keep out; "What was the
+  day you found your first job like?" (StoryCorps' question grammar) does not. That is editorial
+  policy for whoever owns `docs/moderation-guidelines.md`, and it should live as **data**, not
+  hard-coded strings — the same rule CLAUDE.md already applies to nationality and work class.
+- **Drag/paste an image straight into the body.** Not additive: it means hoisting
+  `beginMediaUploadAction` → direct-to-storage → `versionRef`/`MutationQueue` out of
+  `image-upload-manager.tsx`, i.e. restructuring `story-edit-form.tsx`. Do the extraction first, as
+  its own change.
+- **Completeness nudge in the editor.** The gate already exists as `missingRequirements` in
+  `app/(contributor)/stories/[id]/preview/page.tsx`. Mirroring it means duplicating it, and a
+  duplicated gate that drifts is worse than one gate. Lift it to a shared pure function first.
+- **Quieting the per-autosave toast** (`showToast("Draft saved.")` fires inside the debounced save,
+  so writing a paragraph produces a stream of toasts; no comparator does this, and the header
+  already shows "Saving…"/"Saved"). Left alone because removing existing behaviour is not additive
+  and "how loud is saving" is a product preference.
+- **Focus mode**, and turning `closeBrackets()` off for prose (confirmed by a headless run: `"` after
+  a space yields `""`, `(` yields `()`; an apostrophe mid-word is correctly left alone, so it is an
+  irritation, not a bug). Both are behaviour changes rather than additions.
+- **Rejected outright**: block/card editors, rich link/media embeds, layout grids, in-editor version
+  history — each needs a `content_json` schema change (Rule 6) or lands in the MVP non-goals. Journi's
+  auto-grouping of photos by time and place is rejected for a different reason: it needs the EXIF
+  timestamps and GPS that Rule 14 requires us to strip.
+
+**Dependency added**: `@codemirror/autocomplete@^6.20.3` (Rule 20). Zero new bytes — it was already
+installed and bundled as a transitive dependency of `@uiw/react-codemirror` → `codemirror`, and
+`basicSetup` was already calling `autocompletion()`. Declaring it makes the direct import honest
+rather than a phantom dependency, and matches how `@codemirror/{state,view,lang-markdown}` are
+already declared. `basicSetup`'s own `autocompletion` is now switched off and configured explicitly
+in `markdown-editor.tsx` instead, so exactly one config exists for that facet. **Note for review**:
+`npm install --package-lock-only` also re-normalised an unrelated `@tailwindcss/oxide-wasm32-wasi`
+bundled-dependency block into `package-lock.json` (~66 lines, all `optional`/`dev`/`inBundle`). That
+is npm's own normalisation, not a dependency change; it was left as npm wrote it rather than
+hand-edited.
+
+**Verified in a real browser, mobile first then desktop** (375×812, then 1280×900; dark and light):
+sticky toolbar stays pinned below the site header through a long scroll; the slash menu opens with
+`role="listbox"`, `aria-label="Story formatting commands"` (the `EditorState.phrases` override),
+`role="option"` + `aria-selected` per item and `aria-activedescendant`/`aria-controls`/
+`aria-haspopup="listbox"` on the editor; typing `/he` narrows to Heading and `/img` matches Photo by
+alias; picking Quote replaces `/quo` with `> `; picking Photo clears the trigger and fires
+`onRequestImages`; Cmd/Ctrl-B and -I wrapped a selection; a Google-Docs-shaped paste produced
+`## **Down south**`, bold/italic spans, a `-` list, a kept `https://` link and a dropped
+`javascript:` link with its words intact, plus the "1 link couldn't be kept" note; word count read
+"96 words · 1 min read".
+
+- **Done without a single database write**, and without signing in: a temporary
+  `app/(public)/editor-harness/page.tsx` mounted the real `StoryContentEditor` inside the real site
+  chrome (so the 76px sticky header was real), then was **deleted** — `git status` confirms nothing
+  of it remains. No server action is reachable from that component, so no revision was touched.
+- **One thing the harness could not exercise**: accepting a completion with **Enter**. The Browser
+  pane cannot give the page real focus (`view.hasFocus === false`), and CodeMirror's
+  `acceptCompletion` needs a focused view. The pointer path was driven instead and works; the
+  keyboard path is CodeMirror's own stock `completionKeymap`, and every command's `apply()` is
+  covered headlessly in `components/story/editor/slash-commands.test.ts`.
+
+New/updated tests — `npm run verify` clean, **57 files / 584 tests** (from 53 / 524):
+`lib/story/html-paste.test.ts` (26 cases: structure, Google Docs inline styles, the
+`font-weight:normal` wrapper, dangerous-subtree removal, image syntax never emitted, unsafe/`mailto:`
+links, escaping, every failure mode, and one realistic full Google Docs paste),
+`lib/story/markdown-text.test.ts`, `components/story/editor/slash-commands.test.ts` (16 cases,
+headless `EditorView` in the same style as `markdown-editor.test.ts`),
+`components/story/image-upload-manager.test.tsx` (new — the placed/unplaced split and that alt text
+stays editable), and four new cases in `components/story/story-content-editor.test.tsx` (word count,
+the Photo route, HTML paste converting, plain paste left alone).
+
+- The four toolbar transforms moved to `components/story/editor/markdown-commands.ts` so
+  `slash-commands.ts` could reuse them without importing a React client component (a module cycle).
+  `markdown-editor.tsx` re-exports all four, so `markdown-editor.test.ts` was not touched.
+- Gotcha worth remembering: a headless `EditorView` that dispatches with `scrollIntoView: true`
+  schedules a measure jsdom cannot service (`Range#getClientRects` is missing) and vitest exits
+  non-zero on the unhandled error even though every test passes. `view.destroy()` after the
+  assertions cancels it.
+
+**2026-08-31 (earlier, 2nd) — Clean-up sweep: the low-severity findings from the codebase audit.**
+
+The last batch from the audit that produced the two entries below. Nothing here changes a user-visible
+flow; the value is closing small trust-boundary and observability gaps, and stopping the codebase
+pointing at a file that no longer exists.
+
+- **`app/robots.ts` was missing `/readiness` entirely.** Every other staff route group
+  (`/editorial`, `/moderation`, `/admin`) was listed; the content-readiness dashboard was not. It
+  already 404s for anyone without editor/moderator/admin (proxy.ts), so this is crawler hygiene,
+  not an access fix. **Correction to the audit that prompted this:** the audit claimed `/moderation`
+  and `/admin` also needed `/*` wildcard variants to match `/editorial/*`. That was wrong —
+  robots.txt `Disallow` is a _prefix_ match, so `/moderation` already covers
+  `/moderation/stories/:id`. The existing `/editorial/*` line is redundant rather than exemplary;
+  it is left in place to avoid churn, with a comment saying not to copy that shape onto new entries.
+
+- **`expectedVersion` is now `.positive()`, not just `.int()`** — three schemas in
+  `lib/validation/moderation.ts` and one in `lib/validation/story.ts`. Every caller builds the value
+  as `Number(formData.get("expectedVersion"))`, and `Number(null)` is `0`, so a request that simply
+  omitted the field used to pass validation and fail later at the RPC's optimistic-concurrency check
+  as a confusing "stale version" error. `stories.version` is `not null default 1`
+  (`20260803090100_stories.sql`), so a genuine version is always >= 1 and 0-or-negative can only mean
+  a malformed request — reject it at the trust boundary (Engineering Rule 2). NaN was already
+  rejected; Zod's number type refuses it by default. Six regression cases added to
+  `lib/validation/moderation.test.ts`.
+
+- **The PDF import's alt-text loop no longer fails silently.** Both
+  `app/(contributor)/stories/new/pdf-attach/route.ts` and its editorial twin apply per-page alt text
+  in a loop that threads `version` by hand, and a failure part-way hit a bare `catch { break }` — no
+  log, no response field, no trace anywhere. The `break` is kept (once one call's outcome is
+  uncertain, every later `expectedVersion` is a guess), but a partial apply now emits a
+  `pdf-import.alt_text_partial` event with an applied/requested count.
+  - **New `logAppEvent()` in `lib/log.ts`**, a sibling of `logStaffAction()`. That function is
+    explicitly scoped to staff actions and carries an `actor`; the contributor PDF route is not a
+    staff action, and stretching it would have started a per-user trail where none is wanted. The new
+    function carries **no actor** by design and tags `scope: "app-event"`. Both PDF routes use it —
+    including the editor-gated one, deliberately: it is the same event, and splitting one event
+    across two log scopes makes it harder to query. Covered by new `lib/log.test.ts`.
+  - **Not done, needs a UI decision first:** nothing surfaces this to the person importing. The
+    picker redirects to the editor the moment the route responds and reads only `storyId`/`error`, so
+    a user-facing warning needs somewhere to actually appear (a toast on the destination page, most
+    likely, plumbed through the redirect). Deliberately not invented here.
+
+- **Stale references to `app/(contributor)/stories/[id]/edit/upload/route.ts`**, deleted by the
+  2026-08-27 direct-to-storage change, were still directing readers to it from six live code
+  comments. Repointed to `upload-actions.ts`. Two references are left alone on purpose because they
+  correctly describe the file as historical (`upload-actions.ts`'s own "Replaces…" line, and
+  `lib/supabase/server.ts`). Dated entries elsewhere in this file, `docs/pdf-canva-import-plan.md`
+  and `docs/pdf-import-spike-findings.md` are historical records and were **not** rewritten.
+
+- **Found while chasing that:** `createClient()` in `lib/supabase/server.ts` takes a `fetch`
+  override that now has **zero callers** — the direct-to-storage change removed the only one, and the
+  image pipeline went further to raw `node:https` (`lib/story/raw-storage-http.ts`). The comment
+  claiming it had a caller is corrected; the parameter is kept as an extension point rather than
+  removed. **Decide:** delete it if no binary-body caller through the session-bound client ever
+  arrives.
+
+- **`docs/architecture.md`'s "Upload reservation flow" is stale and is now labelled as such.** The
+  folder-structure diagram was corrected to `upload-actions.ts`, but the prose below still describes
+  the deleted Route Handler in the present tense — buffering `request.formData()`, uploading via the
+  server client, and the whole `maxDuration` latency analysis that followed from routing bytes
+  through a Vercel function. A prominent SUPERSEDED banner now heads that subsection and points at
+  the current flow. **Follow-up: that subsection needs a real rewrite.** It was not attempted here
+  because the reservation/idempotency reasoning around it is still accurate and load-bearing, and
+  silently rewriting technical detail that would have to be re-derived is worse than labelling it.
+  - **DONE (2026-08-31, same day).** The subsection is rewritten and the SUPERSEDED banner is gone.
+    The first paragraph (the RPC reservation/idempotency model) was kept verbatim — it was always
+    accurate. Everything after it now documents the real flow: why the relay route had to go
+    (Lambda's ~4.5 MiB inbound ceiling), that the authorization model did **not** change
+    (`_can_write_reserved_media_path` was always scoped to `auth.uid()`), the five-step sequence
+    through the three bytes-free Server Actions, the three nested size ceilings (30 MiB bucket
+    outer bound / 15 MiB finalize / 8 MiB processed), and the revised failure handling.
+  - **Two things the rewrite surfaced that are worth acting on.** (1) `export const maxDuration =
+60` is gone from the codebase — grepped and confirmed, it went with the route it was declared
+    on. It existed to stop the platform killing the 8.3s upload leg, and that leg has genuinely
+    moved off the function, so its removal is defensible. But (2) **processing is still synchronous
+    inside a serverless function** and now has no `maxDuration` protecting it, and the
+    `processStoryMedia(mediaId, knownOriginalBytes?)` fast path is no longer used at all: the old
+    route passed the bytes it had just uploaded, and a bytes-free Server Action has none to pass,
+    so the ~2-3s redundant download of the original is back. Nobody has re-measured the processing
+    half on its own since the split. Both are recorded as an open risk in the rewritten section
+    rather than quietly fixed, because the honest answer is a background job/queue.
+
+- **Still open, needs a product decision, not code:** private-bucket storage is unbounded per
+  authenticated user. `begin_story_media_upload()` caps images at 12 per revision, but nothing caps
+  revisions or stories per user, and the bucket's `file_size_limit` is 30 MiB. What the per-user
+  ceiling should be is a product call.
+
+**2026-08-31 (earlier, 3rd) — Phantom ISR removed, and a migration written to kill the My Stories N+1.**
+
+_Two items. The first is a pure no-op deletion plus documentation correction. The second writes SQL
+and applies nothing — it is deliberately left as follow-up work, described in full below._
+
+- **Item 1 — `/stories` and `/contributors` were declaring a cache they never had.** Both carried
+  `export const revalidate = 60`, and both `await searchParams` (filter state on `/stories`, the
+  keyset pagination cursor on `/contributors`), which forces dynamic rendering in the App Router.
+  The `revalidate` export was a **silent no-op** on each. Confirmed against the production build's
+  route table before touching anything: `/` builds `○` with a `1m` revalidate period, while
+  `/stories` and `/contributors` are `ƒ (Dynamic) server-rendered on demand` with no period at all.
+  Both exports are removed and replaced with a comment explaining why a `revalidate` there would do
+  nothing, so nobody re-adds one. **Zero behaviour change** — the pages were already dynamic.
+- **What was NOT touched, and why.** `app/(public)/page.tsx` keeps its `revalidate = 60` (it builds
+  `○` static and works exactly as intended). `app/(public)/stories/[id]/page.tsx` and
+  `app/(public)/contributors/[slug]/page.tsx` keep theirs too: they show `ƒ` **only** because they
+  are dynamic-param routes with no `generateStaticParams` to prerender from, but they are genuinely
+  ISR-cached per path at runtime. `docs/architecture.md`'s "cookie-free public client" section had
+  previously lumped all four `ƒ` routes together and claimed `revalidate` had no practical effect on
+  any of them — that was wrong about the two detail routes, and is now corrected there.
+- **Comments corrected to match reality.** `lib/story/public-cache.ts`'s header claimed all five
+  public pages "carry `export const revalidate = 60`, so they're already eventually consistent
+  within a minute" — now split into the three that cache and the two that do not (and it notes that
+  `revalidatePath()` on an uncached path is a harmless no-op, which is why the purge lists still
+  name `/stories` and `/contributors`). Also corrected: `lib/story/public-queries.ts`'s header,
+  `lib/supabase/public.ts`'s doc comment, `app/(moderation)/moderation/stories/[id]/actions.ts`'s
+  `invalidatePublicCacheSafely` comment, and three passages in `docs/architecture.md`. The
+  cookie-free client itself is unchanged and is still the right choice for these two pages.
+- **The real cost this leaves in place (not fixed here).** `/stories` issues **five** Supabase round
+  trips per visit (regions, destinations, tags, travel styles, stories) plus middleware's
+  `get_published_story` existence check, on **every single request**, and now nothing in the code
+  pretends otherwise. Making it genuinely cacheable means moving the filtering client-side — a
+  separate, larger piece of work, not scheduled.
+- **Item 2 — a migration written, NOT applied: `supabase/migrations/20260831090000_list_my_stories_cover.sql`.**
+  `lib/story/contributor-queries.ts#listMyStoriesWithCovers()` calls `getStoryPreview(story.id)` once
+  per story via `Promise.all` purely to read one cover thumbnail. `get_story_preview()` builds the
+  entire preview payload each time — the revision's full `content_json` plus a `jsonb_agg` of every
+  attached media row — of which the caller keeps two scalars. A contributor with 30 drafts costs 31
+  round trips. The migration adds two trailing OUT columns to `list_my_stories()`,
+  `cover_media_id uuid` and `cover_alt_text text`, populated by a correlated subquery against the
+  same coalesced current-draft-or-published revision (`r.id`) the function already reads, exactly
+  the way `regions` does. Every existing OUT column is preserved; the WHERE clause, ordering and
+  grants are unchanged.
+- **Why a new file rather than editing 20260829090000.** That regions migration is untracked in git
+  but **is already applied** to the linked hosted dev project — confirmed independently by a clean
+  `supabase gen types typescript --linked`, which returned `regions: Json` on `list_my_stories`.
+  Editing it in place would desync migration history from the live dev schema.
+- **Security shape of the new columns (Rules 2, 13, 14).** They return **only** `media_id` and
+  `alt_text` — never `private_storage_path`, `approved_public_storage_path`, or any storage path.
+  The UI passes only a `mediaId` to `StoryCoverThumbnail`, which mints a signed URL separately after
+  independently re-checking authorization; a path here would bypass that. Schema facts verified in
+  `20260803090400_story_media.sql` before writing: the cover flag is
+  `public.story_revision_media.is_cover`, `alt_text` lives on that same join table (per-revision, not
+  on `story_media`), and the partial unique index `story_revision_media_one_cover_idx on
+(revision_id) where is_cover` already guarantees at most one cover per revision — the subquery's
+  `order by sort_order, id limit 1` is belt-and-braces on top of that. Null revision or no cover
+  yields NULL for both, matching the existing null `title`/`excerpt` and `'[]'` regions behaviour.
+- **Follow-up work — exactly what is left to do.** (1) Apply the migration. (2) Run
+  `npm run supabase:types:linked` to regenerate `types/database.ts` (the two new columns do not exist
+  in the generated types until then, which is why **no TypeScript was changed in this task** —
+  `lib/story/contributor-queries.ts` is untouched, since any TS change now would either fail
+  typecheck or need a hand-edit of the generated types, which CLAUDE.md forbids). (3) Rewrite
+  `listMyStoriesWithCovers()` to read `cover_media_id` / `cover_alt_text` straight off the
+  `list_my_stories()` rows and delete the per-story `getStoryPreview()` fan-out entirely; its
+  `MyStoryWithCover` type and the `coverMediaId`/`coverAltText` field names can stay as they are, so
+  no consumer component changes. **`getStoryPreview()` itself must stay** — it has other callers
+  (the edit and preview pages), it is only the fan-out from My Stories that goes away.
+- **Full gate:** `npm run verify` passes end to end — format:check clean, lint 0 errors /
+  155 warnings (unchanged), typecheck clean, **52 files / 515 tests passing**, build succeeds.
+  No test changes were needed: Item 1 deletes two no-op exports and edits comments, and Item 2 adds
+  a `.sql` file that no test exercises. **No database was written to and no types were regenerated.**
+
+**2026-08-31 — Audit follow-up: six diagnosed bugs fixed.**
+
+- **`npm run verify` was failing at step one.** `scripts/.bootstrap-tmp/` is untracked local
+  scratch but appeared in neither `.gitignore` nor `.prettierignore`, so `prettier --check .`
+  failed on it and nothing after it ever ran. Added to both.
+- **Archiving often skipped the public cache purge entirely (Rule 12).** `archiveStoryAction`
+  re-derives the story's slug via `getStoryForModerator(revisionId)` (never trusting a
+  client-supplied slug, Rule 2). When that lookup returned nothing — the common case, archiving
+  a long-published story with **no in-flight revision** — a bare `catch {}` swallowed it, `slug`
+  stayed null, and the guard `if (slug) invalidatePublicCacheSafely(...)` did nothing at all.
+  An archived story could stay publicly listed for up to 60s on `/` and `/stories`, and up to an
+  hour in the sitemap. Now: `lib/story/public-cache.ts` exports
+  `invalidateStoryListingsPublicCache()` (`/stories`, `/`, `/sitemap.xml` — everything that
+  needs no slug), `invalidateStoryPublicCache(slug)` delegates to it so there is one path list,
+  and the archive action falls back to the listings-only purge (wrapped in the same
+  swallow-and-log guard, since the archive has already committed). The failed lookup is now
+  logged via `logStaffAction` as `moderation.archive.slug_lookup` / `outcome: "error"` instead
+  of vanishing. **The slug now decides only WHICH surfaces get purged, never whether any do.**
+- **The proxy threw away refreshed Supabase auth cookies on every early return.** Supabase
+  rotates refresh tokens: `getClaims()` can mint a new one and hand it to the `setAll` callback,
+  which writes it onto the tracked `response`. But all ~17 early returns in `proxy()` (the
+  sign-in redirect, every `flatNotFound()`, every `publicNotFound()`) build a **fresh** response
+  that never carried it — so the new token was burned without ever reaching the browser and the
+  next request could not refresh. Real symptom: clicking one dead story link silently signed a
+  user out. Fixed by collecting each rotated cookie into a local array and replaying it onto the
+  outgoing response through a new `withAuthCookies()` helper, which every early return now goes
+  through. **No authorization logic, regex, status code, body, or header changed** — signed-out
+  and wrong-role callers still get the byte-identical flat 404.
+- **Middleware matcher gap on `/stories/new` subpaths.** The matcher listed `"/stories/new"` as
+  an exact path while `isProtectedPath()` also handles subpaths, so `/stories/new/import`,
+  `/pdf-preview` and `/pdf-attach` never ran the middleware at all. Not an auth hole (the
+  `(contributor)` layout guard and each route's own `getCurrentUser()` still gate them) — the
+  damage was the missing session refresh, which can 401 a long PDF import mid-flow. Changed to
+  `"/stories/new/:path*"`. Verified against the **compiled** matcher regexes in
+  `.next/static/*/_clientMiddlewareManifest.js`, not assumed: `:path*` matches zero segments, so
+  bare `/stories/new` still matches. One entry, not two.
+- **The proxy's Supabase client was untyped.** `createServerClient(...)` carried no `<Database>`
+  generic, so every `.rpc()` name and argument in middleware was unchecked — a typo there would
+  degrade silently into a 404 for real visitors. Now `createServerClient<Database>(...)`, with
+  the per-row helper signatures using a `ProxySupabaseClient` alias.
+- **`types/database.ts` regenerated cleanly (it had been hand-edited, against CLAUDE.md).**
+  `npm run supabase:types:linked` succeeded against the linked dev project. The regenerated file
+  keeps `list_my_stories`'s `regions` (it is really in the project, not just in the working
+  tree) and adds five RPCs that were missing: `can_view_user_account`,
+  `record_heic_transcoded_original`, `authorize_heic_transcode`, `list_user_accounts`,
+  `get_user_account_detail`. Only other delta is a `PostgrestVersion` string. All five
+  `callUntypedRpc` workarounds in `lib/story/mutations.ts` and `lib/admin/user-accounts.ts` are
+  gone, replaced by plain typed `supabase.rpc(...)` calls with explicit `error` handling; the
+  hand-written row types in `user-accounts.ts` are kept deliberately (they are wider/nullable
+  than the generated `Returns` rows, which describe the column list rather than nullability).
+  `lib/supabase/call-untyped-rpc.ts` now has **zero call sites** and is kept only as an escape
+  hatch for the next migration that lands ahead of a regeneration — its comment says so.
+- **Tests:** new `lib/story/public-cache.test.ts` (6 cases: the listings variant purges exactly
+  `/stories`, `/`, `/sitemap.xml` and never a slug path; the slug variant is a strict superset)
+  and new `app/(moderation)/moderation/stories/[id]/actions.test.ts` (8 cases, following
+  `app/(contributor)/actions.test.ts`'s module-boundary mocking pattern: slug resolves → detail
+  page purged; no in-flight revision / lookup throws / revision belongs to another story → the
+  listings are **still** purged; the lookup failure is logged; a throwing invalidation still
+  reports success; a failed archive invalidates nothing; a non-moderator is refused first).
+- **Full gate:** `npm run verify` passes end to end — format:check clean, lint 0 errors /
+  155 warnings (unchanged), typecheck clean, **52 files / 515 tests passing**, build succeeds.
+- **Not done here:** no Playwright spec for the cookie-rotation fix (it needs a real expiring
+  session to exercise, which the current e2e harness cannot stage); the archive fix is covered
+  by unit tests only, not an end-to-end archive-then-check-the-sitemap run.
+
+**2026-08-29 — My Stories can be filtered by location, the same way the landing page can.**
+
+- **What this adds:** the contributor's `/my-stories` page rendered every story it owns as one
+  flat grid/list with only a grid/list view toggle. It now carries client-side chip filter rows
+  for **Region** and **Destination**, modelled exactly on the public landing page's catalogue
+  index (`components/home/story-index.tsx`): each axis is built only from values present in the
+  contributor's own list, an axis only appears if it can actually split that list, and a chip
+  can never lead to an empty result the way a stale server option could.
+- **Migration `20260829090000_list_my_stories_regions.sql`:** `list_my_stories()` returned no
+  location data at all. It now returns a trailing `regions jsonb` column populated by the
+  _identical_ correlated subquery `list_published_stories()` has used since
+  `20260805100100_extend_list_published_stories.sql` — the only difference is the revision it
+  reads: the coalesced current-draft-or-published revision, so an unpublished draft's locations
+  show up too. `DROP FUNCTION` + `CREATE` (return shape change), everything else byte-for-byte
+  the same as the 2026-08-12 title/excerpt revision, including the
+  `revoke ... / grant execute ... to authenticated` tail.
+- **No RLS or grant change, no new data-access path (Rules 2, 3, 10–14):** the function was
+  already `security definer` and already joined `story_revisions` for this same revision;
+  `regions`/`destinations` are the anonymous-readable lookup tables the authoring-form pickers
+  already read (`lib/story/active-lookups.ts`). A story with no current/published revision
+  yields `[]`, matching the existing null `title`/`excerpt` behaviour. Applied to the linked
+  hosted-dev project (`ybhydepjaantkngngvuf`) and verified: the subquery returns
+  `[{"region_name": "...", "destination_name": null|"..."}]` per revision, `list_my_stories()`
+  itself executes clean.
+- **`FilterRow` is now shared, not copied.** The chip-group component was lifted verbatim out of
+  `story-index.tsx` into `components/story/filter-row.tsx` (exporting `ALL` too);
+  `StoryIndex` imports it, `MyStoriesView` imports it. One control, one behaviour (mobile
+  horizontal-scroll, `aria-pressed`, `role="group"` per axis).
+- **`lib/story/card-fields.ts`** gains `destinationNames(regions)`, the exact sibling of the
+  existing `regionNames(regions)` — both take `unknown` and tolerate malformed rows.
+- **`types/database.ts`** got a single surgical line (`regions: Json` on the `list_my_stories`
+  `Returns`). A full `supabase gen types typescript --linked` regeneration was **not** taken:
+  the committed file is stale against several unrelated in-flight RPCs from a parallel branch
+  (`authorize_heic_transcode`, `list_user_accounts`, …) plus a `PostgrestVersion` string drift,
+  and absorbing all of that here would have been noise. Whoever next regenerates types cleanly
+  will reconcile the rest.
+- **Tests:** `card-fields.test.ts` (+3 `destinationNames` cases), new
+  `components/story/filter-row.test.tsx`, and `my-stories-view.test.tsx` (+6: Region row
+  appears & filters, Destination axis filters, no rows when one region is shared, CLEAR resets,
+  distinct "no stories match those filters" empty state vs. the "haven't started" copy).
+  `makeStory()` gained a `regions: []` default. Full unit suite at the time: 50 files / 502
+  tests passing. (Corrected 2026-08-31 — this line previously claimed "53 files / 538 tests".
+  There are 51 `*.test.ts(x)` files on disk, but `tests/integration/story-rls.integration.test.ts`
+  is deliberately excluded from the default run by `vitest.config.ts`'s `exclude`, so 50 is what
+  `npm run test` actually executes.)
+- **Not done here:** no Playwright spec (there is no existing `my-stories` e2e); mobile-viewport
+  visual check (Rule 18) still to be done live against the dev server.
 
 **2026-08-24 — Admin tooling Phase 2: /admin is a real dashboard, and admins now land on it.**
 
@@ -228,57 +735,6 @@ charts, a "waiting longest" worklist, and a catalogue-health strip.
 - **Verified live** (hosted dev project, signed in as the RLS moderator fixture) at 1280px and
   390px in both renditions: zero horizontal overflow, charts render with real data, and the
   empty-queue state reads correctly. `npm run verify` clean (441 tests).
-
-**2026-08-21 — Supabase Storage → Cloudflare R2 migration: phase 1 (foundation) built.**
-
-Full phased plan:
-[`nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md`](../nimbalyst-local/plans/supabase-to-r2-image-storage-migration.md).
-Architecture write-up: `docs/architecture.md` → "Migration in progress: Supabase Storage →
-Cloudflare R2".
-
-- **Runtime behavior is unchanged.** `lib/story/image-pipeline.ts`, the upload route, and
-  `lib/story/public-image-url.ts` all still use Supabase Storage via
-  `lib/story/raw-storage-http.ts`. Phase 2 (dual-write) is the first phase that changes anything a
-  user can observe. This phase is deliberately landable on its own.
-- **Built:** `lib/story/r2-storage.ts` (`r2Upload` / `r2Download` / `r2ObjectExists` / `r2Remove` /
-  `r2PresignedGetUrl`) over R2's S3-compatible API; `getR2Env()` in `lib/env.server.ts` (separate
-  lazy schema from `getAdminEnv()`, server-only per Rule 1); `.env.example` entries;
-  `lib/story/r2-storage.test.ts` (13 tests); `scripts/verify-r2-integrity.mjs`
-  (`npm run r2:verify-integrity`).
-- **Dependencies added** (Rule 20): `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` — R2's
-  documented S3-compatible client and its presigner, replacing Supabase Storage's REST API and
-  `createSignedUrl`. `@smithy/node-http-handler` — pinned explicitly rather than left to the SDK
-  default, to guarantee no `fetch`/`undici` in the binary write path (see next bullet). The 4 high
-  `npm audit` advisories are pre-existing (Next's transitive `sharp`/`postcss`), unchanged by this
-  install.
-- **The prior corruption bug is treated as live risk, not history.** `raw-storage-http.ts` exists
-  because binary upload bytes were intermittently corrupted in production (EF BF BD replacement-
-  character signature), and two plausible-looking fixes at the fetch/undici layer both still failed
-  under real load. So the R2 path pins `requestHandler: NodeHttpHandler` and sets
-  `requestChecksumCalculation: "WHEN_REQUIRED"`, and both choices are pinned by unit tests so a
-  future refactor that drops them fails CI rather than corrupting photos.
-- **Phase 1 exit gate, NOT yet run:** `npm run r2:verify-integrity` round-trips deliberately-
-  invalid-UTF-8 payloads (64 KiB → 14 MiB) concurrently against the real private bucket and
-  compares SHA-256. It needs real Cloudflare credentials, which don't exist yet. **Phase 2 must not
-  begin until this passes.**
-- **Blocked on user/infra (not code):** create the two R2 buckets and a bucket-scoped API token;
-  enable public access on the public bucket and take its `pub-<hash>.r2.dev` URL; populate
-  `R2_*` in `.env.local` and the Vercel project. **A custom domain is deliberately not required**
-  — revised 2026-08-21 from an earlier "custom domain before cutover" call that overstated the
-  urgency. It's worth having before public launch (r2.dev gets no CDN cache treatment, takes no
-  Cache Rules, and is documented as rate-limited/dev-only), but switching later is one env var
-  plus a redeploy because paths are stored relative and the hostname is composed at render time.
-  Added to the pre-public-launch checklist instead.
-- **Known accepted architectural regression, decided deliberately — see architecture.md for the
-  full reasoning.** Supabase Storage RLS (`_can_write_reserved_media_path()`) is currently a
-  _second, independent_ enforcement layer that re-derives authorization from Postgres on every
-  write. R2 has no equivalent and one cannot be built, so at cutover the app layer becomes the
-  _only_ layer. This is not Rule 21 ("never weaken a policy to route around a blocker") — there is
-  no R2 policy to weaken — but it does mean phase 2+ owes explicit tests that an unreserved or
-  wrong-owner key is rejected in application code. Tracked as a phase 2 requirement, not optional.
-  `_can_write_reserved_media_path()` / `_can_access_story_media()` are kept at decommission time;
-  only their use as Storage policies goes away.
-- `npm run verify` passes (0 lint errors, 425 tests, build OK).
 
 **2026-08-20 — Every image upload crashing on Vercel: sharp's native binary wasn't being packaged
 for the deployed Lambda (`ERR_DLOPEN_FAILED`), found from the user's own Vercel Function logs.**
@@ -4344,3 +4800,574 @@ editing — asked for them to render as the actual image, resizable by dragging 
   through save → parse → render correctly. Hit and worked around the same Turbopack
   stale-export HMR issue noted in earlier entries — a full dev-server restart (not just reload)
   was needed after renaming an export.
+
+---
+
+## 2026-09-01 — Editor layout, title-first drafts, cover-photo fallback
+
+Three contributor-facing changes, no schema or RLS work. All server actions, validation schemas,
+and the mutation queue are untouched — this is UI and one flow-ordering change.
+
+### 1. Story editor: two panes instead of one long column
+
+`components/story/story-edit-form.tsx` (used by both `/stories/:id/edit` and
+`/editorial/:id/edit`) was a single stacked column: title, sub-title, body, images, trip dates,
+travel style, expenses, locations, tags, editor note. Roughly three screens of scrolling on
+desktop before you reached the required Locations and Tags fields.
+
+- Split into a **write pane** (title, sub-title, content-import panel, body, images) and a
+  **details rail** (dates, travel style, expenses, locations, tags, note to editors).
+- `lg` and up: `grid-cols-[minmax(0,1fr)_19rem]`, the rail `sticky` under the action bar with its
+  own `max-h`/`overflow-y-auto`, so the trip metadata costs the page **no height at all**.
+  Measured on a fresh draft at 1280×720: full document height went from ~3 screens to 1261px.
+- Below `lg`: a `role="tablist"` Write / Trip details switch shows one pane at a time. Both panes
+  stay **mounted** (hidden with a class, never conditionally rendered) — the rich text editor is
+  uncontrolled, so unmounting it would discard the visible document and its undo history.
+- The Trip details tab carries a red dot when Locations or Tags is still empty, since those are
+  required and no longer visible while writing. The real gate is still the preview page's
+  `missingRequirements` check; the dot is only a hint.
+- The page header became a `sticky top-[76px]` action bar (76px = the site header's own
+  `min-h`, sticky at `top-0`, `z-40`; this sits at `z-30` beneath it) carrying `SaveStatus` and
+  Preview. The duplicate Preview button that used to sit at the bottom of the form is gone —
+  the sticky one is reachable from anywhere.
+- **Bug found and fixed during in-browser verification**: the first version used a bare `grid`
+  with only `lg:grid-cols-*`. Below `lg` that leaves an implicit auto-width column sized to its
+  widest child, so the editor toolbar pushed the document to 460px inside a 375px viewport —
+  real horizontal overflow on mobile. Fixed with an explicit base `grid-cols-1` plus `min-w-0`
+  on both panes (grid items default to `min-width: auto`). Re-verified at 375×812:
+  `scrollWidth === clientWidth === 375`, no overflowing elements.
+
+### 2. `/stories/new` asks for a title before creating anything
+
+Previously `StartNewStory` fired `createDraftAction()` from a mount effect with a hardcoded
+`"Untitled story"`, so _visiting_ the route wrote a story row — accidental visits included — and
+every draft started with a placeholder title someone had to notice and replace.
+
+- Now a small form: required Title (autofocus, 200-char counter), "Start writing" disabled until
+  the trimmed value is non-empty, submitted through `<form action={formAction}>` with
+  `useActionState`. Nothing is created until submit.
+- `createDraftAction` and `createDraftSchema` are **unchanged** — the same auth check, the same
+  `.trim().min(1).max(200)`, the same contributor-identity error, the same `redirect()`.
+- The Strict-Mode `started` ref guard is gone with the effect; `pending` disabling the button is
+  what now prevents a double-submit.
+- Cross-links with `/stories/new/import` (the PDF/Canva path), which has always asked for a title
+  first — the two entry points now behave the same way.
+- New test `app/(contributor)/stories/new/start-new-story.test.tsx` (4 cases), including the
+  explicit "creates nothing on mount" regression. `e2e/cross-contributor-access.spec.ts` updated
+  in both places where it relied on the zero-click redirect.
+- **Not changed**: `DEFAULT_PDF_IMPORT_TITLE` in `lib/story/pdf-import-content.ts` still falls
+  back to "Untitled story" — that is a parse fallback for a PDF whose own metadata carries no
+  title, not a user-facing default, and the import form still requires a title of its own.
+
+### 3. A real drawing instead of "No photo"
+
+Three surfaces rendered a grey box reading "No photo" for a story with no cover image:
+`story-card.tsx`, `home/featured-story-slide.tsx`, and (a different placeholder — the brand
+icon) `my-stories/story-cover-thumbnail.tsx`.
+
+- New shared `components/story/story-cover-fallback.tsx` renders `public/NoImage.png`, a
+  hand-drawn camera sketch on paper stock that was already committed to the repo but never
+  referenced by any code. It reads as part of the Field Journal world rather than as a broken
+  image, and being the same drawing everywhere makes an empty card look deliberate.
+- Served through `next/image` specifically because the source is a 2MB 1407×768 PNG — the
+  optimizer resizes per `sizes`, so a 200px card does not download the original.
+- `alt=""`: decorative. The title and attribution beside it are the content; announcing "no
+  image" before every coverless card would be noise.
+- `story-card.tsx`'s wrapper gained `relative` (required by `fill`).
+- `featured-story-stack.test.tsx`'s "no photo" case now queries `img[src*="NoImage"]` rather
+  than the removed text — there is deliberately nothing accessible to match on.
+
+`npm run verify` clean: 0 lint errors, 605/605 tests, build compiles. Live-verified in-browser at
+1280×720 and 375×812 on `/stories/new`, `/stories/:id/edit`, `/my-stories` (list and grid), and
+`/stories`.
+
+---
+
+## 2026-09-02 — New Story becomes a 6-step timeline
+
+The editor stopped being a form you scroll and became a flow you step through. Replaces the
+two-pane Write/Trip-details layout from the entry above; that layout lasted one day and is gone.
+
+### The timeline
+
+`lib/story/steps.ts` is the single definition, six steps: **Title → Your story → Photos → Trip →
+Places & tags → Review & submit**. Steps 1–5 are panes of `/stories/:id/edit`; step 6 IS
+`/stories/:id/preview`, which already owns submission.
+
+- **Why step 6 is a route, not a sixth pane.** Submission is authorized server-side on the
+  preview page — `canSubmitOwnConsent` and `missingRequirements` are both derived from a fresh
+  `getStoryPreview()` call. Re-deriving that inside a client form would duplicate an
+  authorization decision, which Engineering Rule 2 forbids. So "Review & submit →" on step 5 is
+  a real `<Link>` to that route, and the preview page renders the same progress bar with step 6
+  current. The contributor sees one continuous flow; the trust boundary never moves.
+- **`components/story/story-steps.tsx`** renders the bar. It takes `onSelect` (in-page switching,
+  client callers) OR `hrefs` (real navigation, for the Server-Component preview page — a plain
+  object of strings crosses the RSC boundary, a callback does not).
+- **Steps are never locked.** Every field autosaves independently, so there is no half-committed
+  state a jump could corrupt, and a contributor who wants to fix their title from step 5 should
+  not have to walk back through four screens. Ticks report progress; they do not gate it. The
+  only real gate remains the preview page's server-side `missingRequirements`.
+- Completeness is computed on both sides from the _same_ definition as `missingRequirements`, so
+  a tick can never disagree with what the submit gate says. Photos and Trip are optional: they
+  tick when filled, their absence blocks nothing.
+- `?step=` on the edit route opens a specific step, validated against the real step list
+  (`resolveStep()`), so a hand-typed value can only resolve to a step that exists. That is how
+  the preview page's bar — and its "Add a title … before you can submit" notice, which now links
+  to the first _missing_ step specifically — sends a contributor back to the exact thing to fix.
+- Changing step scrolls to top and moves focus to the step heading, so a screen reader announces
+  where it landed and the next Tab starts inside the new step.
+
+### Two real bugs found during this work
+
+- **`STORY_STEPS.find is not a function` at request time.** The step list originally lived in
+  `story-steps.tsx`, which is `"use client"`. A Server Component importing a _value_ from a
+  `"use client"` module does not receive the value — it receives a client-reference proxy. Both
+  the edit page and the preview page are Server Components and both needed the real array. Fixed
+  by moving the data to `lib/story/steps.ts`, a module with no directive, imported directly by
+  each side. A convenience re-export from the client module was deliberately NOT added back: it
+  would reintroduce the identical bug one import hop further away.
+- **`Cannot create components during render`** (caught by the React Compiler lint, not by me).
+  `StepSection` was first written as a function declared inside `StoryEditForm`'s body — a new
+  component _type_ on every render, so React would unmount and remount its whole subtree on each
+  keystroke, tearing down the uncontrolled rich text editor and any in-flight image upload.
+  Hoisted to module scope with `activeStep` as a prop.
+
+### Still true from before
+
+Every step section stays **mounted** (hidden with a class, never conditionally rendered) for the
+same reason the old panes did: the rich text editor is uncontrolled, so unmounting its step
+would discard the visible document and its undo history. The sticky action bar (save status +
+Preview) is unchanged and now also carries the progress bar. The editor's slash-menu "Photo"
+entry moves the timeline to the Photos step before focusing the panel, since the panel it points
+at is no longer on the same screen.
+
+### Scope note
+
+The editorial import editor (`/editorial/:id/edit`) renders the same `StoryEditForm`, so staff
+get the same timeline. That was not separately requested — it follows from there being one
+component. Steps are freely clickable, so nothing an editor could previously reach is now
+harder to reach; say the word if staff should keep an everything-at-once layout instead.
+
+New tests: `components/story/story-steps.test.tsx` (7 cases, including the current-step-tick
+regression). `e2e/cross-contributor-access.spec.ts` advances to step 2 before typing into the
+body. `npm run verify` clean: 0 lint errors, 612/612 tests, build compiles. Live-verified in the
+browser end to end at 1280 and 375 wide: new draft → title → body (autosave + live tick) → jump
+to step 5 → location + tag → Review & submit → the submit consent panel, then a step link on the
+preview page back into the editor at step 4. No horizontal overflow at 375px.
+
+---
+
+## 2026-09-02 (later) — Step 6 locked, photos land where you can see them, photo library redesigned
+
+### 1. Step 6 is no longer clickable from the editor
+
+`StoryStepProgress` gained `lockedSteps`; the editor passes `["review"]`. A locked step renders
+as an inert `<span>` — not a disabled `<button>` — so it is out of the tab order entirely, with
+`aria-label` ending "(not available yet)" and a `title` explaining the way in.
+
+This closed a real bug, not just a UX preference: clicking the 6th circle in the editor set an
+in-page step that has **no section to render**, so the contributor got a blank screen. The only
+route to step 6 is step 5's own "Review & submit →" button. The preview page's copy of the bar
+is unaffected — there step 6 is current and steps 1–5 are links.
+
+### 2. "Add to story" now takes you to the story
+
+Placing a photo from step 3 inserted the embed into an editor sitting on a hidden step 2, so
+there was no feedback at all and the contributor had to walk back a step to find out whether it
+had worked. `onInsertIntoEditor` now switches to the story step first and inserts on the next
+frame — CodeMirror cannot measure or scroll a document inside a `display: none` section, so
+inserting before the section paints puts the embed in the right place but leaves the view
+scrolled somewhere else. Verified live: click "Add to story" → step 2, photo visible in the
+editor, "Saved just now".
+
+### 3. The photo library, rebuilt on the pattern every comparable tool uses
+
+The old panel put a decorative checkbox, an alt-text input, a caption input and up to five
+underlined text links on **every** tile, in two separately-collapsible groups. Twelve photos
+meant three dozen form controls, wrapping links that made every tile a different height, and
+"Add to story" carrying exactly the same visual weight as "Remove".
+
+Checked against `docs/editor-competitive-research.md` and the tools it covers (Medium, Substack,
+Ghost/Koenig) plus the general media-library pattern (WordPress attachment details, Google
+Photos' info pane). They all converge on the same thing: **a quiet grid, with details opened for
+the one item you asked about.** Substack in particular edits alt text and caption in a panel on
+the image, which the research doc already flagged as "worth copying — we are worse than this
+today".
+
+What it is now:
+
+- **One grid, not two collapsible groups.** Ordered by `sortOrder`, which also fixes Move
+  up/down: they used to reorder within the _unplaced subset_ only, so the arrows did not move a
+  photo relative to the ones already in the story. They now swap true neighbours.
+- **Tiles carry no form fields.** Just the image plus status pips that change what you would do
+  next: `Cover`, `In story`, `Needs description`, `Duplicate`. Under each tile, one filled
+  primary action ("Add to story", omitted once placed) and one "Details" / "Describe" button.
+- **Details expand to a full-width row** (`col-span-2 sm:col-span-3`), one at a time: thumbnail
+  left, fields right. Alt text finally gets a **visible label and a hint** rather than a
+  placeholder — there was never room for one in a 3-column tile, which is exactly why the old
+  panel used placeholders and why stories arrive with no alt text.
+- **Actions are bordered buttons, not underlined links**, with Delete tinted destructive and
+  "Done" separated to the right.
+- A summary line replaces the two group headers: "5 photos · 2 in your story", plus "N photos
+  still need a description" — the same condition the moderation queue's `images_missing_alt_text`
+  warning fires on, surfaced where the contributor can still act on it.
+- The step section above no longer prints "Images (N)": the step is titled "Photos" and the panel
+  has its own count, so that was three counts on one screen.
+
+**Accessibility bug found while writing the tests.** The details button was visible text plus an
+`sr-only` span (`"Details"` + `<span> photo 1</span>`). The accessible-name algorithm trims each
+element's text before joining with no separator, so it announced as **"Describephoto 1"**.
+Confirmed against `dom-accessibility-api`, which is what both this project's tests and real
+screen readers implement. Fixed with an explicit `aria-label`. Worth remembering: the
+visible-text-plus-sr-only-suffix idiom does not produce the spacing it looks like it does.
+
+`components/story/image-upload-manager.test.tsx` rewritten around the new structure (7 cases),
+keeping the "placed images stay describable" regression that the two-group layout originally
+existed to fix. `story-steps.test.tsx` gained 2 cases for the lock. `npm run verify` clean:
+0 lint errors, 617/617 tests, build compiles. Live-verified at 1280 and 375 wide.
+
+---
+
+## 2026-09-02 (later still) — Two bug fixes: dead thumbnail URLs, and reordering photos in the story
+
+### 1. The detail panel showed no thumbnail (and the grid came back wrong)
+
+Two causes, both real, and the second explains why it looked intermittent.
+
+- **Signed thumbnail URLs are never refreshed.** `mintPreviewUrlAction` mints URLs with a
+  120-second expiry (`lib/story/image-pipeline.ts`), and the minting effect deliberately skips any
+  media id already present in `thumbnails`. Once obtained, a URL is kept forever. That is
+  invisible while the `<img>` stays mounted — the browser goes on showing an image it already
+  decoded — and becomes visible the instant anything remounts the element.
+- **Opening details remounted the `<img>`.** The redesign rendered `if (isOpen) return <li>…`
+  beside a separate closed-state `<li>`. Those look equivalent but are not: React reconciles by
+  position, so the two branches' `<img>` elements are different nodes. Toggling details destroyed
+  the image and created a fresh one, which genuinely re-requests its `src` — and on any tile
+  older than two minutes that request 4xx'd, so the panel showed nothing. Closing it remounted
+  again, this time often against a cached failure.
+
+Fixed on both sides. The tile and the detail panel now share **one element tree**, laid out
+differently by class (`flex-col` vs `sm:flex-row` with a `w-40` thumb), so the thumbnail sits at a
+stable position and is never re-requested — verified live: the `<img>` is literally the same DOM
+node before and after the toggle (`imgAfter === imgBefore`). And an `onError` re-mints a dead URL
+once, guarded by a ref so a genuinely broken image cannot loop — the same recovery
+`app/(contributor)/my-stories/story-cover-thumbnail.tsx` already had and this panel lacked.
+
+### 2. Photos in the story could not be reordered
+
+Images stack vertically in the body and the only way to move one was to delete its embed and
+re-add it from the Photos step. Now:
+
+- **Drag the photo itself.** The whole image is the drag surface; a grip badge (`⠿`) in new
+  hover chrome at the top-left is the affordance. A **drop indicator** — a horizontal accent rule
+  — shows exactly which line boundary it will land on, because without it the drop is a guess.
+  Drops snap to a line boundary chosen by which half of the line the pointer is in (the usual
+  list-reorder convention), so a photo can never split a sentence.
+- **↑ / ↓ buttons** beside the grip do the identical move one line at a time. Not a convenience:
+  drag-and-drop is pointer-only and can never be the sole way to do something (Engineering Rule
+  19 / WCAG 2.1.1). Both are 24×24 for WCAG 2.2 target size. The controls also reveal on
+  `:focus-within`, since a keyboard user never triggers `:hover`.
+- The resize handle and remove button sit inside the drag surface, so they toggle `wrap.draggable`
+  on mouseenter/leave — `stopPropagation` does not work here, because the drag originates from
+  whichever element the pointer is over.
+
+**The text transform lives in `lib/story/markdown-media.ts` as `moveMediaEmbed()`**, a pure
+function, with the decorations module only dispatching its result. Deliberate: the alternative —
+two positional CodeMirror changes in one transaction — has to reason about whether the insert
+point shifts when the deletion applies, in both directions, and differently again depending on
+whether the token owned its line. Getting that subtly wrong corrupts story text silently, and
+none of it is testable without a live editor. As a string transform it is covered by 9 unit
+tests, including the case that motivated the design: **the same photo embedded twice**, where
+moving "the second one" cannot be expressed by searching for the token text.
+
+If the token was alone on its line the whole line moves with it, newline included — otherwise
+every reorder leaves an empty paragraph behind and a few moves turn the story into a column of
+gaps.
+
+`EditorView.domEventHandlers` binds to `contentDOM`, not the scroller — checked, and in this
+editor `.cm-content` exactly fills `.cm-scroller` (0px dead space on all sides), so there is no
+region of the editor where a drop is silently ignored. Worth re-checking if the editor ever gains
+padding below the last line.
+
+`npm run verify` clean: 0 lint errors, 626/626 tests, build compiles. Live-verified: move buttons
+swap neighbours; dragging photo 1 below photo 3 reorders to 2, 3, 1 with every stored `|width`
+preserved; the drop indicator lands exactly on the target line's top edge.
+
+---
+
+## 2026-09-02 (evening) — Editor owns its scroll; photos can be placed side by side
+
+### 1. The editor scrolls itself, so the toolbar never leaves
+
+The formatting toolbar was `sticky top-[76px]` — pinned below `site-header.tsx`'s own 76px sticky
+bar. That stopped working when the story editor gained **its own** sticky bar at that same offset
+(title, save state, step progress): the toolbar stuck _underneath_ it and was invisible exactly
+when it was needed. And a long story grew the page, so reaching the end meant scrolling the whole
+page past everything else on the step.
+
+`markdown-editor.tsx` is now a bounded flex column: toolbar row, scrolling text, word-count row.
+The `.cm-scroller` takes the overflow, so the **story** scrolls, not the page.
+
+- `h-[clamp(20rem,62vh,46rem)]` — 62vh leaves room for the page's sticky bars, the 20rem floor
+  keeps it usable on a short phone with the keyboard up (Rule 18), the 46rem ceiling stops the
+  writing column becoming an unreadably tall block on a desktop monitor.
+- `min-h-0` on the CodeMirror wrapper is load-bearing: a flex child's default `min-height: auto`
+  refuses to shrink below its content, so without it the editor grows to fit the whole story and
+  the shell's height is silently ignored.
+- Read-only renders (`editable=false`) keep their natural height — nothing scrolls there and a
+  viewport-relative box around static text would just clip it.
+- Sticky positioning is gone entirely rather than re-tuned. Owning a scroll region is the fix
+  that does not depend on knowing the height of everything above it, which was the property the
+  old approach lacked.
+
+Verified at 1280 and at 375×812: the toolbar's viewport position is byte-identical before and
+after scrolling the editor to its end, and `window.scrollY` stays 0.
+
+### 2. Drag a photo to the left or right of another
+
+`resolveDropTarget()` now returns one of two shapes. Over another photo, the **horizontal** half
+decides — left of it or right of it, on the same line. Anywhere else, the **vertical** half of the
+line decides above or below, as before. The drop indicator switches shape to match: a vertical
+bar down the target photo's edge for side-by-side, the horizontal rule for a new line.
+`moveMediaEmbed()` gained a `mode` of `"line" | "inline"`; inline separates the two tokens with
+exactly one space, only where whitespace is not already present.
+
+**A pre-existing bug this uncovered.** The published page did not lay photos out the way the
+editor drew them. `insertMediaToken()` separated embeds with a _single_ newline, and consecutive
+non-blank lines are **one Markdown paragraph** — so stacked photos were inline siblings in the
+rendered HTML, and `content-block-renderer.tsx` (which is `inline-block` for any embed with a
+stored width) packed as many onto a row as fit. Measured on the preview page before the fix: an
+editor showing 2 side-by-side then 2 stacked rendered as **3 then 1**.
+
+Fixed by making the two modes mean genuinely different things in the Markdown:
+
+- **line mode inserts a blank line either side**, so each stacked photo is its own paragraph and
+  its own block. `insertMediaToken()` does the same, so a freshly added photo starts stacked.
+- **inline mode keeps them on one line**, which is the only way two photos share a row.
+
+Same preview, after: **2, 1, 1** — the editor's layout exactly. Side-by-side is now a real,
+durable choice rather than an accident of how wide the column happened to be. Line mode also
+collapses runs of 3+ newlines, the same normalisation `removeMediaEmbeds()` already applies, so
+repeated moves cannot accumulate blank lines.
+
+`npm run verify` clean: 0 lint errors, 633/633 tests, build compiles. `moveMediaEmbed` now has 15
+unit tests including 6 for inline mode; `insertMediaToken`'s tests were updated to the paragraph
+separator and gained a "does not stack blank lines when one is already there" case. Live-verified
+at 1280 and 375: dragging photo 2 onto photo 1's right half puts them on one row (identical `y`,
+adjacent `x`) and the preview agrees.
+
+---
+
+## 2026-09-02 (fix) — "Add to story" left the page scrolled past the editor
+
+Regression from the bounded-height editor in the entry above. The photo was always inserted
+correctly — 4 wraps, 4 `<img>`, no error boxes, verified in the DOM — but the **page** came to
+rest at `scrollY: 560`, leaving the editor almost entirely above the viewport. From the
+contributor's side that is indistinguishable from "the photo did not appear".
+
+Root cause is a two-part interaction, neither half wrong on its own:
+
+- `app/globals.css` sets `scroll-behavior: smooth` on `<html>`, so _every_ `window.scrollTo`
+  animates — including one asking for `behavior: "smooth"` explicitly, as the step-change effect
+  did.
+- An animated scroll is cancellable, and the browser cancels it as soon as something else moves
+  focus or changes layout. "Add to story" does exactly that one frame later: it switches to the
+  story step and then inserts into the editor, which focuses it. The scroll to the top was
+  abandoned partway and the page stopped wherever it had got to.
+
+This only became visible once the editor gained a bounded height. Before, the editor grew with
+the page, so a partial scroll still left plenty of it on screen.
+
+Fixed in two places:
+
+- The step-change effect now scrolls with `behavior: "instant"`. Not `"auto"` — `auto` defers to
+  the CSS rule and would still animate; `instant` overrides it. A step change replaces the whole
+  screen, so an animated scroll was never buying much anyway, and it is the part that can be
+  interrupted.
+- The insert path re-asserts `scrollTo({ top: 0, behavior: "instant" })` on the frame _after_
+  `insertMedia`, so whatever focusing the editor does to the scroll position is corrected
+  afterwards rather than raced.
+
+Verified live: after "Add to story", `scrollY` is 0, the editor's own `scrollTop` is 0, the
+toolbar is fully on screen, the newly placed photo is in view, and all 5 embeds render with no
+error boxes. `npm run verify` clean: 633/633 tests, build compiles.
+
+---
+
+## 2026-09-02 (fix) — Side-by-side drop never fired in a real browser
+
+The detection and text-transform logic were right — synthetic `DragEvent`s produced correct
+side-by-side output end to end. The failure was in **event delivery**, which synthetic events by
+definition cannot exercise. Instrumenting a real drag showed it immediately:
+
+```
+dragstart(.cm-md-image-wrap) → dragenter(.cm-line) → dragover(.cm-line)
+→ dragenter(.cm-md-image) → dragend            [no dragover, no drop]
+```
+
+`dragover` fires happily over `.cm-line` and **stops the moment the pointer crosses onto a
+photo**. The image widget is `contentEditable="false"` inside CodeMirror's editable host, and the
+browser will not treat such an island as a drop target. So the one place a side-by-side drop has
+to be detected is precisely the place no drag event arrives.
+
+Three changes, in the order they were needed:
+
+1. **Target by geometry, not hit-testing.** `resolveDropTarget` no longer calls
+   `document.elementFromPoint`; a new `wrapAtPoint()` walks the rendered `.cm-md-image-wrap`
+   elements and returns the one whose rect contains the pointer. The drop target now depends only
+   on where the pointer _is_, never on what the browser considers to be under it.
+2. **`pointer-events: none` on the other photos while dragging**, so those `dragover` events keep
+   reaching the editable line underneath and the handler runs at all.
+3. **A `dragenter` handler that calls `preventDefault()`.** Chrome mostly infers drop-target
+   validity from `dragover`; Firefox does not, and refuses the drop without it.
+
+Two mistakes made while getting there, both worth recording because neither fails loudly:
+
+- **The dragging class was put on `view.dom`.** `EditorView.theme()` scopes every selector it
+  generates _under_ the editor root, so `".cm-md-dragging-images .cm-md-image-wrap"` compiles to
+  `.cm-editor .cm-md-dragging-images .cm-md-image-wrap` and can never match a class on the root
+  itself. The rule simply never applied. Moved to `view.contentDOM`, a descendant.
+- **`pointer-events: none` was applied to every photo including the drag source.** Making the
+  source non-hit-testable mid-drag makes Chrome abandon the drag outright — the event log
+  collapsed to `dragstart → dragend` with nothing in between, which is _worse_ than the original
+  bug. The selector now excludes `.cm-md-image-dragging`.
+
+Verified with real mouse drags (not synthetic events): dropping on a photo's **right** half puts
+the two side by side (same row, adjacent x, `drop` fires); dropping on the **left** half of a row
+that already holds two inserts at its start, giving three across. The preview page agrees —
+grouped by vertical overlap rather than top-edge proximity, since inline-blocks of different
+heights are baseline-aligned, it reports the same **3, 1, 1** the editor shows.
+
+`npm run verify` clean: 633/633 tests, build compiles.
+
+---
+
+## 2026-09-02 — Required fields are checked before step 6, not on arrival
+
+The preview page has always refused to show the submit panel when a story is incomplete, but
+nothing in the editor said so beforehand: "Review & submit →" invited the contributor forward and
+step 6 turned them away.
+
+Step 5's "Review & submit" is now gated on the same requirements:
+
+- Complete → a `<Link>` to the preview route, as before.
+- Incomplete → a **real `disabled` `<button>`**, not a styled-down link. A link stays followable
+  by keyboard and middle-click however it looks, so styling alone would let exactly the people
+  the gate is for walk into a page that refuses them. It keeps its place in the tab order and
+  `aria-describedby` points at the reason.
+- Above it, an amber panel names each missing item — "Add your story, at least one location, at
+  least one tag before you can submit." — with a button per item that jumps straight to the step
+  that supplies it. `role="status"`, not `alert`: this is the standing state of the draft, not an
+  event, and should not interrupt a screen reader on arrival.
+
+**One definition, shared.** `missingStoryRequirements()` now lives in `lib/story/steps.ts` and
+both surfaces call it: the editor to gate its button, the preview page to gate the submit panel.
+They were written twice and had already drifted — the editor tracked "places" as a single
+done/not-done flag while the preview page distinguished a missing location from a missing tag, so
+the editor could say a step was unfinished without being able to say which half. Now the
+editor's message and the submit gate's message are the same sentence about the same rule, and the
+preview page's "Go to that step" link reads `missingRequirements[0].step` straight off the list
+it renders.
+
+This changes **nothing about authorization**. The preview page still computes its gate
+server-side from that request's own fresh `getStoryPreview()` / `getRevisionSelections()` reads,
+and `submit_revision_with_consent()` remains the non-bypassable check (Engineering Rules 2, 3).
+This is what the UI says, not what the database enforces.
+
+New `lib/story/steps.test.ts` (9 cases): whitespace-only titles count as missing, locations and
+tags are reported separately, requirements come back in the order the preview page reads them
+out, and every requirement points at a step the editor can actually open. Two assertions there
+had to widen a `Set<StoryStepId>` to `Set<string>` — TypeScript already proves `"review"` is not
+in `EDITING_STORY_STEPS` and rejected the comparison outright; the runtime checks were kept
+anyway, since it is the list, not the type, a future edit would get wrong.
+
+`npm run verify` clean: 0 lint errors, 642/642 tests, build compiles. Live-verified on a fresh
+draft: three items listed and the button inert (clicking it does not navigate); each fix removes
+its line as it is made; adding the last tag makes the panel vanish, ticks step 5, and turns the
+button back into a real link.
+
+---
+
+## 2026-09-02 — "The record" pages five entries at a time
+
+`app/(public)/page.tsx` fetches `listPublishedStories({ limit: 24 })` and `StoryIndex` rendered
+all of it. At two dozen full-height entries the section stopped being a section and became the
+page: everything below it — the trust statements, the "not sure where to start" panel, the
+footer — sat behind a very long scroll.
+
+`components/home/story-index.tsx` now shows `PAGE_SIZE = 5` and pages the rest.
+
+- **Paging, not "show more".** This is an index with a numbered spine; a reader who walked to
+  entry 18 should be able to get back to it, which an append-only list cannot offer.
+- **Entry numerals stay continuous.** `position` is the index into the whole filtered record, not
+  into the page, so page two starts at 06 rather than restarting at 01. The numerals are the
+  record's spine; restarting them per page would make them meaningless.
+- **Page buttons render as `2`, not `02`.** Caught by a test that found two elements reading
+  "01" — a real ambiguity, not just a query problem: a pager styled like the entry numerals puts
+  a second "01" on screen meaning something else entirely.
+- **`SHOWING 1–5` joins the existing `16 ENTRIES` line**, which is already `aria-live="polite"`,
+  so a page change announces itself the way filtering already did. Without it the whole list
+  underneath is replaced silently.
+- **Changing a filter returns to page one.** Narrowing a 20-entry record while on page 4 would
+  otherwise land on a page that no longer exists. The render also clamps `page` to `pageCount`
+  independently, so a stale value can never slice past the end.
+- **Paging moves focus to the list** (`tabIndex={-1}` + `scroll-mt-24`) and scrolls it to the
+  top. Otherwise the reader is left at the bottom looking at the pager with the new page's first
+  entry somewhere above them, and a keyboard user's next Tab restarts at the filters. `instant`
+  scroll for the reason recorded earlier: globals.css sets `scroll-behavior: smooth` and the
+  `focus()` a line later cancels an animating scroll partway.
+- Prev/Next stay visible and `disabled` at the boundaries rather than disappearing, so reaching
+  page one does not shift every other control sideways. Page buttons are 32px tall to sit with
+  the 34px filter chips above them and clear WCAG 2.2's 24px target minimum.
+
+No ellipsis window in the pager: the landing page fetches at most 24 stories, so it tops out at
+five page buttons.
+
+7 new cases in `app/(public)/page.test.tsx`: five entries at first view, no pager when the record
+fits on one page, Next advances the window, numbering stays continuous, boundary buttons disable,
+`aria-current="page"` tracks the current page, and a filter change returns to page one.
+`npm run verify` clean: 0 lint errors, 649/649 tests, build compiles.
+
+Live-verified against the dev database's 16 published stories at 1280 and 375 wide: 5 entries,
+"16 ENTRIES · SHOWING 1–5", four page buttons, Prev disabled; page 3 shows entries 11–15 with the
+list focused and scrolled to 96px so it clears the sticky header. Also noted here: the landing
+page carried ~12px of horizontal overflow at 375px, unrelated to `#index`. Diagnosed and fixed
+in the entry below — **not** the hero slideshow, as first assumed.
+
+---
+
+## 2026-09-02 — Landing page horizontal overflow at 375px
+
+The landing page could be scrolled ~12px sideways on a phone. The previous entry blamed the hero
+slideshow; that was wrong, and worth recording because the wrong answer looked convincing.
+
+`.hero-slide` is `inset: -3%` and scales to 1.13 during its Ken Burns pan, so it genuinely
+reports a right edge past the viewport — which is what a naive "list every element wider than
+`clientWidth`" scan surfaces first. But its parent carries `overflow-hidden`, so it is clipped
+and contributes nothing to the document's scroll width. **An element overflowing its own box is
+not the same as an element overflowing the page.** Re-running the scan with a check for a
+clipping ancestor left exactly one culprit: `.story-stack-card`, in the Featured carousel.
+
+Two separate reaches, from the same component:
+
+- At rest, the depth cards behind the top one are offset `--stack-x: 14px` and rotated up to 2°.
+  The rotation is the bigger contributor on a phone, because the card is 735px tall there — a
+  1.6° rotation of a 343×735 box swings its corners out roughly 10px on its own.
+- During a throw, `is-throwing-left/right` translates the card to ±118% before its 0.38s fade
+  finishes. That one only overflows mid-animation, so a static measurement never sees it.
+
+Fixed by clipping at the stack's wrapper in `app/(public)/page.tsx`:
+`-mx-4 px-4 overflow-x-clip` (matching the section's own padding at each breakpoint).
+
+- **`overflow-x: clip`, not `hidden`.** `hidden` on one axis forces the other to compute to
+  `auto`, which makes the element a scroll container and can surface a stray vertical scrollbar
+  for the cards' shadows. `clip` clips without ever becoming scrollable. Older browsers that do
+  not support it fall back to today's behaviour rather than breaking.
+- **Negative margin plus matching padding** puts the clip boundary at the container's edge
+  instead of the card's, so the card box is exactly the size it was and its shadow still has room
+  to fall sideways. Verified: no card is clipped at rest at 375px or 849px.
+
+Verified: `documentElement.scrollWidth === clientWidth` at 375px, with no unclipped overflowing
+elements left anywhere on the page, and sampled every ~45ms across a full throw animation —
+overflow stayed at 0 throughout, where before the throw pushed the document wider mid-flight.
+`npm run verify` clean: 649/649 tests, build compiles.

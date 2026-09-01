@@ -9,3 +9,7 @@ package-lock.json
 # and its generated design sidecar/cache -- not this project's source to format.
 .claude/skills/
 .impeccable/
+
+# Untracked local scratch output from one-off bootstrap/maintenance scripts --
+# generated, throwaway, not this project's source to format.
+scripts/.bootstrap-tmp/
