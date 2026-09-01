@@ -13,6 +13,7 @@ import {
 } from "@/lib/story/active-lookups";
 import { StoryEditForm } from "@/components/story/story-edit-form";
 import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
+import { STORY_STEPS, type StoryStepId } from "@/lib/story/steps";
 
 export async function generateMetadata({
   params,
@@ -31,12 +32,27 @@ export async function generateMetadata({
   };
 }
 
+/**
+ * `?step=` is how the preview page (step 6 of the same timeline) sends a
+ * contributor back to a specific step -- validated against the real step
+ * list rather than cast, so a hand-typed value can only ever resolve to a
+ * step that exists. "review" is excluded on purpose: it is this page's
+ * sibling route, not one of its panes, so asking for it here means the
+ * first step, not a blank screen.
+ */
+function resolveStep(raw: string | undefined): StoryStepId {
+  const match = STORY_STEPS.find((s) => s.id === raw && s.id !== "review");
+  return match?.id ?? "title";
+}
+
 export default async function EditStoryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ step?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, { step }] = await Promise.all([params, searchParams]);
   const draft = await getEditableStoryWithDraft(id);
   if (!draft) notFound();
 
@@ -92,6 +108,7 @@ export default async function EditStoryPage({
       destinations={destinations}
       tags={tags}
       isNewStory={draft.revision_number === 1}
+      initialStep={resolveStep(step)}
     />
   );
 }

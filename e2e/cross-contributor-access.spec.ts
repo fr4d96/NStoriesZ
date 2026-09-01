@@ -85,22 +85,22 @@ test.describe("cross-contributor UI-level access denial", () => {
     const ownerPage = await ownerContext.newPage();
     await signInUi(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
 
-    // /stories/new (2026-08-16) skips the old separate working-title page
-    // entirely -- it creates a title-only "Untitled story" draft itself and
-    // redirects straight here, so the title/content this test actually
-    // needs are both set on the real edit page. Content must be set too
-    // (not just title): saveRevisionFieldsAction validates title/content
-    // together as one snapshot, and a still-empty story now fails that
-    // validation outright (see story-edit-form.tsx's RequiredMark fields),
-    // which would silently leave the placeholder title in place instead of
-    // this test's real, unique one.
+    // /stories/new asks for a real title before it creates anything (see
+    // start-new-story.tsx) -- no "Untitled story" shell exists any more, so
+    // this test's unique title is set here, at creation, rather than being
+    // typed over a placeholder on the edit page afterwards. Content still
+    // has to be typed below: saveRevisionFieldsAction validates title and
+    // content together as one snapshot, and a still-empty story fails that
+    // validation outright (see story-edit-form.tsx's RequiredMark fields).
     await ownerPage.goto("/stories/new");
+    await ownerPage.locator("#new-story-title").fill(title);
+    await ownerPage.getByRole("button", { name: "Start writing" }).click();
     await ownerPage.waitForURL(/\/stories\/[^/]+\/edit$/, { timeout: 15000 });
-    // "Title" is also a getByLabel substring match against "Sub-Title"'s
-    // own accessible name on this page (and the real field's accessible
-    // name is "Title required", so exact:true matches neither) --
-    // unrelated to anything this spec changed. #edit-title sidesteps both.
-    await ownerPage.locator("#edit-title").fill(title);
+    // The editor now opens on step 1 (Title) of the story timeline and the
+    // body lives on step 2, whose section is `hidden` until you get there --
+    // see components/story/story-steps.tsx. Advance one step before typing,
+    // or the .cm-content click below targets a display:none element.
+    await ownerPage.getByRole("button", { name: /^Next: Your story/ }).click();
     await ownerPage.locator(".cm-content").click();
     await ownerPage.keyboard.type(
       "Real content for the cross-contributor access test.",
@@ -282,11 +282,15 @@ test.describe("cross-contributor UI-level access denial", () => {
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
     await signInUi(ownerPage, OWNER_EMAIL!, OWNER_PASSWORD!);
-    // /stories/new (2026-08-16) creates its own "Untitled story" draft and
-    // redirects straight to the edit page -- this case only needs a real
-    // story to exist (its title is never asserted on below), so nothing
-    // further needs to be typed here, unlike the first test above.
+    // /stories/new now requires a title before it creates the draft (see
+    // start-new-story.tsx). This case only needs a real story to exist --
+    // its title is never asserted on below -- so any title will do, and
+    // nothing further is typed on the edit page, unlike the test above.
     await ownerPage.goto("/stories/new");
+    await ownerPage
+      .locator("#new-story-title")
+      .fill("rls-test unrelated story");
+    await ownerPage.getByRole("button", { name: "Start writing" }).click();
     await ownerPage.waitForURL(/\/stories\/[^/]+\/edit$/, { timeout: 15000 });
     const ownerStoryMatch = new URL(ownerPage.url()).pathname.match(
       /^\/stories\/([^/]+)\/edit$/,

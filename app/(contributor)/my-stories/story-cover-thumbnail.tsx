@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { mintPreviewUrlAction } from "@/app/(contributor)/stories/[id]/media-actions";
 import { Spinner } from "@/components/ui/spinner";
+import { StoryCoverFallback } from "@/components/story/story-cover-fallback";
 
 // mintMediaPreviewSignedUrl (lib/story/image-pipeline.ts) mints URLs that
 // last 120s server-side. Cache resolved URLs for less than that so a
@@ -92,13 +92,7 @@ export function StoryCoverThumbnail({
   if (!mediaId) {
     return (
       <div className="relative h-full w-full bg-surface-muted">
-        <Image
-          src="/kakinotes-icon.png"
-          alt=""
-          fill
-          sizes="(min-width: 640px) 33vw, 50vw"
-          className="object-cover"
-        />
+        <StoryCoverFallback sizes="(min-width: 640px) 33vw, 50vw" />
       </div>
     );
   }

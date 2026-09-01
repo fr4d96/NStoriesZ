@@ -13,6 +13,12 @@ import { SubmitConsentPanel } from "@/components/story/submit-consent-panel";
 import { ContributorReviewPanel } from "@/components/story/contributor-review-panel";
 import { WhatsPublicSummary } from "@/components/story/whats-public-summary";
 import { StickyVisible } from "@/components/sticky-visible";
+import { StoryStepProgress } from "@/components/story/story-steps";
+import {
+  EDITING_STORY_STEPS,
+  missingStoryRequirements,
+  type StoryStepId,
+} from "@/lib/story/steps";
 
 // Never statically generated or cached — this can show unpublished,
 // draft-only content, so every request must re-authorize against the live
@@ -107,25 +113,76 @@ export default async function StoryPreviewPage({
   const selections = canSubmitOwnConsent
     ? await getRevisionSelections(preview.revisionId)
     : null;
+  // missingStoryRequirements() (lib/story/steps.ts) rather than an inline
+  // list: the editor gates its own "Review & submit" button on the same
+  // function, so it can never send a contributor here only for this page to
+  // turn them away with a differently-worded complaint. The gate itself is
+  // unchanged -- still computed server-side, from this request's own fresh
+  // getStoryPreview()/getRevisionSelections() reads, and still only a UI
+  // gate on top of submit_revision_with_consent()'s authoritative check.
   const missingRequirements = canSubmitOwnConsent
-    ? [
-        !preview.title.trim() && "a title",
-        !(parsedContent && storyContentText(parsedContent).trim()) &&
-          "your story",
-        !selections?.locations.length && "at least one location",
-        !selections?.tags.length && "at least one tag",
-      ].filter((v): v is string => Boolean(v))
+    ? missingStoryRequirements({
+        title: preview.title,
+        hasContent: Boolean(
+          parsedContent && storyContentText(parsedContent).trim(),
+        ),
+        locationCount: selections?.locations.length ?? 0,
+        tagCount: selections?.tags.length ?? 0,
+      })
     : [];
+
+  // This page is the LAST step of the editor's timeline (see
+  // components/story/story-steps.tsx), so it shows the same progress bar,
+  // with every earlier step linking back into the editor at that exact
+  // step. Only while the draft is still editable -- once it has been
+  // submitted there is no step to go back to, and the bar would be
+  // offering navigation that 404s on arrival.
+  //
+  // Completeness is read from the data this page already fetched, not
+  // recomputed from a second source: the first three entries are literally
+  // the inverse of `missingRequirements` above, so a tick here can never
+  // disagree with what the submit gate says.
+  const doneSteps: StoryStepId[] = (
+    [
+      [Boolean(preview.title.trim()), "title"],
+      [
+        Boolean(parsedContent && storyContentText(parsedContent).trim()),
+        "story",
+      ],
+      [preview.media.length > 0, "photos"],
+      [Boolean(preview.tripYear ?? preview.tripStartDate), "trip"],
+      [
+        Boolean(selections?.locations.length && selections?.tags.length),
+        "places",
+      ],
+    ] as const
+  )
+    .filter(([filled]) => filled)
+    .map(([, id]) => id);
+
+  // The step behind the FIRST unmet requirement -- what the "Add a title,
+  // at least one tag before you can submit" notice links to, so the fix is
+  // one click away instead of a hunt through the timeline. Read straight
+  // off the list the notice renders, so the link always points at the first
+  // thing that notice actually names.
+  const firstMissingStep: StoryStepId = missingRequirements[0]?.step ?? "title";
+
+  const stepHrefs = Object.fromEntries(
+    EDITING_STORY_STEPS.map((s) => [
+      s.id,
+      `/stories/${preview.storyId}/edit?step=${s.id}`,
+    ]),
+  ) as Partial<Record<StoryStepId, string>>;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
       <div className="flex items-center justify-between gap-4 text-sm font-bold">
         {canEdit ? (
           <Link
-            href={`/stories/${preview.storyId}/edit`}
+            href={`/stories/${preview.storyId}/edit?step=places`}
             className="text-accent underline underline-offset-2"
           >
-            Back to editing
+            ← Back to editing
           </Link>
         ) : (
           <span />
@@ -134,9 +191,19 @@ export default async function StoryPreviewPage({
           href="/my-stories"
           className="text-foreground/70 underline underline-offset-2"
         >
-          ← Back to My Stories
+          Back to My Stories
         </Link>
       </div>
+
+      {canEdit && (
+        <div className="mt-4 border-b border-border-subtle pb-4">
+          <StoryStepProgress
+            currentStep="review"
+            doneSteps={doneSteps}
+            hrefs={stepHrefs}
+          />
+        </div>
+      )}
 
       <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
         Private preview — this is exactly what your story looks like right now.
@@ -205,14 +272,15 @@ export default async function StoryPreviewPage({
               className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
             >
               <p className="font-medium">
-                Add {missingRequirements.join(", ")} before you can submit.
+                Add {missingRequirements.map((r) => r.label).join(", ")} before
+                you can submit.
               </p>
               {canEdit && (
                 <Link
-                  href={`/stories/${preview.storyId}/edit`}
+                  href={`/stories/${preview.storyId}/edit?step=${firstMissingStep}`}
                   className="mt-1 inline-block underline underline-offset-2"
                 >
-                  Back to editing
+                  Go to that step
                 </Link>
               )}
             </div>

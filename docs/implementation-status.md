@@ -4800,3 +4800,488 @@ editing — asked for them to render as the actual image, resizable by dragging 
   through save → parse → render correctly. Hit and worked around the same Turbopack
   stale-export HMR issue noted in earlier entries — a full dev-server restart (not just reload)
   was needed after renaming an export.
+
+---
+
+## 2026-09-01 — Editor layout, title-first drafts, cover-photo fallback
+
+Three contributor-facing changes, no schema or RLS work. All server actions, validation schemas,
+and the mutation queue are untouched — this is UI and one flow-ordering change.
+
+### 1. Story editor: two panes instead of one long column
+
+`components/story/story-edit-form.tsx` (used by both `/stories/:id/edit` and
+`/editorial/:id/edit`) was a single stacked column: title, sub-title, body, images, trip dates,
+travel style, expenses, locations, tags, editor note. Roughly three screens of scrolling on
+desktop before you reached the required Locations and Tags fields.
+
+- Split into a **write pane** (title, sub-title, content-import panel, body, images) and a
+  **details rail** (dates, travel style, expenses, locations, tags, note to editors).
+- `lg` and up: `grid-cols-[minmax(0,1fr)_19rem]`, the rail `sticky` under the action bar with its
+  own `max-h`/`overflow-y-auto`, so the trip metadata costs the page **no height at all**.
+  Measured on a fresh draft at 1280×720: full document height went from ~3 screens to 1261px.
+- Below `lg`: a `role="tablist"` Write / Trip details switch shows one pane at a time. Both panes
+  stay **mounted** (hidden with a class, never conditionally rendered) — the rich text editor is
+  uncontrolled, so unmounting it would discard the visible document and its undo history.
+- The Trip details tab carries a red dot when Locations or Tags is still empty, since those are
+  required and no longer visible while writing. The real gate is still the preview page's
+  `missingRequirements` check; the dot is only a hint.
+- The page header became a `sticky top-[76px]` action bar (76px = the site header's own
+  `min-h`, sticky at `top-0`, `z-40`; this sits at `z-30` beneath it) carrying `SaveStatus` and
+  Preview. The duplicate Preview button that used to sit at the bottom of the form is gone —
+  the sticky one is reachable from anywhere.
+- **Bug found and fixed during in-browser verification**: the first version used a bare `grid`
+  with only `lg:grid-cols-*`. Below `lg` that leaves an implicit auto-width column sized to its
+  widest child, so the editor toolbar pushed the document to 460px inside a 375px viewport —
+  real horizontal overflow on mobile. Fixed with an explicit base `grid-cols-1` plus `min-w-0`
+  on both panes (grid items default to `min-width: auto`). Re-verified at 375×812:
+  `scrollWidth === clientWidth === 375`, no overflowing elements.
+
+### 2. `/stories/new` asks for a title before creating anything
+
+Previously `StartNewStory` fired `createDraftAction()` from a mount effect with a hardcoded
+`"Untitled story"`, so _visiting_ the route wrote a story row — accidental visits included — and
+every draft started with a placeholder title someone had to notice and replace.
+
+- Now a small form: required Title (autofocus, 200-char counter), "Start writing" disabled until
+  the trimmed value is non-empty, submitted through `<form action={formAction}>` with
+  `useActionState`. Nothing is created until submit.
+- `createDraftAction` and `createDraftSchema` are **unchanged** — the same auth check, the same
+  `.trim().min(1).max(200)`, the same contributor-identity error, the same `redirect()`.
+- The Strict-Mode `started` ref guard is gone with the effect; `pending` disabling the button is
+  what now prevents a double-submit.
+- Cross-links with `/stories/new/import` (the PDF/Canva path), which has always asked for a title
+  first — the two entry points now behave the same way.
+- New test `app/(contributor)/stories/new/start-new-story.test.tsx` (4 cases), including the
+  explicit "creates nothing on mount" regression. `e2e/cross-contributor-access.spec.ts` updated
+  in both places where it relied on the zero-click redirect.
+- **Not changed**: `DEFAULT_PDF_IMPORT_TITLE` in `lib/story/pdf-import-content.ts` still falls
+  back to "Untitled story" — that is a parse fallback for a PDF whose own metadata carries no
+  title, not a user-facing default, and the import form still requires a title of its own.
+
+### 3. A real drawing instead of "No photo"
+
+Three surfaces rendered a grey box reading "No photo" for a story with no cover image:
+`story-card.tsx`, `home/featured-story-slide.tsx`, and (a different placeholder — the brand
+icon) `my-stories/story-cover-thumbnail.tsx`.
+
+- New shared `components/story/story-cover-fallback.tsx` renders `public/NoImage.png`, a
+  hand-drawn camera sketch on paper stock that was already committed to the repo but never
+  referenced by any code. It reads as part of the Field Journal world rather than as a broken
+  image, and being the same drawing everywhere makes an empty card look deliberate.
+- Served through `next/image` specifically because the source is a 2MB 1407×768 PNG — the
+  optimizer resizes per `sizes`, so a 200px card does not download the original.
+- `alt=""`: decorative. The title and attribution beside it are the content; announcing "no
+  image" before every coverless card would be noise.
+- `story-card.tsx`'s wrapper gained `relative` (required by `fill`).
+- `featured-story-stack.test.tsx`'s "no photo" case now queries `img[src*="NoImage"]` rather
+  than the removed text — there is deliberately nothing accessible to match on.
+
+`npm run verify` clean: 0 lint errors, 605/605 tests, build compiles. Live-verified in-browser at
+1280×720 and 375×812 on `/stories/new`, `/stories/:id/edit`, `/my-stories` (list and grid), and
+`/stories`.
+
+---
+
+## 2026-09-02 — New Story becomes a 6-step timeline
+
+The editor stopped being a form you scroll and became a flow you step through. Replaces the
+two-pane Write/Trip-details layout from the entry above; that layout lasted one day and is gone.
+
+### The timeline
+
+`lib/story/steps.ts` is the single definition, six steps: **Title → Your story → Photos → Trip →
+Places & tags → Review & submit**. Steps 1–5 are panes of `/stories/:id/edit`; step 6 IS
+`/stories/:id/preview`, which already owns submission.
+
+- **Why step 6 is a route, not a sixth pane.** Submission is authorized server-side on the
+  preview page — `canSubmitOwnConsent` and `missingRequirements` are both derived from a fresh
+  `getStoryPreview()` call. Re-deriving that inside a client form would duplicate an
+  authorization decision, which Engineering Rule 2 forbids. So "Review & submit →" on step 5 is
+  a real `<Link>` to that route, and the preview page renders the same progress bar with step 6
+  current. The contributor sees one continuous flow; the trust boundary never moves.
+- **`components/story/story-steps.tsx`** renders the bar. It takes `onSelect` (in-page switching,
+  client callers) OR `hrefs` (real navigation, for the Server-Component preview page — a plain
+  object of strings crosses the RSC boundary, a callback does not).
+- **Steps are never locked.** Every field autosaves independently, so there is no half-committed
+  state a jump could corrupt, and a contributor who wants to fix their title from step 5 should
+  not have to walk back through four screens. Ticks report progress; they do not gate it. The
+  only real gate remains the preview page's server-side `missingRequirements`.
+- Completeness is computed on both sides from the _same_ definition as `missingRequirements`, so
+  a tick can never disagree with what the submit gate says. Photos and Trip are optional: they
+  tick when filled, their absence blocks nothing.
+- `?step=` on the edit route opens a specific step, validated against the real step list
+  (`resolveStep()`), so a hand-typed value can only resolve to a step that exists. That is how
+  the preview page's bar — and its "Add a title … before you can submit" notice, which now links
+  to the first _missing_ step specifically — sends a contributor back to the exact thing to fix.
+- Changing step scrolls to top and moves focus to the step heading, so a screen reader announces
+  where it landed and the next Tab starts inside the new step.
+
+### Two real bugs found during this work
+
+- **`STORY_STEPS.find is not a function` at request time.** The step list originally lived in
+  `story-steps.tsx`, which is `"use client"`. A Server Component importing a _value_ from a
+  `"use client"` module does not receive the value — it receives a client-reference proxy. Both
+  the edit page and the preview page are Server Components and both needed the real array. Fixed
+  by moving the data to `lib/story/steps.ts`, a module with no directive, imported directly by
+  each side. A convenience re-export from the client module was deliberately NOT added back: it
+  would reintroduce the identical bug one import hop further away.
+- **`Cannot create components during render`** (caught by the React Compiler lint, not by me).
+  `StepSection` was first written as a function declared inside `StoryEditForm`'s body — a new
+  component _type_ on every render, so React would unmount and remount its whole subtree on each
+  keystroke, tearing down the uncontrolled rich text editor and any in-flight image upload.
+  Hoisted to module scope with `activeStep` as a prop.
+
+### Still true from before
+
+Every step section stays **mounted** (hidden with a class, never conditionally rendered) for the
+same reason the old panes did: the rich text editor is uncontrolled, so unmounting its step
+would discard the visible document and its undo history. The sticky action bar (save status +
+Preview) is unchanged and now also carries the progress bar. The editor's slash-menu "Photo"
+entry moves the timeline to the Photos step before focusing the panel, since the panel it points
+at is no longer on the same screen.
+
+### Scope note
+
+The editorial import editor (`/editorial/:id/edit`) renders the same `StoryEditForm`, so staff
+get the same timeline. That was not separately requested — it follows from there being one
+component. Steps are freely clickable, so nothing an editor could previously reach is now
+harder to reach; say the word if staff should keep an everything-at-once layout instead.
+
+New tests: `components/story/story-steps.test.tsx` (7 cases, including the current-step-tick
+regression). `e2e/cross-contributor-access.spec.ts` advances to step 2 before typing into the
+body. `npm run verify` clean: 0 lint errors, 612/612 tests, build compiles. Live-verified in the
+browser end to end at 1280 and 375 wide: new draft → title → body (autosave + live tick) → jump
+to step 5 → location + tag → Review & submit → the submit consent panel, then a step link on the
+preview page back into the editor at step 4. No horizontal overflow at 375px.
+
+---
+
+## 2026-09-02 (later) — Step 6 locked, photos land where you can see them, photo library redesigned
+
+### 1. Step 6 is no longer clickable from the editor
+
+`StoryStepProgress` gained `lockedSteps`; the editor passes `["review"]`. A locked step renders
+as an inert `<span>` — not a disabled `<button>` — so it is out of the tab order entirely, with
+`aria-label` ending "(not available yet)" and a `title` explaining the way in.
+
+This closed a real bug, not just a UX preference: clicking the 6th circle in the editor set an
+in-page step that has **no section to render**, so the contributor got a blank screen. The only
+route to step 6 is step 5's own "Review & submit →" button. The preview page's copy of the bar
+is unaffected — there step 6 is current and steps 1–5 are links.
+
+### 2. "Add to story" now takes you to the story
+
+Placing a photo from step 3 inserted the embed into an editor sitting on a hidden step 2, so
+there was no feedback at all and the contributor had to walk back a step to find out whether it
+had worked. `onInsertIntoEditor` now switches to the story step first and inserts on the next
+frame — CodeMirror cannot measure or scroll a document inside a `display: none` section, so
+inserting before the section paints puts the embed in the right place but leaves the view
+scrolled somewhere else. Verified live: click "Add to story" → step 2, photo visible in the
+editor, "Saved just now".
+
+### 3. The photo library, rebuilt on the pattern every comparable tool uses
+
+The old panel put a decorative checkbox, an alt-text input, a caption input and up to five
+underlined text links on **every** tile, in two separately-collapsible groups. Twelve photos
+meant three dozen form controls, wrapping links that made every tile a different height, and
+"Add to story" carrying exactly the same visual weight as "Remove".
+
+Checked against `docs/editor-competitive-research.md` and the tools it covers (Medium, Substack,
+Ghost/Koenig) plus the general media-library pattern (WordPress attachment details, Google
+Photos' info pane). They all converge on the same thing: **a quiet grid, with details opened for
+the one item you asked about.** Substack in particular edits alt text and caption in a panel on
+the image, which the research doc already flagged as "worth copying — we are worse than this
+today".
+
+What it is now:
+
+- **One grid, not two collapsible groups.** Ordered by `sortOrder`, which also fixes Move
+  up/down: they used to reorder within the _unplaced subset_ only, so the arrows did not move a
+  photo relative to the ones already in the story. They now swap true neighbours.
+- **Tiles carry no form fields.** Just the image plus status pips that change what you would do
+  next: `Cover`, `In story`, `Needs description`, `Duplicate`. Under each tile, one filled
+  primary action ("Add to story", omitted once placed) and one "Details" / "Describe" button.
+- **Details expand to a full-width row** (`col-span-2 sm:col-span-3`), one at a time: thumbnail
+  left, fields right. Alt text finally gets a **visible label and a hint** rather than a
+  placeholder — there was never room for one in a 3-column tile, which is exactly why the old
+  panel used placeholders and why stories arrive with no alt text.
+- **Actions are bordered buttons, not underlined links**, with Delete tinted destructive and
+  "Done" separated to the right.
+- A summary line replaces the two group headers: "5 photos · 2 in your story", plus "N photos
+  still need a description" — the same condition the moderation queue's `images_missing_alt_text`
+  warning fires on, surfaced where the contributor can still act on it.
+- The step section above no longer prints "Images (N)": the step is titled "Photos" and the panel
+  has its own count, so that was three counts on one screen.
+
+**Accessibility bug found while writing the tests.** The details button was visible text plus an
+`sr-only` span (`"Details"` + `<span> photo 1</span>`). The accessible-name algorithm trims each
+element's text before joining with no separator, so it announced as **"Describephoto 1"**.
+Confirmed against `dom-accessibility-api`, which is what both this project's tests and real
+screen readers implement. Fixed with an explicit `aria-label`. Worth remembering: the
+visible-text-plus-sr-only-suffix idiom does not produce the spacing it looks like it does.
+
+`components/story/image-upload-manager.test.tsx` rewritten around the new structure (7 cases),
+keeping the "placed images stay describable" regression that the two-group layout originally
+existed to fix. `story-steps.test.tsx` gained 2 cases for the lock. `npm run verify` clean:
+0 lint errors, 617/617 tests, build compiles. Live-verified at 1280 and 375 wide.
+
+---
+
+## 2026-09-02 (later still) — Two bug fixes: dead thumbnail URLs, and reordering photos in the story
+
+### 1. The detail panel showed no thumbnail (and the grid came back wrong)
+
+Two causes, both real, and the second explains why it looked intermittent.
+
+- **Signed thumbnail URLs are never refreshed.** `mintPreviewUrlAction` mints URLs with a
+  120-second expiry (`lib/story/image-pipeline.ts`), and the minting effect deliberately skips any
+  media id already present in `thumbnails`. Once obtained, a URL is kept forever. That is
+  invisible while the `<img>` stays mounted — the browser goes on showing an image it already
+  decoded — and becomes visible the instant anything remounts the element.
+- **Opening details remounted the `<img>`.** The redesign rendered `if (isOpen) return <li>…`
+  beside a separate closed-state `<li>`. Those look equivalent but are not: React reconciles by
+  position, so the two branches' `<img>` elements are different nodes. Toggling details destroyed
+  the image and created a fresh one, which genuinely re-requests its `src` — and on any tile
+  older than two minutes that request 4xx'd, so the panel showed nothing. Closing it remounted
+  again, this time often against a cached failure.
+
+Fixed on both sides. The tile and the detail panel now share **one element tree**, laid out
+differently by class (`flex-col` vs `sm:flex-row` with a `w-40` thumb), so the thumbnail sits at a
+stable position and is never re-requested — verified live: the `<img>` is literally the same DOM
+node before and after the toggle (`imgAfter === imgBefore`). And an `onError` re-mints a dead URL
+once, guarded by a ref so a genuinely broken image cannot loop — the same recovery
+`app/(contributor)/my-stories/story-cover-thumbnail.tsx` already had and this panel lacked.
+
+### 2. Photos in the story could not be reordered
+
+Images stack vertically in the body and the only way to move one was to delete its embed and
+re-add it from the Photos step. Now:
+
+- **Drag the photo itself.** The whole image is the drag surface; a grip badge (`⠿`) in new
+  hover chrome at the top-left is the affordance. A **drop indicator** — a horizontal accent rule
+  — shows exactly which line boundary it will land on, because without it the drop is a guess.
+  Drops snap to a line boundary chosen by which half of the line the pointer is in (the usual
+  list-reorder convention), so a photo can never split a sentence.
+- **↑ / ↓ buttons** beside the grip do the identical move one line at a time. Not a convenience:
+  drag-and-drop is pointer-only and can never be the sole way to do something (Engineering Rule
+  19 / WCAG 2.1.1). Both are 24×24 for WCAG 2.2 target size. The controls also reveal on
+  `:focus-within`, since a keyboard user never triggers `:hover`.
+- The resize handle and remove button sit inside the drag surface, so they toggle `wrap.draggable`
+  on mouseenter/leave — `stopPropagation` does not work here, because the drag originates from
+  whichever element the pointer is over.
+
+**The text transform lives in `lib/story/markdown-media.ts` as `moveMediaEmbed()`**, a pure
+function, with the decorations module only dispatching its result. Deliberate: the alternative —
+two positional CodeMirror changes in one transaction — has to reason about whether the insert
+point shifts when the deletion applies, in both directions, and differently again depending on
+whether the token owned its line. Getting that subtly wrong corrupts story text silently, and
+none of it is testable without a live editor. As a string transform it is covered by 9 unit
+tests, including the case that motivated the design: **the same photo embedded twice**, where
+moving "the second one" cannot be expressed by searching for the token text.
+
+If the token was alone on its line the whole line moves with it, newline included — otherwise
+every reorder leaves an empty paragraph behind and a few moves turn the story into a column of
+gaps.
+
+`EditorView.domEventHandlers` binds to `contentDOM`, not the scroller — checked, and in this
+editor `.cm-content` exactly fills `.cm-scroller` (0px dead space on all sides), so there is no
+region of the editor where a drop is silently ignored. Worth re-checking if the editor ever gains
+padding below the last line.
+
+`npm run verify` clean: 0 lint errors, 626/626 tests, build compiles. Live-verified: move buttons
+swap neighbours; dragging photo 1 below photo 3 reorders to 2, 3, 1 with every stored `|width`
+preserved; the drop indicator lands exactly on the target line's top edge.
+
+---
+
+## 2026-09-02 (evening) — Editor owns its scroll; photos can be placed side by side
+
+### 1. The editor scrolls itself, so the toolbar never leaves
+
+The formatting toolbar was `sticky top-[76px]` — pinned below `site-header.tsx`'s own 76px sticky
+bar. That stopped working when the story editor gained **its own** sticky bar at that same offset
+(title, save state, step progress): the toolbar stuck _underneath_ it and was invisible exactly
+when it was needed. And a long story grew the page, so reaching the end meant scrolling the whole
+page past everything else on the step.
+
+`markdown-editor.tsx` is now a bounded flex column: toolbar row, scrolling text, word-count row.
+The `.cm-scroller` takes the overflow, so the **story** scrolls, not the page.
+
+- `h-[clamp(20rem,62vh,46rem)]` — 62vh leaves room for the page's sticky bars, the 20rem floor
+  keeps it usable on a short phone with the keyboard up (Rule 18), the 46rem ceiling stops the
+  writing column becoming an unreadably tall block on a desktop monitor.
+- `min-h-0` on the CodeMirror wrapper is load-bearing: a flex child's default `min-height: auto`
+  refuses to shrink below its content, so without it the editor grows to fit the whole story and
+  the shell's height is silently ignored.
+- Read-only renders (`editable=false`) keep their natural height — nothing scrolls there and a
+  viewport-relative box around static text would just clip it.
+- Sticky positioning is gone entirely rather than re-tuned. Owning a scroll region is the fix
+  that does not depend on knowing the height of everything above it, which was the property the
+  old approach lacked.
+
+Verified at 1280 and at 375×812: the toolbar's viewport position is byte-identical before and
+after scrolling the editor to its end, and `window.scrollY` stays 0.
+
+### 2. Drag a photo to the left or right of another
+
+`resolveDropTarget()` now returns one of two shapes. Over another photo, the **horizontal** half
+decides — left of it or right of it, on the same line. Anywhere else, the **vertical** half of the
+line decides above or below, as before. The drop indicator switches shape to match: a vertical
+bar down the target photo's edge for side-by-side, the horizontal rule for a new line.
+`moveMediaEmbed()` gained a `mode` of `"line" | "inline"`; inline separates the two tokens with
+exactly one space, only where whitespace is not already present.
+
+**A pre-existing bug this uncovered.** The published page did not lay photos out the way the
+editor drew them. `insertMediaToken()` separated embeds with a _single_ newline, and consecutive
+non-blank lines are **one Markdown paragraph** — so stacked photos were inline siblings in the
+rendered HTML, and `content-block-renderer.tsx` (which is `inline-block` for any embed with a
+stored width) packed as many onto a row as fit. Measured on the preview page before the fix: an
+editor showing 2 side-by-side then 2 stacked rendered as **3 then 1**.
+
+Fixed by making the two modes mean genuinely different things in the Markdown:
+
+- **line mode inserts a blank line either side**, so each stacked photo is its own paragraph and
+  its own block. `insertMediaToken()` does the same, so a freshly added photo starts stacked.
+- **inline mode keeps them on one line**, which is the only way two photos share a row.
+
+Same preview, after: **2, 1, 1** — the editor's layout exactly. Side-by-side is now a real,
+durable choice rather than an accident of how wide the column happened to be. Line mode also
+collapses runs of 3+ newlines, the same normalisation `removeMediaEmbeds()` already applies, so
+repeated moves cannot accumulate blank lines.
+
+`npm run verify` clean: 0 lint errors, 633/633 tests, build compiles. `moveMediaEmbed` now has 15
+unit tests including 6 for inline mode; `insertMediaToken`'s tests were updated to the paragraph
+separator and gained a "does not stack blank lines when one is already there" case. Live-verified
+at 1280 and 375: dragging photo 2 onto photo 1's right half puts them on one row (identical `y`,
+adjacent `x`) and the preview agrees.
+
+---
+
+## 2026-09-02 (fix) — "Add to story" left the page scrolled past the editor
+
+Regression from the bounded-height editor in the entry above. The photo was always inserted
+correctly — 4 wraps, 4 `<img>`, no error boxes, verified in the DOM — but the **page** came to
+rest at `scrollY: 560`, leaving the editor almost entirely above the viewport. From the
+contributor's side that is indistinguishable from "the photo did not appear".
+
+Root cause is a two-part interaction, neither half wrong on its own:
+
+- `app/globals.css` sets `scroll-behavior: smooth` on `<html>`, so _every_ `window.scrollTo`
+  animates — including one asking for `behavior: "smooth"` explicitly, as the step-change effect
+  did.
+- An animated scroll is cancellable, and the browser cancels it as soon as something else moves
+  focus or changes layout. "Add to story" does exactly that one frame later: it switches to the
+  story step and then inserts into the editor, which focuses it. The scroll to the top was
+  abandoned partway and the page stopped wherever it had got to.
+
+This only became visible once the editor gained a bounded height. Before, the editor grew with
+the page, so a partial scroll still left plenty of it on screen.
+
+Fixed in two places:
+
+- The step-change effect now scrolls with `behavior: "instant"`. Not `"auto"` — `auto` defers to
+  the CSS rule and would still animate; `instant` overrides it. A step change replaces the whole
+  screen, so an animated scroll was never buying much anyway, and it is the part that can be
+  interrupted.
+- The insert path re-asserts `scrollTo({ top: 0, behavior: "instant" })` on the frame _after_
+  `insertMedia`, so whatever focusing the editor does to the scroll position is corrected
+  afterwards rather than raced.
+
+Verified live: after "Add to story", `scrollY` is 0, the editor's own `scrollTop` is 0, the
+toolbar is fully on screen, the newly placed photo is in view, and all 5 embeds render with no
+error boxes. `npm run verify` clean: 633/633 tests, build compiles.
+
+---
+
+## 2026-09-02 (fix) — Side-by-side drop never fired in a real browser
+
+The detection and text-transform logic were right — synthetic `DragEvent`s produced correct
+side-by-side output end to end. The failure was in **event delivery**, which synthetic events by
+definition cannot exercise. Instrumenting a real drag showed it immediately:
+
+```
+dragstart(.cm-md-image-wrap) → dragenter(.cm-line) → dragover(.cm-line)
+→ dragenter(.cm-md-image) → dragend            [no dragover, no drop]
+```
+
+`dragover` fires happily over `.cm-line` and **stops the moment the pointer crosses onto a
+photo**. The image widget is `contentEditable="false"` inside CodeMirror's editable host, and the
+browser will not treat such an island as a drop target. So the one place a side-by-side drop has
+to be detected is precisely the place no drag event arrives.
+
+Three changes, in the order they were needed:
+
+1. **Target by geometry, not hit-testing.** `resolveDropTarget` no longer calls
+   `document.elementFromPoint`; a new `wrapAtPoint()` walks the rendered `.cm-md-image-wrap`
+   elements and returns the one whose rect contains the pointer. The drop target now depends only
+   on where the pointer _is_, never on what the browser considers to be under it.
+2. **`pointer-events: none` on the other photos while dragging**, so those `dragover` events keep
+   reaching the editable line underneath and the handler runs at all.
+3. **A `dragenter` handler that calls `preventDefault()`.** Chrome mostly infers drop-target
+   validity from `dragover`; Firefox does not, and refuses the drop without it.
+
+Two mistakes made while getting there, both worth recording because neither fails loudly:
+
+- **The dragging class was put on `view.dom`.** `EditorView.theme()` scopes every selector it
+  generates _under_ the editor root, so `".cm-md-dragging-images .cm-md-image-wrap"` compiles to
+  `.cm-editor .cm-md-dragging-images .cm-md-image-wrap` and can never match a class on the root
+  itself. The rule simply never applied. Moved to `view.contentDOM`, a descendant.
+- **`pointer-events: none` was applied to every photo including the drag source.** Making the
+  source non-hit-testable mid-drag makes Chrome abandon the drag outright — the event log
+  collapsed to `dragstart → dragend` with nothing in between, which is _worse_ than the original
+  bug. The selector now excludes `.cm-md-image-dragging`.
+
+Verified with real mouse drags (not synthetic events): dropping on a photo's **right** half puts
+the two side by side (same row, adjacent x, `drop` fires); dropping on the **left** half of a row
+that already holds two inserts at its start, giving three across. The preview page agrees —
+grouped by vertical overlap rather than top-edge proximity, since inline-blocks of different
+heights are baseline-aligned, it reports the same **3, 1, 1** the editor shows.
+
+`npm run verify` clean: 633/633 tests, build compiles.
+
+---
+
+## 2026-09-02 — Required fields are checked before step 6, not on arrival
+
+The preview page has always refused to show the submit panel when a story is incomplete, but
+nothing in the editor said so beforehand: "Review & submit →" invited the contributor forward and
+step 6 turned them away.
+
+Step 5's "Review & submit" is now gated on the same requirements:
+
+- Complete → a `<Link>` to the preview route, as before.
+- Incomplete → a **real `disabled` `<button>`**, not a styled-down link. A link stays followable
+  by keyboard and middle-click however it looks, so styling alone would let exactly the people
+  the gate is for walk into a page that refuses them. It keeps its place in the tab order and
+  `aria-describedby` points at the reason.
+- Above it, an amber panel names each missing item — "Add your story, at least one location, at
+  least one tag before you can submit." — with a button per item that jumps straight to the step
+  that supplies it. `role="status"`, not `alert`: this is the standing state of the draft, not an
+  event, and should not interrupt a screen reader on arrival.
+
+**One definition, shared.** `missingStoryRequirements()` now lives in `lib/story/steps.ts` and
+both surfaces call it: the editor to gate its button, the preview page to gate the submit panel.
+They were written twice and had already drifted — the editor tracked "places" as a single
+done/not-done flag while the preview page distinguished a missing location from a missing tag, so
+the editor could say a step was unfinished without being able to say which half. Now the
+editor's message and the submit gate's message are the same sentence about the same rule, and the
+preview page's "Go to that step" link reads `missingRequirements[0].step` straight off the list
+it renders.
+
+This changes **nothing about authorization**. The preview page still computes its gate
+server-side from that request's own fresh `getStoryPreview()` / `getRevisionSelections()` reads,
+and `submit_revision_with_consent()` remains the non-bypassable check (Engineering Rules 2, 3).
+This is what the UI says, not what the database enforces.
+
+New `lib/story/steps.test.ts` (9 cases): whitespace-only titles count as missing, locations and
+tags are reported separately, requirements come back in the order the preview page reads them
+out, and every requirement points at a step the editor can actually open. Two assertions there
+had to widen a `Set<StoryStepId>` to `Set<string>` — TypeScript already proves `"review"` is not
+in `EDITING_STORY_STEPS` and rejected the comparison outright; the runtime checks were kept
+anyway, since it is the list, not the type, a future edit would get wrong.
+
+`npm run verify` clean: 0 lint errors, 642/642 tests, build compiles. Live-verified on a fresh
+draft: three items listed and the button inert (clicking it does not navigate); each fix removes
+its line as it is made; adding the last tag makes the panel vanish, ticks step 5, and turns the
+button back into a real link.

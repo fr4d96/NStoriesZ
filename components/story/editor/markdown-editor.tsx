@@ -163,12 +163,17 @@ function MarkdownGuideLink() {
 }
 
 /**
- * `sticky top-[76px]`, not `top-0`: components/site-header.tsx is itself
- * `sticky top-0 z-40` with a `min-h-[76px]` bar, so a toolbar pinned to 0
- * would sit underneath it and disappear. Sticking below the header is what
- * makes formatting reachable on a phone once you are several paragraphs
- * into a story with the keyboard up -- Engineering Rule 18, and the one
- * thing Bear's mobile "Formatting Keyboard" does that we did not.
+ * No longer `sticky`: the editor is now a fixed-height flex column that
+ * scrolls its own text (see the shell below), so the toolbar is simply the
+ * first row of that column and cannot scroll away in the first place.
+ *
+ * Sticky positioning had stopped working anyway. It was pinned to
+ * `top-[76px]` — under components/site-header.tsx's own `sticky top-0`
+ * 76px bar — but the story editor has since gained its own sticky bar at
+ * that same offset carrying the title, save state and step progress, so the
+ * toolbar stuck *underneath* that and was invisible exactly when it was
+ * needed. Owning a scroll region is the fix that does not depend on
+ * knowing the height of everything above it.
  */
 function EditorToolbar({
   getView,
@@ -183,7 +188,7 @@ function EditorToolbar({
   };
 
   return (
-    <div className="sticky top-[76px] z-10 flex items-center gap-1 rounded-t-md border-b border-border-subtle bg-surface px-1.5 py-1">
+    <div className="flex shrink-0 items-center gap-1 rounded-t-md border-b border-border-subtle bg-surface px-1.5 py-1">
       {/* Scrolls sideways rather than wrapping. At 375px the eleven buttons
           just overflow, and wrapping cost three stacked rows of chrome above
           the writing area on a phone -- the opposite of Engineering Rule 18.
@@ -390,11 +395,40 @@ export const MarkdownEditor = React.forwardRef<
   const minutes = readingTimeMinutes(words, markdownImageCount(text));
 
   return (
-    <div>
+    /* A bounded-height flex column, so the STORY text scrolls inside the
+       editor instead of the whole page growing with it. Three consequences,
+       all of them the point: the toolbar and the word count stay on screen
+       however long the story gets; reaching the end of a long draft no
+       longer means scrolling the page past everything else on the step; and
+       the editor keeps a stable size, so the page does not jump as you
+       type.
+
+       `clamp(20rem, 62vh, 46rem)` rather than a fixed pixel height: 62vh
+       leaves room for the page's own sticky bars above, the 20rem floor
+       keeps it usable on a short phone screen with the keyboard up
+       (Engineering Rule 18), and the 46rem ceiling stops the writing column
+       becoming an unreadably tall block on a desktop monitor.
+
+       Read-only renders (editable=false) keep their natural height: nothing
+       is scrolling anything there, and an arbitrary viewport-relative box
+       around static text would just clip it. */
+    <div
+      className={
+        editable ? "flex h-[clamp(20rem,62vh,46rem)] flex-col" : undefined
+      }
+    >
       {editable && (
         <EditorToolbar getView={getView} onRequestImages={onRequestImages} />
       )}
-      <div aria-label={ariaLabel} role="textbox" aria-multiline="true">
+      <div
+        aria-label={ariaLabel}
+        role="textbox"
+        aria-multiline="true"
+        // min-h-0 is load-bearing: a flex child's default `min-height: auto`
+        // refuses to shrink below its content, so without it the editor
+        // grows to fit the whole story and the shell's height is ignored.
+        className={editable ? "min-h-0 flex-1" : undefined}
+      >
         <CodeMirror
           ref={cmRef}
           value={initial}
@@ -411,11 +445,15 @@ export const MarkdownEditor = React.forwardRef<
           }}
           theme="none"
           placeholder="Tell your story… or type / for headings, lists and quotes"
-          className="min-h-40 px-1 py-2 text-base [&_.cm-editor]:min-h-40 [&_.cm-scroller]:overflow-auto"
+          className={
+            editable
+              ? "h-full px-1 py-2 text-base [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto"
+              : "min-h-40 px-1 py-2 text-base [&_.cm-editor]:min-h-40 [&_.cm-scroller]:overflow-auto"
+          }
         />
       </div>
       {editable && (
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border-subtle px-2 py-1.5 text-xs text-muted-foreground">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border-subtle px-2 py-1.5 text-xs text-muted-foreground">
           {/* Deliberately NOT an aria-live region: it changes on every
               keystroke, and a counter that announces itself hundreds of
               times while you write is worse than one you can read on

@@ -86,9 +86,23 @@ export function insertMediaToken(
   width?: number,
 ) {
   const pos = view.state.selection.main.to;
-  const needsLeadingNewline =
-    pos > 0 && view.state.sliceDoc(pos - 1, pos) !== "\n";
-  const insert = `${needsLeadingNewline ? "\n" : ""}${mediaEmbedToken(mediaId, width)}\n`;
+  // A BLANK line either side, not a single newline. Consecutive non-blank
+  // lines are one Markdown paragraph, so photos separated by single
+  // newlines are inline siblings and the published page packs as many onto
+  // a row as will fit -- while the editor drew one per row. A photo dropped
+  // in gets its own paragraph, so "stacked" means stacked everywhere; two
+  // photos share a line only when someone deliberately drags one beside
+  // another (moveMediaEmbed's "inline" mode).
+  const before = view.state.sliceDoc(Math.max(0, pos - 2), pos);
+  const leading =
+    pos === 0
+      ? ""
+      : before.endsWith("\n\n")
+        ? ""
+        : before.endsWith("\n")
+          ? "\n"
+          : "\n\n";
+  const insert = `${leading}${mediaEmbedToken(mediaId, width)}\n\n`;
   view.dispatch({
     changes: { from: pos, insert },
     selection: { anchor: pos + insert.length },

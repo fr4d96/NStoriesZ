@@ -64,11 +64,16 @@ describe("insertTable", () => {
 });
 
 describe("insertMediaToken", () => {
-  it("inserts the ![[mediaId]] embed token on its own line", () => {
+  // A BLANK line either side, not a single newline. Consecutive non-blank
+  // lines are ONE Markdown paragraph, so photos separated by single
+  // newlines render as inline siblings and the published page packs as many
+  // onto a row as fit -- while the editor drew one per row. Own paragraph
+  // means "stacked" means the same thing in both places.
+  it("inserts the ![[mediaId]] embed token as its own paragraph", () => {
     const view = viewWithDoc("Some text", 9);
     insertMediaToken(view, "11111111-1111-4111-8111-111111111111");
     expect(view.state.doc.toString()).toBe(
-      "Some text\n![[11111111-1111-4111-8111-111111111111]]\n",
+      "Some text\n\n![[11111111-1111-4111-8111-111111111111]]\n\n",
     );
   });
 
@@ -76,7 +81,15 @@ describe("insertMediaToken", () => {
     const view = viewWithDoc("Some text", 9);
     insertMediaToken(view, "11111111-1111-4111-8111-111111111111", 320);
     expect(view.state.doc.toString()).toBe(
-      "Some text\n![[11111111-1111-4111-8111-111111111111|320]]\n",
+      "Some text\n\n![[11111111-1111-4111-8111-111111111111|320]]\n\n",
+    );
+  });
+
+  it("does not stack blank lines when one is already there", () => {
+    const view = viewWithDoc("Some text\n\n", 11);
+    insertMediaToken(view, "11111111-1111-4111-8111-111111111111");
+    expect(view.state.doc.toString()).toBe(
+      "Some text\n\n![[11111111-1111-4111-8111-111111111111]]\n\n",
     );
   });
 });

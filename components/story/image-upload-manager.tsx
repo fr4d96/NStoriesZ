@@ -168,58 +168,67 @@ type MediaTextPatch = Partial<
 >;
 
 /**
- * The describe-this-image controls, shared by both groups below (images not
- * yet placed in the story, and images already placed in it) so the two can't
- * drift.
- *
- * `aria-label` on each control, not just a placeholder: a placeholder is not
- * an accessible name, it vanishes the moment text is typed, and a screen
- * reader would otherwise announce these as two unlabelled text boxes
- * (Engineering Rule 19). A visible <label> per field would double the
- * height of every tile in a 2-3 column grid, so the accessible name carries
- * the image's own alt text or index to stay distinguishable when several
- * tiles are on screen.
+ * Distinguishes one photo from another in an accessible name, so a screen
+ * reader hears "Details, photo 3" or "Describe, vines at dusk" rather than
+ * a dozen identical "Details" buttons.
  */
-function MediaTextFields({
-  item,
-  onChange,
+function itemName(item: RevisionMediaItem, index: number): string {
+  const described = item.altText?.trim() || item.caption?.trim();
+  return described ? `“${described}”` : `photo ${index + 1}`;
+}
+
+/** Status pip on a tile -- "Cover", "In story", "Needs description". */
+function TileBadge({
+  children,
+  tone = "neutral",
 }: {
-  item: RevisionMediaItem;
-  onChange: (mediaId: string, patch: MediaTextPatch) => void;
+  children: React.ReactNode;
+  tone?: "neutral" | "warning";
 }) {
   return (
-    <>
-      <label className="flex items-center gap-1.5 text-xs">
-        <input
-          type="checkbox"
-          checked={item.decorative}
-          onChange={(e) =>
-            onChange(item.mediaId, { decorative: e.target.checked })
-          }
-        />
-        Decorative (no alt text needed)
-      </label>
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] leading-tight font-medium backdrop-blur-sm ${
+        tone === "warning"
+          ? "bg-amber-500/90 text-black"
+          : "bg-black/70 text-white"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
 
-      {!item.decorative && (
-        <input
-          type="text"
-          value={item.altText ?? ""}
-          onChange={(e) => onChange(item.mediaId, { altText: e.target.value })}
-          placeholder="Alt text (required)"
-          aria-label="Alt text — describe this image for readers who can't see it"
-          className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
-        />
-      )}
-
-      <input
-        type="text"
-        value={item.caption ?? ""}
-        onChange={(e) => onChange(item.mediaId, { caption: e.target.value })}
-        placeholder="Caption (optional)"
-        aria-label="Caption for this image (optional)"
-        className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
-      />
-    </>
+/**
+ * A secondary action inside the detail panel. A real button with a border,
+ * not the underlined text link the old tiles used: five underlined links
+ * wrapping across two lines gave "Add to story" and "Remove" identical
+ * weight, which is exactly backwards for one safe action and one
+ * destructive one.
+ */
+function TileAction({
+  children,
+  onClick,
+  tone = "neutral",
+  label,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  tone?: "neutral" | "destructive";
+  label?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={`rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+        tone === "destructive"
+          ? "border-destructive/40 text-destructive"
+          : "border-border-subtle"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -251,6 +260,24 @@ export function ImageUploadManager({
   const [uploading, setUploading] = useState<UploadingItem[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isDragging, setIsDragging] = useState(false);
+  // Which photo's detail panel is expanded. One at a time, deliberately:
+  // the old panel put a checkbox and two text inputs on EVERY tile, so a
+  // dozen photos meant three dozen form controls competing for attention
+  // and no tile you could actually look at. Every media library worth
+  // copying (WordPress attachment details, Substack's edit-image panel,
+  // Google Photos' info pane) shows a quiet grid and opens details for the
+  // one item you asked about.
+  const [openMediaId, setOpenMediaId] = useState<string | null>(null);
+  // Media ids whose signed thumbnail URL already failed once and was
+  // re-minted. Guards the onError retry below against a loop when the image
+  // is genuinely broken rather than merely expired.
+  const retriedThumbnailsRef = useRef<Set<string>>(new Set());
+  // Drives the summary line -- alt text is what the moderation queue's
+  // `images_missing_alt_text` warning fires on, so it is worth counting
+  // where the contributor can still act on it.
+  const needsAltTextCount = media.filter(
+    (m) => !m.decorative && !m.altText?.trim(),
+  ).length;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
@@ -294,6 +321,35 @@ export function ImageUploadManager({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- thumbnails is intentionally read-not-depended-on to avoid an infinite mint loop
   }, [media]);
+
+  /**
+   * A thumbnail's signed URL stopped working. These URLs are minted with a
+   * 120-second expiry (lib/story/image-pipeline.ts) and the minting effect
+   * above deliberately skips any media id already in `thumbnails`, so a URL
+   * is never refreshed once obtained. That is invisible while the <img>
+   * stays mounted -- the browser keeps showing an image it already decoded
+   * -- and becomes visible the moment anything remounts the element, which
+   * is exactly what opening a photo's detail panel used to do: a fresh
+   * <img> re-requests the dead URL and renders nothing.
+   *
+   * The remount is fixed separately (the tile and the detail panel now
+   * share one element tree, so the <img> survives the toggle). This is the
+   * belt-and-braces half: any expiry, from any cause, recovers by minting a
+   * new URL once. Same shape as the retry in
+   * app/(contributor)/my-stories/story-cover-thumbnail.tsx.
+   */
+  function retryThumbnail(mediaId: string) {
+    if (retriedThumbnailsRef.current.has(mediaId)) return;
+    retriedThumbnailsRef.current.add(mediaId);
+    void mintPreviewUrlAction(mediaId).then((result) => {
+      if ("url" in result) {
+        setThumbnails((prev) => ({ ...prev, [mediaId]: result.url }));
+        // Allow one more retry after a SUCCESSFUL re-mint: the new URL has
+        // its own 120s life and can expire again in a long session.
+        retriedThumbnailsRef.current.delete(mediaId);
+      }
+    });
+  }
 
   async function refresh() {
     const result = await refreshMediaAction(storyId);
@@ -607,47 +663,55 @@ export function ImageUploadManager({
         </ul>
       )}
 
-      {placedMedia.length > 0 && (
-        <details className="group" open>
-          <summary className="cursor-pointer list-none text-sm font-medium">
-            <span className="inline-flex items-center gap-1">
-              <svg
-                viewBox="0 0 20 20"
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90"
-              >
-                <path
-                  d="M7 5l6 5-6 5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              {placedMedia.length === 1
-                ? "1 image in your story"
-                : `${placedMedia.length} images in your story`}
-            </span>
-          </summary>
-          <p className="mt-1 text-xs text-muted-foreground">
-            These are already placed in your text. Describe them here; drag the
-            corner of an image in the story to resize it.
-          </p>
+      {media.length > 0 && (
+        <div>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <p className="text-sm font-medium">
+              {media.length === 1 ? "1 photo" : `${media.length} photos`}
+              {placedMedia.length > 0 && (
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  · {placedMedia.length} in your story
+                </span>
+              )}
+            </p>
+            {needsAltTextCount > 0 && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {needsAltTextCount === 1
+                  ? "1 photo still needs a description"
+                  : `${needsAltTextCount} photos still need a description`}
+              </p>
+            )}
+          </div>
+
           <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {placedMedia.map((item) => (
-              <li
-                key={item.mediaId}
-                className="space-y-2 rounded-md border border-border-subtle p-2"
-              >
-                <div className="relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
+            {media.map((item, index) => {
+              // Prompt 7: same-story duplicate-image warning -- compares
+              // sha256 hashes of already-processed derivatives (never a
+              // storage path).
+              const duplicateCount = item.sha256
+                ? media.filter((m) => m.sha256 === item.sha256).length
+                : 1;
+              const isDuplicate = duplicateCount > 1;
+              const isPlaced = inlineMediaIds.has(item.mediaId);
+              const isOpen = openMediaId === item.mediaId;
+              const needsAltText = !item.decorative && !item.altText?.trim();
+              const detailsId = `media-details-${item.mediaId}`;
+
+              const thumb = (
+                <div className="js-image-thumb relative aspect-square overflow-hidden rounded-md border border-border-subtle bg-surface-muted">
                   {thumbnails[item.mediaId] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
                     <img
                       src={thumbnails[item.mediaId]}
                       alt={item.altText ?? ""}
                       className="h-full w-full object-cover"
+                      onError={() => retryThumbnail(item.mediaId)}
                     />
+                  ) : item.processingState === "failed" ? (
+                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
+                      {PROCESSING_LABELS[item.processingState]}
+                    </div>
                   ) : (
                     <div
                       className="flex h-full w-full items-center justify-center text-muted-foreground"
@@ -659,188 +723,215 @@ export function ImageUploadManager({
                       <Spinner className="h-6 w-6" />
                     </div>
                   )}
-                  {item.isCover && (
-                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-                      Cover
-                    </span>
-                  )}
+
+                  {/* Status reads off the tile itself, the way a media
+                      library does it -- no field, no sentence, just the
+                      three facts that change what you would do next. */}
+                  <div className="pointer-events-none absolute inset-x-1 top-1 flex flex-wrap gap-1">
+                    {item.isCover && <TileBadge>Cover</TileBadge>}
+                    {isPlaced && <TileBadge>In story</TileBadge>}
+                    {needsAltText && (
+                      <TileBadge tone="warning">Needs description</TileBadge>
+                    )}
+                    {isDuplicate && (
+                      <TileBadge tone="warning">Duplicate</TileBadge>
+                    )}
+                  </div>
                 </div>
+              );
 
-                <MediaTextFields item={item} onChange={updateCaption} />
-
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {!item.isCover && (
-                    <button
-                      type="button"
-                      onClick={() => setCover(item.mediaId)}
-                      className="underline underline-offset-2"
-                    >
-                      Set as cover
-                    </button>
-                  )}
-                  {/* detach() also strips the embed token from the story
-                      text (story-edit-form.tsx's handleMediaDetached), so
-                      removing from here removes it from the story too --
-                      the same thing the image's own delete button in the
-                      editor does. */}
-                  <button
-                    type="button"
-                    onClick={() => detach(item.mediaId)}
-                    className="text-destructive underline underline-offset-2"
-                  >
-                    Remove from story
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {visibleMedia.length > 0 && (
-        <details className="group" open>
-          <summary className="cursor-pointer list-none text-sm font-medium">
-            <span className="inline-flex items-center gap-1">
-              <svg
-                viewBox="0 0 20 20"
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90"
-              >
-                <path
-                  d="M7 5l6 5-6 5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              {visibleMedia.length === 1
-                ? "1 uploaded image"
-                : `${visibleMedia.length} uploaded images`}
-            </span>
-          </summary>
-          <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {visibleMedia.map((item, index) => {
-              // Prompt 7: same-story duplicate-image warning -- compares
-              // sha256 hashes of already-processed derivatives (never a
-              // storage path) already present in `media` (the full,
-              // unfiltered list -- a duplicate placed inline still counts).
-              const duplicateCount = item.sha256
-                ? media.filter((m) => m.sha256 === item.sha256).length
-                : 1;
-              const isDuplicate = duplicateCount > 1;
+              // ONE element tree for both states, laid out differently by
+              // class. Rendering an `if (isOpen) return <li>…` branch beside
+              // a separate closed-state <li> looked equivalent but was not:
+              // React reconciles by position, so the two branches' <img>
+              // elements are different nodes, and toggling details unmounted
+              // the image and mounted a fresh one. A fresh <img> actually
+              // re-requests its src -- and these are 120-second signed URLs,
+              // so any tile older than two minutes came back blank. Keeping
+              // the thumbnail at a stable position in the tree means the
+              // browser never re-requests it at all.
               return (
                 <li
                   key={item.mediaId}
-                  className="space-y-2 rounded-md border border-border-subtle p-2"
+                  className={
+                    isOpen
+                      ? "col-span-2 flex flex-col gap-4 rounded-lg border border-accent/50 bg-surface-muted/40 p-3 sm:col-span-3 sm:flex-row"
+                      : "flex flex-col gap-1.5"
+                  }
                 >
-                  <div className="js-image-thumb relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
-                    {thumbnails[item.mediaId] ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
-                      <img
-                        src={thumbnails[item.mediaId]}
-                        alt={item.altText ?? ""}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : item.processingState === "failed" ? (
-                      <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-muted-foreground">
-                        {PROCESSING_LABELS[item.processingState]}
-                      </div>
-                    ) : (
-                      <div
-                        className="flex h-full w-full items-center justify-center text-muted-foreground"
-                        aria-label={
-                          PROCESSING_LABELS[item.processingState] ??
-                          item.processingState
-                        }
-                      >
-                        <Spinner className="h-6 w-6" />
-                      </div>
-                    )}
-                    {item.isCover && (
-                      <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
-                        Cover
-                      </span>
-                    )}
+                  <div className={isOpen ? "w-full shrink-0 sm:w-40" : ""}>
+                    {thumb}
                   </div>
 
-                  {isDuplicate && (
-                    <p className="text-xs text-amber-700 dark:text-amber-400">
-                      Possible duplicate — matches another image in this story.
-                    </p>
+                  {isOpen ? (
+                    <div id={detailsId} className="min-w-0 flex-1 space-y-3">
+                      <div>
+                        <label
+                          htmlFor={`alt-${item.mediaId}`}
+                          className="block text-xs font-medium"
+                        >
+                          Describe this photo
+                          {!item.decorative && (
+                            <span className="text-destructive">
+                              <span aria-hidden="true"> *</span>
+                              <span className="sr-only"> required</span>
+                            </span>
+                          )}
+                        </label>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          For readers who can&rsquo;t see it. One plain sentence
+                          about what is in the photo.
+                        </p>
+                        <input
+                          id={`alt-${item.mediaId}`}
+                          type="text"
+                          value={item.altText ?? ""}
+                          disabled={item.decorative}
+                          onChange={(e) =>
+                            updateCaption(item.mediaId, {
+                              altText: e.target.value,
+                            })
+                          }
+                          placeholder="Vines in rows under a grey sky"
+                          className="mt-1.5 w-full rounded-md border border-border-subtle px-2 py-1.5 text-sm disabled:opacity-50 dark:bg-transparent"
+                        />
+                        <label className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={item.decorative}
+                            onChange={(e) =>
+                              updateCaption(item.mediaId, {
+                                decorative: e.target.checked,
+                              })
+                            }
+                          />
+                          It&rsquo;s decorative — no description needed
+                        </label>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor={`caption-${item.mediaId}`}
+                          className="block text-xs font-medium"
+                        >
+                          Caption{" "}
+                          <span className="font-normal text-muted-foreground">
+                            (optional, shown under the photo)
+                          </span>
+                        </label>
+                        <input
+                          id={`caption-${item.mediaId}`}
+                          type="text"
+                          value={item.caption ?? ""}
+                          onChange={(e) =>
+                            updateCaption(item.mediaId, {
+                              caption: e.target.value,
+                            })
+                          }
+                          className="mt-1 w-full rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-3">
+                        {!item.isCover && (
+                          <TileAction onClick={() => setCover(item.mediaId)}>
+                            Set as cover
+                          </TileAction>
+                        )}
+                        {index > 0 && (
+                          <TileAction
+                            onClick={() =>
+                              reorder(item.mediaId, media[index - 1].mediaId)
+                            }
+                            label={`Move ${itemName(item, index)} earlier`}
+                          >
+                            ↑ Earlier
+                          </TileAction>
+                        )}
+                        {index < media.length - 1 && (
+                          <TileAction
+                            onClick={() =>
+                              reorder(item.mediaId, media[index + 1].mediaId)
+                            }
+                            label={`Move ${itemName(item, index)} later`}
+                          >
+                            ↓ Later
+                          </TileAction>
+                        )}
+                        <TileAction
+                          tone="destructive"
+                          onClick={() => detach(item.mediaId)}
+                        >
+                          Delete photo
+                        </TileAction>
+                        <button
+                          type="button"
+                          onClick={() => setOpenMediaId(null)}
+                          className="ml-auto rounded-md border border-border-subtle px-3 py-1.5 text-xs font-medium"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      {onInsertIntoEditor && !isPlaced && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            // Reads this tile's own current on-screen width
+                            // (the grid is responsive -- 2 or 3 columns
+                            // depending on viewport) rather than a hardcoded
+                            // number, so "same size as the Images section"
+                            // stays true at whatever width it's actually
+                            // showing right now.
+                            const el = e.currentTarget
+                              .closest("li")
+                              ?.querySelector<HTMLElement>(".js-image-thumb");
+                            const width = el
+                              ? Math.round(el.getBoundingClientRect().width)
+                              : DEFAULT_EMBED_WIDTH;
+                            onInsertIntoEditor(item.mediaId, width);
+                          }}
+                          className="min-w-0 flex-1 truncate rounded-md bg-accent px-2 py-1.5 text-xs font-semibold text-accent-foreground"
+                        >
+                          Add to story
+                        </button>
+                      )}
+                      {/* No "already placed" text: the tile's own "In story"
+                          badge says it, and a second copy of the same fact
+                          truncated to "Placed in your…" next to Details in a
+                          2-column phone grid. */}
+                      <button
+                        type="button"
+                        onClick={() => setOpenMediaId(item.mediaId)}
+                        aria-expanded={false}
+                        aria-controls={detailsId}
+                        // aria-label, NOT visible text plus an sr-only span:
+                        // the accessible-name algorithm trims each element's
+                        // text before joining them with no separator, so
+                        // "Describe" + <span> photo 1</span> is announced as
+                        // "Describephoto 1". Confirmed against
+                        // dom-accessibility-api, which is what both this
+                        // project's tests and real screen readers implement.
+                        aria-label={`${needsAltText ? "Describe" : "Details"} ${itemName(item, index)}`}
+                        className={`shrink-0 rounded-md border px-2 py-1.5 text-xs font-medium ${
+                          isPlaced ? "w-full" : ""
+                        } ${
+                          needsAltText
+                            ? "border-amber-500/70 text-amber-700 dark:text-amber-400"
+                            : "border-border-subtle"
+                        }`}
+                      >
+                        {needsAltText ? "Describe" : "Details"}
+                      </button>
+                    </div>
                   )}
-
-                  <MediaTextFields item={item} onChange={updateCaption} />
-
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    {onInsertIntoEditor && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          // Reads this tile's own current on-screen width
-                          // (the grid is responsive -- 2 or 3 columns
-                          // depending on viewport) rather than a hardcoded
-                          // number, so "same size as the Images section"
-                          // stays true at whatever width it's actually
-                          // showing right now.
-                          const thumb = e.currentTarget
-                            .closest("li")
-                            ?.querySelector<HTMLElement>(".js-image-thumb");
-                          const width = thumb
-                            ? Math.round(thumb.getBoundingClientRect().width)
-                            : DEFAULT_EMBED_WIDTH;
-                          onInsertIntoEditor(item.mediaId, width);
-                        }}
-                        className="font-medium text-accent underline underline-offset-2"
-                      >
-                        Add to story
-                      </button>
-                    )}
-                    {!item.isCover && (
-                      <button
-                        type="button"
-                        onClick={() => setCover(item.mediaId)}
-                        className="underline underline-offset-2"
-                      >
-                        Set as cover
-                      </button>
-                    )}
-                    {index > 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          reorder(item.mediaId, visibleMedia[index - 1].mediaId)
-                        }
-                        className="underline underline-offset-2"
-                      >
-                        Move up
-                      </button>
-                    )}
-                    {index < visibleMedia.length - 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          reorder(item.mediaId, visibleMedia[index + 1].mediaId)
-                        }
-                        className="underline underline-offset-2"
-                      >
-                        Move down
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => detach(item.mediaId)}
-                      className="text-destructive underline underline-offset-2"
-                    >
-                      Remove
-                    </button>
-                  </div>
                 </li>
               );
             })}
           </ul>
-        </details>
+        </div>
       )}
     </div>
   );

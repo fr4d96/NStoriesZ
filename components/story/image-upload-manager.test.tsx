@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 
@@ -51,6 +51,8 @@ function mediaItem(mediaId: string, sortOrder: number): RevisionMediaItem {
   };
 }
 
+const onInsertIntoEditor = vi.fn();
+
 function renderPanel(inlineMediaIds: Set<string>) {
   const versionRef = createRef<number>() as { current: number };
   versionRef.current = 1;
@@ -63,59 +65,95 @@ function renderPanel(inlineMediaIds: Set<string>) {
       queue={new MutationQueue()}
       onVersionBumped={() => {}}
       inlineMediaIds={inlineMediaIds}
+      onInsertIntoEditor={onInsertIntoEditor}
     />,
   );
 }
 
-describe("ImageUploadManager — images already placed in the story", () => {
-  it("splits placed and unplaced images into their own groups", () => {
-    renderPanel(new Set([PLACED_ID]));
-    expect(screen.getByText("1 image in your story")).toBeInTheDocument();
-    expect(screen.getByText("1 uploaded image")).toBeInTheDocument();
+/** Opens the detail panel for the nth tile (1-based, as the labels read). */
+async function openDetails(index: number) {
+  await userEvent.click(
+    screen.getByRole("button", { name: new RegExp(`photo ${index}$`) }),
+  );
+}
+
+describe("ImageUploadManager — the photo library", () => {
+  beforeEach(() => {
+    updateMediaCaptionAction.mockClear();
+    onInsertIntoEditor.mockClear();
   });
 
-  it("keeps alt text and caption editable after an image is placed", async () => {
-    // The gap this closes: placed images used to be filtered out of the
-    // panel completely, so describing a photo after putting it where it
-    // belonged was impossible.
+  it("summarises the library in one line instead of two groups", () => {
     renderPanel(new Set([PLACED_ID]));
-    const placedGroup = screen
-      .getByText("1 image in your story")
-      .closest("details");
-    expect(placedGroup).not.toBeNull();
-    const group = within(placedGroup as HTMLElement);
+    expect(screen.getByText("2 photos")).toBeInTheDocument();
+    expect(screen.getByText(/1 in your story/)).toBeInTheDocument();
+  });
 
-    const altText = group.getByLabelText(/^Alt text/);
+  // The point of the redesign: the grid is quiet. The old panel put a
+  // checkbox and two text inputs on every tile, so a dozen photos meant
+  // three dozen controls and no image you could actually look at.
+  it("shows no form fields until a photo's details are opened", async () => {
+    renderPanel(new Set());
+    expect(screen.queryByLabelText(/Describe this photo/)).toBeNull();
+    expect(screen.queryByLabelText(/^Caption/)).toBeNull();
+
+    await openDetails(1);
+    expect(screen.getByLabelText(/Describe this photo/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Caption/)).toBeInTheDocument();
+  });
+
+  it("opens only one photo's details at a time", async () => {
+    renderPanel(new Set());
+    await openDetails(1);
+    expect(screen.getAllByLabelText(/Describe this photo/)).toHaveLength(1);
+    await openDetails(2);
+    expect(screen.getAllByLabelText(/Describe this photo/)).toHaveLength(1);
+  });
+
+  // The gap this closes: placed images used to be filtered out of the panel
+  // completely, so describing a photo after putting it where it belonged was
+  // impossible. It must stay true through the redesign.
+  it("keeps alt text and caption editable after an image is placed", async () => {
+    renderPanel(new Set([PLACED_ID]));
+    await openDetails(1);
+
+    const altText = screen.getByLabelText(/Describe this photo/);
     await userEvent.type(altText, "A vineyard at dawn");
     expect(altText).toHaveValue("A vineyard at dawn");
     expect(updateMediaCaptionAction).toHaveBeenCalled();
 
-    expect(group.getByLabelText(/^Caption/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Caption/)).toBeInTheDocument();
   });
 
-  it("does not offer 'Add to story' or reordering for an image already in the text", () => {
+  it("offers 'Add to story' only for a photo that is not in the text yet", () => {
     renderPanel(new Set([PLACED_ID]));
-    const placedGroup = within(
-      screen
-        .getByText("1 image in your story")
-        .closest("details") as HTMLElement,
-    );
     expect(
-      placedGroup.queryByRole("button", { name: "Add to story" }),
-    ).not.toBeInTheDocument();
-    expect(
-      placedGroup.queryByRole("button", { name: "Move up" }),
-    ).not.toBeInTheDocument();
-    expect(
-      placedGroup.getByRole("button", { name: "Remove from story" }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("button", { name: "Add to story" }),
+    ).toHaveLength(1);
+    // A placed photo says so with its tile badge, not a second line of
+    // text next to the button.
+    expect(screen.getByText("In story")).toBeInTheDocument();
   });
 
-  it("shows no placed group at all when nothing has been placed yet", () => {
+  it("flags photos with no description, on the tile and in the summary", () => {
     renderPanel(new Set());
     expect(
-      screen.queryByText(/image[s]? in your story/),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("2 uploaded images")).toBeInTheDocument();
+      screen.getByText("2 photos still need a description"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Needs description")).toHaveLength(2);
+    // The details button doubles as the call to action when it is the thing
+    // still missing.
+    expect(
+      screen.getAllByRole("button", { name: /^Describe photo/ }),
+    ).toHaveLength(2);
+  });
+
+  it("stops flagging a photo once it is marked decorative", async () => {
+    renderPanel(new Set());
+    await openDetails(1);
+    await userEvent.click(screen.getByLabelText(/decorative/i));
+    expect(
+      screen.getByText("1 photo still needs a description"),
+    ).toBeInTheDocument();
   });
 });

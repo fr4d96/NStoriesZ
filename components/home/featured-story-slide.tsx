@@ -4,6 +4,7 @@ import { firstRegionLabel, stringList } from "@/lib/story/card-fields";
 import { AttributionChip } from "@/components/story/attribution-chip";
 import type { StoryCardData } from "@/components/story/story-card";
 import { ArrowRightIcon } from "@/components/icons";
+import { StoryCoverFallback } from "@/components/story/story-cover-fallback";
 
 /**
  * Two-pane (cover photo + copy) card face for the depth-stacked carousel in
@@ -43,9 +44,7 @@ export function FeaturedStorySlide({
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center px-4 text-center text-xs text-foreground/40">
-            No photo
-          </div>
+          <StoryCoverFallback sizes="(min-width: 640px) 40vw, 100vw" />
         )}
         {regionLabel ? (
           <span className="absolute top-3 left-3 rounded-full bg-black/65 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">

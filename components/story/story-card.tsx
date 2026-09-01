@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getPublicImageUrl } from "@/lib/story/public-image-url";
 import { firstRegionLabel, stringList } from "@/lib/story/card-fields";
 import { AttributionChip } from "@/components/story/attribution-chip";
+import { StoryCoverFallback } from "@/components/story/story-cover-fallback";
 
 // AttributionChip can itself render a link to the contributor page; nesting
 // that inside the card's own stretched title link would be an invalid
@@ -39,7 +40,7 @@ export function StoryCard({ story }: { story: StoryCardData }) {
 
   return (
     <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-sm transition-[transform,box-shadow] hover:-translate-y-1 hover:shadow-lg">
-      <div className="aspect-[4/3] w-full overflow-hidden border-b border-border-subtle bg-surface-muted">
+      <div className="relative aspect-[4/3] w-full overflow-hidden border-b border-border-subtle bg-surface-muted">
         {coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- public bucket URLs are content-addressed, not a Next.js image-optimizable source list
           <img
@@ -49,9 +50,7 @@ export function StoryCard({ story }: { story: StoryCardData }) {
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-foreground/40">
-            No photo
-          </div>
+          <StoryCoverFallback sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" />
         )}
       </div>
       <div className="flex flex-1 flex-col gap-3 p-4">
