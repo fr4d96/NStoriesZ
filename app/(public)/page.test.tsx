@@ -86,7 +86,7 @@ describe("HomePage", () => {
         name: "Featured Working Holiday stories",
       }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("Storiesss")).not.toBeInTheDocument();
+    expect(screen.queryByText("The record")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Not sure where to start reading?"),
     ).not.toBeInTheDocument();
@@ -123,7 +123,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
 
     // The entry links to the story and exposes the fields it actually carries.
@@ -148,7 +148,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
 
     const placeFilters = within(index).getByRole("group", {
@@ -190,7 +190,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
 
     expect(
@@ -205,7 +205,7 @@ describe("HomePage", () => {
     render(await HomePage());
 
     const index = screen
-      .getByText("Storiesss")
+      .getByText("The record")
       .closest("section") as HTMLElement;
     expect(within(index).getByText("2 ENTRIES")).toBeInTheDocument();
 

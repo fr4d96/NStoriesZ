@@ -170,6 +170,16 @@ export const travelStyles = ["budget", "midRange", "comfort"] as const;
 // the same length as other short free-text fields on this form.
 const TRAVEL_STYLE_MAX_LENGTH = 50;
 
+/**
+ * The one wording for "your end date is before your start date", exported so
+ * the authoring form's trip-date control can echo it inline next to the two
+ * fields instead of only in the save-error banner at the top of a long form.
+ * The refine() below stays the enforcer -- nothing saves while the range is
+ * inverted -- so this is a single shared string, not a second rule.
+ */
+export const TRIP_DATE_ORDER_MESSAGE =
+  "Trip start date must be on or before the end date.";
+
 export const revisionInputSchema = z
   .object({
     title: z.string().trim().min(1, "Title is required.").max(200),
@@ -193,7 +203,7 @@ export const revisionInputSchema = z
       !data.tripEndDate ||
       data.tripStartDate <= data.tripEndDate,
     {
-      message: "Trip start date must be on or before the end date.",
+      message: TRIP_DATE_ORDER_MESSAGE,
       path: ["tripEndDate"],
     },
   );

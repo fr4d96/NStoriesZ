@@ -163,6 +163,66 @@ const PROCESSING_LABELS: Record<string, string> = {
   promoted: "Ready",
 };
 
+type MediaTextPatch = Partial<
+  Pick<RevisionMediaItem, "altText" | "caption" | "decorative">
+>;
+
+/**
+ * The describe-this-image controls, shared by both groups below (images not
+ * yet placed in the story, and images already placed in it) so the two can't
+ * drift.
+ *
+ * `aria-label` on each control, not just a placeholder: a placeholder is not
+ * an accessible name, it vanishes the moment text is typed, and a screen
+ * reader would otherwise announce these as two unlabelled text boxes
+ * (Engineering Rule 19). A visible <label> per field would double the
+ * height of every tile in a 2-3 column grid, so the accessible name carries
+ * the image's own alt text or index to stay distinguishable when several
+ * tiles are on screen.
+ */
+function MediaTextFields({
+  item,
+  onChange,
+}: {
+  item: RevisionMediaItem;
+  onChange: (mediaId: string, patch: MediaTextPatch) => void;
+}) {
+  return (
+    <>
+      <label className="flex items-center gap-1.5 text-xs">
+        <input
+          type="checkbox"
+          checked={item.decorative}
+          onChange={(e) =>
+            onChange(item.mediaId, { decorative: e.target.checked })
+          }
+        />
+        Decorative (no alt text needed)
+      </label>
+
+      {!item.decorative && (
+        <input
+          type="text"
+          value={item.altText ?? ""}
+          onChange={(e) => onChange(item.mediaId, { altText: e.target.value })}
+          placeholder="Alt text (required)"
+          aria-label="Alt text — describe this image for readers who can't see it"
+          className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
+        />
+      )}
+
+      <input
+        type="text"
+        value={item.caption ?? ""}
+        onChange={(e) => onChange(item.mediaId, { caption: e.target.value })}
+        placeholder="Caption (optional)"
+        aria-label="Caption for this image (optional)"
+        className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
+      />
+    </>
+  );
+}
+
 export function ImageUploadManager({
   storyId,
   revisionId,
@@ -177,7 +237,17 @@ export function ImageUploadManager({
   const [media, setMedia] = useState<RevisionMediaItem[]>(
     [...initialMedia].sort((a, b) => a.sortOrder - b.sortOrder),
   );
+  // Uploaded but not yet placed in the story text.
   const visibleMedia = media.filter((m) => !inlineMediaIds.has(m.mediaId));
+  // Already placed in the story text. These used to be hidden from this
+  // panel entirely, which meant alt text and captions became UNEDITABLE the
+  // moment an image was put where it belonged -- the natural order (place
+  // the photo, then describe it) was impossible, and it was the reason
+  // stories arrived at moderation with the `images_missing_alt_text`
+  // warning. They now get their own group below: describe and cover/remove,
+  // but no "Add to story" (already there) and no reorder (their order is
+  // the order they appear in the text).
+  const placedMedia = media.filter((m) => inlineMediaIds.has(m.mediaId));
   const [uploading, setUploading] = useState<UploadingItem[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [isDragging, setIsDragging] = useState(false);
@@ -537,12 +607,94 @@ export function ImageUploadManager({
         </ul>
       )}
 
-      {inlineMediaIds.size > 0 && (
-        <p className="text-sm text-muted-foreground">
-          {inlineMediaIds.size === 1
-            ? "1 image placed in your story text isn't shown here — remove it from the text to manage it below again."
-            : `${inlineMediaIds.size} images placed in your story text aren't shown here — remove them from the text to manage them below again.`}
-        </p>
+      {placedMedia.length > 0 && (
+        <details className="group" open>
+          <summary className="cursor-pointer list-none text-sm font-medium">
+            <span className="inline-flex items-center gap-1">
+              <svg
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90"
+              >
+                <path
+                  d="M7 5l6 5-6 5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {placedMedia.length === 1
+                ? "1 image in your story"
+                : `${placedMedia.length} images in your story`}
+            </span>
+          </summary>
+          <p className="mt-1 text-xs text-muted-foreground">
+            These are already placed in your text. Describe them here; drag the
+            corner of an image in the story to resize it.
+          </p>
+          <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {placedMedia.map((item) => (
+              <li
+                key={item.mediaId}
+                className="space-y-2 rounded-md border border-border-subtle p-2"
+              >
+                <div className="relative aspect-square overflow-hidden rounded border border-border-subtle bg-surface-muted">
+                  {thumbnails[item.mediaId] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, not an optimizable static asset
+                    <img
+                      src={thumbnails[item.mediaId]}
+                      alt={item.altText ?? ""}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-full w-full items-center justify-center text-muted-foreground"
+                      aria-label={
+                        PROCESSING_LABELS[item.processingState] ??
+                        item.processingState
+                      }
+                    >
+                      <Spinner className="h-6 w-6" />
+                    </div>
+                  )}
+                  {item.isCover && (
+                    <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-xs text-white">
+                      Cover
+                    </span>
+                  )}
+                </div>
+
+                <MediaTextFields item={item} onChange={updateCaption} />
+
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {!item.isCover && (
+                    <button
+                      type="button"
+                      onClick={() => setCover(item.mediaId)}
+                      className="underline underline-offset-2"
+                    >
+                      Set as cover
+                    </button>
+                  )}
+                  {/* detach() also strips the embed token from the story
+                      text (story-edit-form.tsx's handleMediaDetached), so
+                      removing from here removes it from the story too --
+                      the same thing the image's own delete button in the
+                      editor does. */}
+                  <button
+                    type="button"
+                    onClick={() => detach(item.mediaId)}
+                    className="text-destructive underline underline-offset-2"
+                  >
+                    Remove from story
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {visibleMedia.length > 0 && (
@@ -619,40 +771,7 @@ export function ImageUploadManager({
                     </p>
                   )}
 
-                  <label className="flex items-center gap-1.5 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={item.decorative}
-                      onChange={(e) =>
-                        updateCaption(item.mediaId, {
-                          decorative: e.target.checked,
-                        })
-                      }
-                    />
-                    Decorative (no alt text needed)
-                  </label>
-
-                  {!item.decorative && (
-                    <input
-                      type="text"
-                      value={item.altText ?? ""}
-                      onChange={(e) =>
-                        updateCaption(item.mediaId, { altText: e.target.value })
-                      }
-                      placeholder="Alt text (required)"
-                      className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
-                    />
-                  )}
-
-                  <input
-                    type="text"
-                    value={item.caption ?? ""}
-                    onChange={(e) =>
-                      updateCaption(item.mediaId, { caption: e.target.value })
-                    }
-                    placeholder="Caption (optional)"
-                    className="w-full rounded border border-border-subtle px-2 py-1 text-xs dark:bg-transparent"
-                  />
+                  <MediaTextFields item={item} onChange={updateCaption} />
 
                   <div className="flex flex-wrap gap-2 text-xs">
                     {onInsertIntoEditor && (

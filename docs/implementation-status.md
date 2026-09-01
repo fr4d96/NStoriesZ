@@ -3,10 +3,245 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-31 (audit clean-up sweep: robots gap, `expectedVersion` hardening, silent
-PDF alt-text failure now logged, stale references to a deleted upload route).
+Last updated: 2026-08-31 (trip-date control redesign — segmented mode switch, designed native date
+fields, range readback).
 
-**2026-08-31 (latest) — Clean-up sweep: the low-severity findings from the codebase audit.**
+**2026-08-31 (latest) — "When did you travel?" redesigned: `components/story/trip-date-field.tsx`.**
+
+User: "The New story date picker looks plain. Replace it with a more modern design." It was plain —
+two browser-default radios (rendering as blue dots, off-palette, and with **no shared `name`, so
+they were not even one radio group**) over two native date inputs carrying nothing but
+`rounded-md border px-3 py-2`, with mismatched inline "From"/"To" labels that left the two fields
+different widths on a phone.
+
+**The judgement call: the native `<input type="date">` stays.** A hand-rolled calendar popover was
+considered and rejected on two grounds. On a phone — the primary viewport per Engineering Rule 18 —
+the native input opens the OS date picker, which is full-height, thumb-reachable, localised and
+screen-reader-native; no custom grid inside a 375px column beats it, so replacing it would have been
+a mobile regression dressed as a redesign. And a custom grid must re-implement roving focus,
+Home/End, PageUp/PageDown, Escape-and-restore, and `aria-selected` correctly or it is _worse_ than
+what it replaced (Rule 19) — the platform already ships all of that. What was actually missing was
+never the `<input>`; it was any design around it. No date library added (Rule 20): `Intl` and plain
+UTC arithmetic cover formatting and the day count.
+
+Built (extracted to its own component; `story-edit-form.tsx` is otherwise untouched):
+
+- **Segmented control** for the mode switch — `--surface-muted` track (the Recess Rule), a solid
+  accent thumb that slides on `translate` with `--nf-medium` / `--nf-ease-out`, matching
+  `FilterRow`'s existing active-chip idiom. Still two real `<input type="radio">` sharing a `name`,
+  so native arrow-key traversal, the roving tabstop and the "1 of 2" announcement all come from the
+  platform; only the paint is ours. Because the radio is `sr-only` its focus ring would be clipped
+  to a 1px box, so `.nf-segment:has(:focus-visible)` in `globals.css` **relocates** the app's one
+  focus ring (3px accent, 3px offset) onto the visible segment — a move, never a second ring style.
+- **Each date in a labelled well** on `--surface-muted`, mono micro-label above (the
+  Mono-Means-Record Rule), hover and focus border states on `--nf-fast`. Equal-width and stacked on
+  mobile, side by side from `sm`. `aria-label` was deliberately _not_ used: a `sr-only` suffix
+  extends the visible "From"/"To" instead, so the visible word stays a prefix of the accessible name
+  (WCAG "Label in Name").
+- **Range readback** — once both dates parse, the control states the range and an inclusive day
+  count in Geist Mono (`14 Mar 2025 → 2 Nov 2025 / 234 days`), with the arrow as drawn SVG
+  (`ArrowRightIcon`), never a Unicode glyph. Nothing renders while the range is half-filled (the
+  Real Fields Rule — no placeholder dash). Formatting is pinned to `en-GB`/UTC so server and client
+  agree (no hydration mismatch) and a calendar date never shifts by a day.
+
+**Data contract unchanged, deliberately.** `TripDateField` is fully controlled and holds no value
+state; `tripStartDate`/`tripEndDate` stay the input's own `YYYY-MM-DD` strings and `tripYear` the
+raw field string, handed back unmodified (Rule 9). Every handler is the same
+`setState`-then-`scheduleSave` pair that was previously inline, so the debounce window, the `fields`
+mutation-queue slot, and the exact value reaching `scheduleSave` are all byte-identical to before.
+
+**Validation not duplicated.** `revisionInputSchema` already enforces ISO dates, the 2000–2100 year
+bound and `start <= end`. Its order message became one exported constant
+(`TRIP_DATE_ORDER_MESSAGE`), which the control echoes inline beside the fields instead of only in
+the save-error banner at the top of a long form. The schema's `refine()` is still the sole enforcer —
+nothing saves while that message shows.
+
+Shared surface: the editorial edit page renders the same `StoryEditForm`, so this lands on both the
+contributor and editor surfaces.
+
+Verified in a real browser against the live signed-in editor at 375×812 first, then desktop, in both
+themes. Tokens confirmed to flip: thumb `#35d0c4`→`#006f68`, track/well `#10161d`→`#e8e2db`, shadow
+neutral-black→warm-ink with real offset and blur, error `#ff6b6b`→`#c0392b`. Keyboard path exercised
+live (Tab reaches one tabstop; ArrowLeft/Right move focus and selection and the thumb follows) and
+the mirrored ring measured at `3px solid rgb(53,208,196)` / `3px` offset. Outbound POSTs were
+stubbed during that inspection so nothing typed could autosave — the draft was re-loaded afterwards
+and confirmed unchanged (**no database write**).
+
+New tests: `components/story/trip-date-field.test.tsx` (17) — UTC parsing, rejection of
+`2025-02-30`, inclusive day counts across a DST boundary, the shared radio `name`, arrow-key
+traversal, tab-stop count, that a typed date still yields an unmodified `YYYY-MM-DD`, that the year
+stays a string, and the readback/inverted-range states.
+
+**2026-08-31 — Story editor: competitive research, then the safe wins from it.**
+
+User asked for the new-story editor to be easier and more flexible to write in, informed by what
+comparable platforms actually do. Two phases: research written up first, then build only the items
+that fit the constraints. Scope was **additive only** and explicitly ruled out swapping CodeMirror,
+changing `content_json`'s block schema (Engineering Rule 6), changing the `![[mediaId]]` embed flow,
+or restructuring `story-edit-form.tsx`.
+
+**Research: [docs/editor-competitive-research.md](editor-competitive-research.md)** (new). Covers
+Medium, Substack, Ghost/Koenig, WordPress/Gutenberg, Tumblr, Polarsteps, Journi, Steller,
+Exposure.co, Atlas Obscura, WHV/backpacker blogs, StoryWorth, StoryCorps, Notion, Bear and Craft;
+what to copy from each, what not to, and a prioritised list scored value-vs-cost. Also records what
+our editor **already** does and needed no work: undo/redo (`history()` via `basicSetup`), Enter
+continuing a list and Backspace removing a marker (`markdownKeymap`, on by default in `markdown()`),
+paste-a-URL-over-a-selection making a link (`pasteURLAsLink`, likewise), and Cmd/Ctrl-F find
+(`searchKeymap`). Every one of those was checked against the installed packages, not assumed.
+
+Built (all additive; no migration, no database write, `content_json` untouched):
+
+- **Rich paste — the biggest single win.** CodeMirror pastes `text/plain`, so pasting a story out of
+  Google Docs / Word / Notion lost every heading, bold, italic, link and list. Since CLAUDE.md says
+  contributor content already exists elsewhere, that was the worst-supported action in the editor.
+  New **`lib/story/html-paste.ts`** converts the clipboard's `text/html` flavour to our Markdown and
+  `markdown-editor.tsx` inserts the result; anything else falls back to the ordinary plain-text
+  paste, so pasting Markdown still behaves exactly as before.
+  - Engineering Rule 7 is met structurally: parsed with `DOMParser.parseFromString(html,"text/html")`
+    into a document with no browsing context (scripts never run, subresources never load), never
+    attached to the page, `innerHTML` never assigned, and the only output is a plain Markdown string
+    that then travels the identical path as typed text. Same tag policy, same `isSafeHref()` link
+    policy and same escaping as the editorial importer.
+  - **Not** `sanitizeHtmlToBlocks()` from `lib/story/content-import.ts`: that measures input with
+    Node's `Buffer` (absent in browsers) and parses with `node-html-parser` (~200 KB of client
+    bundle for a parser the browser already has). The genuinely shared parts were extracted instead
+    — new **`lib/story/markdown-escape.ts`** now owns `escapeMarkdownText`/`escapeLeadingMarker` and
+    both converters import it, so they cannot drift.
+  - **Reads Google Docs' inline styles**, not just tags. Google Docs emits
+    `<span style="font-weight:700">` rather than `<strong>`, and wraps the whole document in
+    `<b style="font-weight:normal" id="docs-internal-guid-…">` — a tag-only converter loses every
+    bit of emphasis from the most likely source AND bolds the entire paste. Only `font-weight`,
+    `font-style` and `text-decoration: line-through` are read; the style attribute is inspected and
+    discarded, never propagated.
+  - `<br>` becomes a Markdown **hard** break (two trailing spaces), a deliberate difference from the
+    editorial importer's bare `\n` — a soft break renders as a space and silently merges two lines
+    the writer separated on purpose.
+  - Never truncates: over a cap or any failure returns `{ok:false}` and the plain-text paste runs.
+    Caps are looser than the importer's (2,000,000 chars / 20,000 nodes / depth 60) because this
+    runs in the contributor's own browser on their own clipboard — and because Google Docs emits one
+    `<span>` per formatting run, so a long story legitimately passes 5,000 nodes.
+  - An unsafe href (including `mailto:`) drops the link but keeps the words, and the editor shows a
+    one-line note saying so.
+- **Slash-command menu** (`components/story/editor/slash-commands.ts`): type `/` at the start of a
+  line for Heading, Smaller heading, Bulleted/Numbered list, Checklist, Quote, Link, Table and
+  Photo. Built on `@codemirror/autocomplete` rather than a hand-rolled popup **because of**
+  Engineering Rule 19: CodeMirror's completion tooltip already renders `role="listbox"` /
+  `role="option"` / `aria-selected` and drives `aria-activedescendant`, `aria-autocomplete`,
+  `aria-haspopup` and `aria-controls` on the editor, with Arrows/Enter/Escape/Ctrl-Space bound.
+  Confirmed in a real browser, not assumed (see verification below). Anchored to the start of a line
+  so "24/7", a date or a URL never pops it open mid-sentence.
+  - **`slashMenuTheme` was not optional.** CodeMirror's completion theme picks `&light`/`&dark` from
+    the `EditorView.darkTheme` facet, and this editor sets `theme="none"` so it can inherit the
+    page's colours — leaving `darkTheme` false. First browser check showed a white popup with
+    near-white inherited text in the app's dark mode: every option after the selected one was
+    invisible. Now painted from `--surface`/`--foreground`/`--accent`, correct in both themes.
+  - "Photo" does not upload anything. `image-upload-manager.tsx` still owns the whole reservation /
+    direct-to-storage / embed-token flow; the entry focuses and scrolls to the Images panel
+    (`onRequestImages` → `focusImagesPanel()` in `story-edit-form.tsx`, which moves real focus, not
+    just the viewport). A toolbar button does the same.
+- **Keyboard shortcuts**: Cmd/Ctrl-B, -I and -K, at `Prec.high`. Toolbar tooltips now name them.
+- **Word count and reading time** under the editor, live. New **`lib/story/markdown-text.ts`** holds
+  the plain-text extraction, the count and Ghost's reading-time model (275 wpm plus a decreasing
+  per-image allowance), and `lib/story/content-quality-checks.ts` now uses the same function — so a
+  contributor and a moderator can never see different word counts. **That move fixed a real bug**:
+  the private regex in content-quality-checks predated the `|<width>` embed suffix added 2026-08-12,
+  so a resized image leaked its width into the "plain text" and `320` was counted as a word.
+  Deliberately not an `aria-live` region — it changes on every keystroke.
+- **Sticky toolbar**, at `top-[76px]` (not `top-0`) because `components/site-header.tsx` is itself
+  `sticky top-0 z-40` over a `min-h-[76px]` bar. On a 375px viewport the eleven buttons wrapped to
+  three stacked rows, so the button group scrolls sideways instead — one row on a phone, one row on
+  desktop. The photo button uses `GalleryIcon` from the app's own icon set rather than the 🖼 emoji,
+  which rendered in full colour against otherwise monochrome glyphs.
+- **Alt text and captions for images already placed in the story.** `image-upload-manager.tsx`
+  filtered placed images out of the panel entirely (`!inlineMediaIds.has(...)`), and alt text/caption
+  are only editable there — so the natural order (place the photo where it belongs, then describe
+  it) was **impossible**, which is a WCAG problem and the likely reason stories reach moderation
+  with the `images_missing_alt_text` warning. Placed images now get their own "N images in your
+  story" group with alt text, caption and decorative editable, plus Set-as-cover and Remove; no
+  "Add to story" (already there) and no reorder (their order is their order in the text). The shared
+  fields were extracted into a `MediaTextFields` component, which also gained the `aria-label`s
+  those inputs never had — a placeholder is not an accessible name.
+
+Deliberately **not** built, and why (full reasoning in the research doc):
+
+- **Writing prompts / an outline starter.** The highest-value idea in the entire survey — StoryWorth's
+  whole product is this insight — and the mechanism is cheap. What is not cheap and not an
+  engineering call is the **prompt copy**. WHV section headings sit right next to the line the
+  product spec draws between personal experience and personalised visa/legal/employment/tax advice.
+  "Explain how to get your visa" invites exactly what moderation exists to keep out; "What was the
+  day you found your first job like?" (StoryCorps' question grammar) does not. That is editorial
+  policy for whoever owns `docs/moderation-guidelines.md`, and it should live as **data**, not
+  hard-coded strings — the same rule CLAUDE.md already applies to nationality and work class.
+- **Drag/paste an image straight into the body.** Not additive: it means hoisting
+  `beginMediaUploadAction` → direct-to-storage → `versionRef`/`MutationQueue` out of
+  `image-upload-manager.tsx`, i.e. restructuring `story-edit-form.tsx`. Do the extraction first, as
+  its own change.
+- **Completeness nudge in the editor.** The gate already exists as `missingRequirements` in
+  `app/(contributor)/stories/[id]/preview/page.tsx`. Mirroring it means duplicating it, and a
+  duplicated gate that drifts is worse than one gate. Lift it to a shared pure function first.
+- **Quieting the per-autosave toast** (`showToast("Draft saved.")` fires inside the debounced save,
+  so writing a paragraph produces a stream of toasts; no comparator does this, and the header
+  already shows "Saving…"/"Saved"). Left alone because removing existing behaviour is not additive
+  and "how loud is saving" is a product preference.
+- **Focus mode**, and turning `closeBrackets()` off for prose (confirmed by a headless run: `"` after
+  a space yields `""`, `(` yields `()`; an apostrophe mid-word is correctly left alone, so it is an
+  irritation, not a bug). Both are behaviour changes rather than additions.
+- **Rejected outright**: block/card editors, rich link/media embeds, layout grids, in-editor version
+  history — each needs a `content_json` schema change (Rule 6) or lands in the MVP non-goals. Journi's
+  auto-grouping of photos by time and place is rejected for a different reason: it needs the EXIF
+  timestamps and GPS that Rule 14 requires us to strip.
+
+**Dependency added**: `@codemirror/autocomplete@^6.20.3` (Rule 20). Zero new bytes — it was already
+installed and bundled as a transitive dependency of `@uiw/react-codemirror` → `codemirror`, and
+`basicSetup` was already calling `autocompletion()`. Declaring it makes the direct import honest
+rather than a phantom dependency, and matches how `@codemirror/{state,view,lang-markdown}` are
+already declared. `basicSetup`'s own `autocompletion` is now switched off and configured explicitly
+in `markdown-editor.tsx` instead, so exactly one config exists for that facet. **Note for review**:
+`npm install --package-lock-only` also re-normalised an unrelated `@tailwindcss/oxide-wasm32-wasi`
+bundled-dependency block into `package-lock.json` (~66 lines, all `optional`/`dev`/`inBundle`). That
+is npm's own normalisation, not a dependency change; it was left as npm wrote it rather than
+hand-edited.
+
+**Verified in a real browser, mobile first then desktop** (375×812, then 1280×900; dark and light):
+sticky toolbar stays pinned below the site header through a long scroll; the slash menu opens with
+`role="listbox"`, `aria-label="Story formatting commands"` (the `EditorState.phrases` override),
+`role="option"` + `aria-selected` per item and `aria-activedescendant`/`aria-controls`/
+`aria-haspopup="listbox"` on the editor; typing `/he` narrows to Heading and `/img` matches Photo by
+alias; picking Quote replaces `/quo` with `> `; picking Photo clears the trigger and fires
+`onRequestImages`; Cmd/Ctrl-B and -I wrapped a selection; a Google-Docs-shaped paste produced
+`## **Down south**`, bold/italic spans, a `-` list, a kept `https://` link and a dropped
+`javascript:` link with its words intact, plus the "1 link couldn't be kept" note; word count read
+"96 words · 1 min read".
+
+- **Done without a single database write**, and without signing in: a temporary
+  `app/(public)/editor-harness/page.tsx` mounted the real `StoryContentEditor` inside the real site
+  chrome (so the 76px sticky header was real), then was **deleted** — `git status` confirms nothing
+  of it remains. No server action is reachable from that component, so no revision was touched.
+- **One thing the harness could not exercise**: accepting a completion with **Enter**. The Browser
+  pane cannot give the page real focus (`view.hasFocus === false`), and CodeMirror's
+  `acceptCompletion` needs a focused view. The pointer path was driven instead and works; the
+  keyboard path is CodeMirror's own stock `completionKeymap`, and every command's `apply()` is
+  covered headlessly in `components/story/editor/slash-commands.test.ts`.
+
+New/updated tests — `npm run verify` clean, **57 files / 584 tests** (from 53 / 524):
+`lib/story/html-paste.test.ts` (26 cases: structure, Google Docs inline styles, the
+`font-weight:normal` wrapper, dangerous-subtree removal, image syntax never emitted, unsafe/`mailto:`
+links, escaping, every failure mode, and one realistic full Google Docs paste),
+`lib/story/markdown-text.test.ts`, `components/story/editor/slash-commands.test.ts` (16 cases,
+headless `EditorView` in the same style as `markdown-editor.test.ts`),
+`components/story/image-upload-manager.test.tsx` (new — the placed/unplaced split and that alt text
+stays editable), and four new cases in `components/story/story-content-editor.test.tsx` (word count,
+the Photo route, HTML paste converting, plain paste left alone).
+
+- The four toolbar transforms moved to `components/story/editor/markdown-commands.ts` so
+  `slash-commands.ts` could reuse them without importing a React client component (a module cycle).
+  `markdown-editor.tsx` re-exports all four, so `markdown-editor.test.ts` was not touched.
+- Gotcha worth remembering: a headless `EditorView` that dispatches with `scrollIntoView: true`
+  schedules a measure jsdom cannot service (`Range#getClientRects` is missing) and vitest exits
+  non-zero on the unhandled error even though every test passes. `view.destroy()` after the
+  assertions cancels it.
+
+**2026-08-31 (earlier, 2nd) — Clean-up sweep: the low-severity findings from the codebase audit.**
 
 The last batch from the audit that produced the two entries below. Nothing here changes a user-visible
 flow; the value is closing small trust-boundary and observability gaps, and stopping the codebase
@@ -70,13 +305,30 @@ pointing at a file that no longer exists.
   the current flow. **Follow-up: that subsection needs a real rewrite.** It was not attempted here
   because the reservation/idempotency reasoning around it is still accurate and load-bearing, and
   silently rewriting technical detail that would have to be re-derived is worse than labelling it.
+  - **DONE (2026-08-31, same day).** The subsection is rewritten and the SUPERSEDED banner is gone.
+    The first paragraph (the RPC reservation/idempotency model) was kept verbatim — it was always
+    accurate. Everything after it now documents the real flow: why the relay route had to go
+    (Lambda's ~4.5 MiB inbound ceiling), that the authorization model did **not** change
+    (`_can_write_reserved_media_path` was always scoped to `auth.uid()`), the five-step sequence
+    through the three bytes-free Server Actions, the three nested size ceilings (30 MiB bucket
+    outer bound / 15 MiB finalize / 8 MiB processed), and the revised failure handling.
+  - **Two things the rewrite surfaced that are worth acting on.** (1) `export const maxDuration =
+60` is gone from the codebase — grepped and confirmed, it went with the route it was declared
+    on. It existed to stop the platform killing the 8.3s upload leg, and that leg has genuinely
+    moved off the function, so its removal is defensible. But (2) **processing is still synchronous
+    inside a serverless function** and now has no `maxDuration` protecting it, and the
+    `processStoryMedia(mediaId, knownOriginalBytes?)` fast path is no longer used at all: the old
+    route passed the bytes it had just uploaded, and a bytes-free Server Action has none to pass,
+    so the ~2-3s redundant download of the original is back. Nobody has re-measured the processing
+    half on its own since the split. Both are recorded as an open risk in the rewritten section
+    rather than quietly fixed, because the honest answer is a background job/queue.
 
 - **Still open, needs a product decision, not code:** private-bucket storage is unbounded per
   authenticated user. `begin_story_media_upload()` caps images at 12 per revision, but nothing caps
   revisions or stories per user, and the bucket's `file_size_limit` is 30 MiB. What the per-user
   ceiling should be is a product call.
 
-**2026-08-31 (earlier) — Phantom ISR removed, and a migration written to kill the My Stories N+1.**
+**2026-08-31 (earlier, 3rd) — Phantom ISR removed, and a migration written to kill the My Stories N+1.**
 
 _Two items. The first is a pure no-op deletion plus documentation correction. The second writes SQL
 and applies nothing — it is deliberately left as follow-up work, described in full below._

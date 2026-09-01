@@ -24,7 +24,7 @@ describe("StoryContentEditor", () => {
     expect(
       screen.queryByRole("button", { name: "Write" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByTitle("Bold (**text**)")).toBeVisible();
+    expect(screen.getByTitle("Bold (Ctrl/Cmd+B)")).toBeVisible();
     expect(screen.getByText(/Hello world/)).toBeInTheDocument();
 
     const guideLink = screen.getByRole("link", {
@@ -46,12 +46,92 @@ describe("StoryContentEditor", () => {
         editable={false}
       />,
     );
-    expect(screen.queryByTitle("Bold (**text**)")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Bold (Ctrl/Cmd+B)")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: /Markdown syntax guide/ }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("world").tagName).toBe("STRONG");
     expect(screen.queryByText(/\*\*world\*\*/)).not.toBeInTheDocument();
+  });
+
+  it("shows a live word count and reading time under the editor", () => {
+    render(
+      <StoryContentEditor
+        initialContent={markdownToStoryContent("## Arrival\n\nOne two three")}
+        onChange={() => {}}
+      />,
+    );
+    // Markdown syntax is not counted: "Arrival One two three" is four words.
+    expect(screen.getByText(/4 words/)).toBeInTheDocument();
+    expect(screen.getByText(/1 min read/)).toBeInTheDocument();
+  });
+
+  it("offers a Photo route to the Images panel only when the page provides one", () => {
+    const { rerender } = render(
+      <StoryContentEditor
+        initialContent={markdownToStoryContent("Hi")}
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.queryByTitle(/Add a photo/)).not.toBeInTheDocument();
+
+    rerender(
+      <StoryContentEditor
+        initialContent={markdownToStoryContent("Hi")}
+        onChange={() => {}}
+        onRequestImages={() => {}}
+      />,
+    );
+    expect(screen.getByTitle(/Add a photo/)).toBeVisible();
+  });
+
+  describe("rich paste", () => {
+    function pasteInto(container: HTMLElement, data: Record<string, string>) {
+      const content = container.querySelector(".cm-content");
+      if (!content) throw new Error("editor content not found");
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: { getData: (type: string) => data[type] ?? "" },
+      });
+      act(() => {
+        content.dispatchEvent(event);
+      });
+      return event;
+    }
+
+    it("converts pasted HTML into Markdown instead of dropping the formatting", () => {
+      const onChange = vi.fn();
+      const { container } = render(
+        <StoryContentEditor
+          initialContent={markdownToStoryContent("Start. ")}
+          onChange={onChange}
+        />,
+      );
+
+      pasteInto(container, {
+        "text/html": "<h2>Otago</h2><p>I picked <strong>cherries</strong>.</p>",
+        "text/plain": "Otago\nI picked cherries.",
+      });
+
+      const text = storyContentText(onChange.mock.calls.at(-1)?.[0]);
+      expect(text).toContain("## Otago");
+      expect(text).toContain("I picked **cherries**.");
+    });
+
+    it("leaves a plain-text paste to CodeMirror, unescaped and unconverted", () => {
+      const onChange = vi.fn();
+      const { container } = render(
+        <StoryContentEditor
+          initialContent={markdownToStoryContent("")}
+          onChange={onChange}
+        />,
+      );
+
+      pasteInto(container, { "text/plain": "**already markdown**" });
+
+      const text = storyContentText(onChange.mock.calls.at(-1)?.[0]);
+      expect(text).toBe("**already markdown**");
+    });
   });
 
   it("replaceContent() imperatively swaps the document and fires onChange with the new blocks", () => {

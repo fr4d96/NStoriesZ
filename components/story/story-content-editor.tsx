@@ -18,6 +18,12 @@ export type StoryContentEditorProps = {
   onChange: (blocks: StoryContentBlock[]) => void;
   editable?: boolean;
   ariaLabel?: string;
+  /**
+   * Takes the contributor to the Images panel -- see
+   * MarkdownEditorProps.onRequestImages. Passed straight through; uploading
+   * still lives entirely in image-upload-manager.tsx.
+   */
+  onRequestImages?: () => void;
 };
 
 /**
@@ -50,7 +56,13 @@ export const StoryContentEditor = forwardRef<
   StoryContentEditorHandle,
   StoryContentEditorProps
 >(function StoryContentEditor(
-  { initialContent, onChange, editable = true, ariaLabel = "Story content" },
+  {
+    initialContent,
+    onChange,
+    editable = true,
+    ariaLabel = "Story content",
+    onRequestImages,
+  },
   ref,
 ) {
   const editorRef = useRef<MarkdownEditorHandle>(null);
@@ -84,6 +96,7 @@ export const StoryContentEditor = forwardRef<
         onChange={(text) => onChange(markdownToStoryContent(text))}
         editable={editable}
         ariaLabel={ariaLabel}
+        onRequestImages={onRequestImages}
       />
     </div>
   );

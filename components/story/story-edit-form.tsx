@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   revisionInputSchema,
@@ -23,7 +23,6 @@ import {
 } from "@/components/story/location-search";
 import { MutationQueue } from "@/lib/story/mutation-queue";
 import { getErrorMessage } from "@/lib/errors";
-import { useToast } from "@/components/ui/toast";
 import type {
   RevisionMediaItem,
   RevisionTagSelection,
@@ -39,6 +38,7 @@ import {
   setTagsAction,
 } from "@/app/(contributor)/stories/[id]/edit/actions";
 import { TagEditor } from "@/components/story/tag-editor";
+import { TripDateField } from "@/components/story/trip-date-field";
 
 export type StoryEditFormProps = {
   storyId: string;
@@ -89,6 +89,25 @@ export type StoryEditFormProps = {
 
 const FIELDS_SAVE_DEBOUNCE_MS = 600;
 
+/**
+ * The Images section's anchor. The editor's slash-menu "Photo" entry and
+ * its toolbar image button both call focusImagesPanel() below rather than
+ * uploading anything themselves -- image-upload-manager.tsx owns the whole
+ * reservation / direct-to-storage / embed-token flow, and duplicating it
+ * inside the editor is the change docs/editor-competitive-research.md
+ * deliberately deferred.
+ */
+const IMAGES_PANEL_ID = "story-images";
+
+function focusImagesPanel() {
+  const section = document.getElementById(IMAGES_PANEL_ID);
+  if (!section) return;
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Moves keyboard AND screen-reader focus, not just the viewport -- a
+  // scroll alone would leave a keyboard user's focus back in the editor.
+  section.focus({ preventScroll: true });
+}
+
 /** "midRange" -> "Mid range" -- for displaying camelCase enum values. */
 function formatCamelCaseLabel(value: string): string {
   const spaced = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
@@ -108,6 +127,75 @@ function RequiredMark() {
     <span className="text-destructive">
       <span aria-hidden="true"> *</span>
       <span className="sr-only"> required</span>
+    </span>
+  );
+}
+
+/**
+ * Ambient autosave status, replacing the "Draft saved." toast that used to
+ * fire on every debounced field save.
+ *
+ * Three things this fixes. It no longer claims "Saved" on a draft that has
+ * not been saved this session (the old line was a bare ternary, so an
+ * untouched form read as freshly saved). It says WHEN, because "Saved" with
+ * no time is exactly as reassuring as nothing at all once you have been
+ * typing for a while. And its aria-live region is `off` while idle and only
+ * announces on the transition into a settled state, so a screen reader is
+ * told "Saved" once after you stop typing, rather than on every pause.
+ *
+ * The relative time re-renders on a 30s interval, but ONLY while a save has
+ * actually happened -- no timer runs on a form nobody has edited.
+ */
+function relativeSaveTime(from: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - from) / 1000));
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function SaveStatus({
+  saving,
+  lastSavedAt,
+}: {
+  saving: boolean;
+  lastSavedAt: number | null;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  // No synchronous setState here: a fresh stamp makes `now` at most one
+  // tick stale, and relativeSaveTime() floors at 0, so the label reads
+  // "just now" either way. The interval is the only writer.
+  useEffect(() => {
+    if (lastSavedAt === null) return;
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [lastSavedAt]);
+
+  const label = saving
+    ? "Saving…"
+    : lastSavedAt !== null
+      ? `Saved ${relativeSaveTime(lastSavedAt, now)}`
+      : "Not saved yet";
+
+  return (
+    <span
+      className="flex items-center gap-2 text-muted-foreground tabular-nums"
+      // Announce the settled result, not every keystroke's "Saving…".
+      aria-live={saving ? "off" : "polite"}
+    >
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-300 ${
+          saving
+            ? "animate-pulse bg-accent"
+            : lastSavedAt !== null
+              ? "bg-accent/45"
+              : "bg-border-subtle"
+        }`}
+      />
+      {label}
     </span>
   );
 }
@@ -134,12 +222,21 @@ export function StoryEditForm({
   showContentImport,
   isNewStory = false,
 }: StoryEditFormProps) {
-  const { showToast } = useToast();
   const versionRef = useRef(initialVersion);
   const [conflict, setConflict] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [, forceRerender] = useState(0);
+
+  // When a mutation last actually landed. Drives the status line below.
+  // Null until the first successful save of this session, so a freshly
+  // opened draft does not claim to have just saved something. Stamped from
+  // each mutation's own success branch rather than from the queue's
+  // onSettled: onSettled runs inside the useMemo factory that builds the
+  // queue, which React treats as render phase, and both reading a ref and
+  // calling Date.now() there are render-phase violations the compiler
+  // rejects outright. The success branches are ordinary async callbacks.
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
   const queue = useMemo(() => {
     const q = new MutationQueue({
@@ -281,14 +378,23 @@ export function StoryEditForm({
             // that remains correct, not a bug.
             versionRef.current = result.version;
             bumpVersion();
-            showToast("Draft saved.");
+            setLastSavedAt(Date.now());
+            // No toast here on purpose. Autosave fires on a debounce as the
+            // contributor types, so a per-save toast meant a notification
+            // every few seconds during ordinary writing -- it covered part
+            // of the form, and (being in an aria-live region) it interrupted
+            // a screen reader mid-sentence on every pause. Save state is
+            // ambient information, not an event worth announcing: it belongs
+            // in the persistent status line in the header, which is where it
+            // now lives. Toasts stay for things that actually happen ONCE
+            // and need acknowledging (submission, deletion, an error).
           } else {
             throw new Error(result.error);
           }
         });
       }, FIELDS_SAVE_DEBOUNCE_MS);
     },
-    [queue, revisionId, showToast],
+    [queue, revisionId],
   );
 
   // Every field-backed value schedules its own save directly from the event
@@ -395,6 +501,7 @@ export function StoryEditForm({
               richTextEditorRef.current?.replaceContent(blocks);
               setSaveError(null);
               bumpVersion();
+              setLastSavedAt(Date.now());
               resolve({ ok: true });
             } else {
               resolve({ ok: false, error: result.error });
@@ -456,6 +563,7 @@ export function StoryEditForm({
       if (result.ok) {
         versionRef.current += 1;
         bumpVersion();
+        setLastSavedAt(Date.now());
       } else {
         throw new Error(result.error);
       }
@@ -497,6 +605,7 @@ export function StoryEditForm({
       if (result.ok) {
         versionRef.current += 1;
         bumpVersion();
+        setLastSavedAt(Date.now());
       } else {
         throw new Error(result.error);
       }
@@ -541,9 +650,7 @@ export function StoryEditForm({
           {isNewStory ? "New Story" : "Edit Story"}
         </h1>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-muted-foreground" aria-live="polite">
-            {saving ? "Saving…" : "Saved"}
-          </span>
+          <SaveStatus saving={saving} lastSavedAt={lastSavedAt} />
           <Link
             href={`/stories/${storyId}/preview`}
             className="journiq-button bg-accent text-sm text-accent-foreground"
@@ -632,11 +739,16 @@ export function StoryEditForm({
                 setContent(blocks);
                 scheduleSave({ content: blocks });
               }}
+              onRequestImages={focusImagesPanel}
             />
           </div>
         </div>
 
-        <div>
+        <div
+          id={IMAGES_PANEL_ID}
+          tabIndex={-1}
+          className="scroll-mt-24 outline-none"
+        >
           <span className="block text-sm font-medium">
             Images{initialMedia.length > 0 ? ` (${initialMedia.length})` : ""}
           </span>
@@ -661,76 +773,32 @@ export function StoryEditForm({
           </div>
         </div>
 
-        <fieldset>
-          <legend className="text-sm font-medium">When did you travel?</legend>
-          <div className="mt-1 flex gap-4 text-sm">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={dateMode === "range"}
-                onChange={() => {
-                  setDateMode("range");
-                  scheduleSave({ dateMode: "range" });
-                }}
-              />
-              Specific dates
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={dateMode === "year"}
-                onChange={() => {
-                  setDateMode("year");
-                  scheduleSave({ dateMode: "year" });
-                }}
-              />
-              Just the year
-            </label>
-          </div>
-          {dateMode === "range" ? (
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">From</span>
-                <input
-                  type="date"
-                  value={tripStartDate}
-                  onChange={(e) => {
-                    setTripStartDate(e.target.value);
-                    scheduleSave({ tripStartDate: e.target.value });
-                  }}
-                  className="rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-                  aria-label="Trip start date"
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">To</span>
-                <input
-                  type="date"
-                  value={tripEndDate}
-                  onChange={(e) => {
-                    setTripEndDate(e.target.value);
-                    scheduleSave({ tripEndDate: e.target.value });
-                  }}
-                  className="rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-                  aria-label="Trip end date"
-                />
-              </label>
-            </div>
-          ) : (
-            <input
-              type="number"
-              value={tripYear}
-              min={2000}
-              max={2100}
-              onChange={(e) => {
-                setTripYear(e.target.value);
-                scheduleSave({ tripYear: e.target.value });
-              }}
-              className="mt-2 w-32 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-              aria-label="Trip year"
-            />
-          )}
-        </fieldset>
+        {/* Presentation only -- every handler below is the same
+            setState-then-scheduleSave pair the two bare inputs used to carry
+            inline, so the debounce window, the "fields" queue slot, and the
+            exact string handed to scheduleSave are all unchanged. */}
+        <TripDateField
+          mode={dateMode}
+          startDate={tripStartDate}
+          endDate={tripEndDate}
+          year={tripYear}
+          onModeChange={(next) => {
+            setDateMode(next);
+            scheduleSave({ dateMode: next });
+          }}
+          onStartDateChange={(value) => {
+            setTripStartDate(value);
+            scheduleSave({ tripStartDate: value });
+          }}
+          onEndDateChange={(value) => {
+            setTripEndDate(value);
+            scheduleSave({ tripEndDate: value });
+          }}
+          onYearChange={(value) => {
+            setTripYear(value);
+            scheduleSave({ tripYear: value });
+          }}
+        />
 
         <div>
           <label

@@ -41,6 +41,7 @@ import { HeroSlideshow } from "@/components/home/hero-slideshow";
 import { FeaturedStoryStack } from "@/components/home/featured-story-stack";
 import { StoryIndex } from "@/components/home/story-index";
 import { DestinationQuiz } from "@/components/home/destination-quiz";
+import { regionNames } from "@/lib/story/card-fields";
 import { ArrowRightIcon } from "@/components/icons";
 
 export const revalidate = 60;
@@ -89,6 +90,22 @@ export default async function HomePage() {
   const stories = await listPublishedStories({ limit: 24 }).catch(() => []);
   const hasStories = stories.length > 0;
 
+  // Distinct regions actually present in the published catalogue, in order of
+  // how many stories carry them, capped so the rail stays one calm line
+  // rather than a wall. Derived from the same rows the index below renders --
+  // never a hardcoded list of nice-sounding place names, which would go stale
+  // the moment the catalogue changed and would be a claim rather than a fact.
+  const regionCounts = new Map<string, number>();
+  for (const story of stories) {
+    for (const name of new Set(regionNames(story.regions))) {
+      regionCounts.set(name, (regionCounts.get(name) ?? 0) + 1);
+    }
+  }
+  const heroRegions = Array.from(regionCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 7)
+    .map(([name]) => name);
+
   return (
     <div className="bg-background text-foreground">
       {/* Reading progress. Pure CSS scroll timeline -- no listener, no
@@ -119,14 +136,17 @@ export default async function HomePage() {
       <section className="px-4 pt-5 sm:px-6 sm:pt-6 lg:px-8">
         <div className="nf-dark-band relative isolate mx-auto flex h-[74svh] max-h-[780px] min-h-[520px] w-full max-w-[1440px] overflow-hidden rounded-[20px] bg-[#05070a] text-white shadow-2xl sm:rounded-[28px]">
           <HeroSlideshow />
-          <div className="relative flex w-full items-end px-6 pb-12 sm:px-10 sm:pb-14 lg:px-14">
+          <div className="relative flex w-full flex-col justify-end px-6 pb-7 sm:px-10 sm:pb-9 lg:px-14">
             <div className="max-w-3xl">
-              <h1 className="nf-hero-pull font-sans text-[clamp(2.5rem,8vw,6.8rem)] leading-[0.95] font-extrabold tracking-[-.03em] text-balance text-white">
+              {/* Display caps at 6rem. The previous 6.8rem broke the world's
+                  own ceiling and, on a 1440px viewport, pushed the second
+                  line hard against the CTA row with no air between them. */}
+              <h1 className="nf-hero-pull font-sans text-[clamp(2.5rem,7vw,6rem)] leading-[0.94] font-extrabold tracking-[-.035em] text-balance text-white">
                 Real stories from across{" "}
                 <span className="text-accent">Aotearoa</span>.
               </h1>
               <p
-                className="nf-hero-pull mt-5 max-w-lg text-base text-white/80 sm:mt-6 sm:text-lg"
+                className="nf-hero-pull mt-5 max-w-[46ch] text-base text-white/80 sm:mt-6 sm:text-lg"
                 style={{ animationDelay: "140ms" }}
               >
                 First-person accounts of the jobs, places, and moments from
@@ -144,6 +164,38 @@ export default async function HomePage() {
                 </Link>
               </div>
             </div>
+
+            {/*
+              The catalogue rail: the places this archive actually holds,
+              read off the published rows themselves. Not a stat badge and
+              not social proof (PRODUCT.md bans both) -- it is the index
+              speaking in the first viewport, which is the whole thesis of
+              the page. It renders only when there is something true to put
+              in it, so an empty catalogue shows nothing rather than a
+              hedge.
+            */}
+            {heroRegions.length > 0 ? (
+              <div
+                className="nf-hero-pull mt-10 border-t border-white/15 pt-4 sm:mt-14"
+                style={{ animationDelay: "380ms" }}
+              >
+                {/* Right padding clears the slideshow's pause control, which
+                    is absolutely positioned over this same corner. Without
+                    it the last region scrolls underneath the button and is
+                    unreadable -- caught at 375px, where the two collide
+                    first. */}
+                <ul className="nf-scroll-x -mx-6 flex items-center gap-x-6 overflow-x-auto pr-28 pl-6 sm:mx-0 sm:flex-wrap sm:gap-x-7 sm:gap-y-2 sm:pr-36 sm:pl-0">
+                  {heroRegions.map((region) => (
+                    <li
+                      key={region}
+                      className="font-mono text-[0.68rem] tracking-[0.2em] whitespace-nowrap text-white/55 uppercase"
+                    >
+                      {region}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -171,7 +223,7 @@ export default async function HomePage() {
           >
             <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
               <SectionHead
-                title="Storiesss"
+                title="The record"
                 description="Every published account, narrowed by where it happened and the work it describes."
               />
               <div className="mt-8 sm:mt-12">
@@ -188,25 +240,30 @@ export default async function HomePage() {
             title="Why you can trust what you read here"
             description="Kakinotes is a record of personal experience — not advice, and not a marketplace."
           />
-          <div className="mt-10 grid gap-4 sm:gap-5 md:mt-14 md:grid-cols-3">
-            {steps.map(([title, body], index) => (
-              <article
+          {/*
+            Three statements, set as an editorial rhythm rather than three
+            equal cards. The card grid this replaces was the category's
+            default page scaffold -- icon/heading/text boxes side by side --
+            and it made three claims about trust look like three product
+            features. Rules and generous leading let each statement land on
+            its own, which is what a record says about itself. Also cheaper:
+            no borders, no shadows, no hover lift to maintain.
+          */}
+          <dl className="mt-10 md:mt-16">
+            {steps.map(([title, body]) => (
+              <div
                 key={title}
-                className="nf-lift h-full rounded-2xl border border-border-subtle bg-surface p-6 shadow-sm transition-[transform,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-lg sm:p-7"
-                style={{ animationDelay: `${index * 60}ms` }}
+                className="grid gap-x-10 gap-y-3 border-t border-border-subtle py-8 first:border-t-0 first:pt-0 sm:py-10 md:grid-cols-[minmax(0,7fr)_minmax(0,9fr)]"
               >
-                {/* Deliberately not `.night-heading`: that class carries the
-                    display clamp and, being defined after Tailwind's
-                    utilities, wins over a `text-xl` override at equal
-                    specificity. Card headings take the world's character
-                    (heavy sans, tight tracking) at card scale instead. */}
-                <h3 className="text-xl leading-snug font-extrabold tracking-[-.02em] text-balance sm:text-2xl">
+                <dt className="text-2xl leading-[1.15] font-extrabold tracking-[-.025em] text-balance sm:text-[1.75rem]">
                   {title}
-                </h3>
-                <p className="mt-3 text-foreground/65">{body}</p>
-              </article>
+                </dt>
+                <dd className="max-w-[62ch] text-base text-foreground/65 sm:text-lg">
+                  {body}
+                </dd>
+              </div>
             ))}
-          </div>
+          </dl>
         </div>
       </section>
 
@@ -226,7 +283,13 @@ export default async function HomePage() {
                 point for browsing, not a recommendation.
               </p>
             </div>
-            <div className="nf-pull rounded-[28px] border border-border-subtle bg-surface p-4 shadow-2xl sm:p-8 lg:p-10">
+            {/* No panel chrome here. DestinationQuiz renders its own bordered,
+                rounded card, so wrapping it in a second one produced a card
+                inside a card -- two concentric rounded borders with nothing
+                between them but padding, which reads as a rendering mistake
+                rather than a design. The quiz keeps its own frame; this
+                wrapper now only positions it. */}
+            <div className="nf-pull">
               <DestinationQuiz />
             </div>
           </div>
