@@ -5330,6 +5330,44 @@ fits on one page, Next advances the window, numbering stays continuous, boundary
 
 Live-verified against the dev database's 16 published stories at 1280 and 375 wide: 5 entries,
 "16 ENTRIES · SHOWING 1–5", four page buttons, Prev disabled; page 3 shows entries 11–15 with the
-list focused and scrolled to 96px so it clears the sticky header. **Pre-existing, not introduced
-here:** the landing page has ~12px of horizontal overflow at 375px coming from the hero
-slideshow's `hero-slide` transforms — none of it from `#index`.
+list focused and scrolled to 96px so it clears the sticky header. Also noted here: the landing
+page carried ~12px of horizontal overflow at 375px, unrelated to `#index`. Diagnosed and fixed
+in the entry below — **not** the hero slideshow, as first assumed.
+
+---
+
+## 2026-09-02 — Landing page horizontal overflow at 375px
+
+The landing page could be scrolled ~12px sideways on a phone. The previous entry blamed the hero
+slideshow; that was wrong, and worth recording because the wrong answer looked convincing.
+
+`.hero-slide` is `inset: -3%` and scales to 1.13 during its Ken Burns pan, so it genuinely
+reports a right edge past the viewport — which is what a naive "list every element wider than
+`clientWidth`" scan surfaces first. But its parent carries `overflow-hidden`, so it is clipped
+and contributes nothing to the document's scroll width. **An element overflowing its own box is
+not the same as an element overflowing the page.** Re-running the scan with a check for a
+clipping ancestor left exactly one culprit: `.story-stack-card`, in the Featured carousel.
+
+Two separate reaches, from the same component:
+
+- At rest, the depth cards behind the top one are offset `--stack-x: 14px` and rotated up to 2°.
+  The rotation is the bigger contributor on a phone, because the card is 735px tall there — a
+  1.6° rotation of a 343×735 box swings its corners out roughly 10px on its own.
+- During a throw, `is-throwing-left/right` translates the card to ±118% before its 0.38s fade
+  finishes. That one only overflows mid-animation, so a static measurement never sees it.
+
+Fixed by clipping at the stack's wrapper in `app/(public)/page.tsx`:
+`-mx-4 px-4 overflow-x-clip` (matching the section's own padding at each breakpoint).
+
+- **`overflow-x: clip`, not `hidden`.** `hidden` on one axis forces the other to compute to
+  `auto`, which makes the element a scroll container and can surface a stray vertical scrollbar
+  for the cards' shadows. `clip` clips without ever becoming scrollable. Older browsers that do
+  not support it fall back to today's behaviour rather than breaking.
+- **Negative margin plus matching padding** puts the clip boundary at the container's edge
+  instead of the card's, so the card box is exactly the size it was and its shadow still has room
+  to fall sideways. Verified: no card is clipped at rest at 375px or 849px.
+
+Verified: `documentElement.scrollWidth === clientWidth` at 375px, with no unclipped overflowing
+elements left anywhere on the page, and sampled every ~45ms across a full throw animation —
+overflow stayed at 0 throughout, where before the throw pushed the document wider mid-flight.
+`npm run verify` clean: 649/649 tests, build compiles.

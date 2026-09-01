@@ -210,7 +210,23 @@ export default async function HomePage() {
                 title="Featured"
                 description="Drag a card aside, or step through with the arrows."
               />
-              <div className="nf-pull mt-8 sm:mt-10">
+              {/* The stack's depth cards sit 14px to the side of the top
+                  card and rotate up to 2deg, and a thrown card flies to
+                  ±118% before it finishes fading -- all of which reached
+                  past the viewport at 375px and gave the whole landing page
+                  a horizontal scrollbar.
+
+                  `overflow-x: clip`, not `hidden`: hidden on one axis forces
+                  the other to `auto`, which would make this a scroll
+                  container and can surface a stray vertical scrollbar for
+                  the cards' own shadows. `clip` clips without ever becoming
+                  scrollable.
+
+                  The negative margins with matching padding put the clip
+                  boundary at the container's edge rather than the card's, so
+                  the card box is exactly the size it was and its shadow
+                  still has room to fall to the side. */}
+              <div className="nf-pull -mx-4 mt-8 overflow-x-clip px-4 sm:-mx-6 sm:mt-10 sm:px-6 lg:-mx-8 lg:px-8">
                 <FeaturedStoryStack stories={stories.slice(0, 5)} />
               </div>
             </div>
