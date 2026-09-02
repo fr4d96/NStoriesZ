@@ -20,11 +20,35 @@ vi.mock("./actions", () => ({
   deleteDraftStoryAction: vi.fn(async () => ({ ok: true }) as const),
 }));
 
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ refresh: vi.fn(), push: (href: string) => push(href) }),
 }));
 
-function makeStory(overrides: Partial<MyStoryWithCover> = {}) {
+// StartRevisionButton calls into the story lifecycle actions, which import
+// "server-only" modules -- stubbed for the same reason as ./actions above.
+vi.mock("@/app/(contributor)/stories/[id]/preview/actions", () => ({
+  startStoryRevisionAction: vi.fn(
+    async () =>
+      ({
+        ok: true,
+        revisionId: "66666666-6666-4666-8666-666666666666",
+      }) as const,
+  ),
+}));
+
+// list_my_stories()'s generated row type declares the revision-pointer
+// columns non-null (Supabase's generator can't read nullability through a
+// RETURNS TABLE), but they really are null for a story with nothing in
+// flight -- which is precisely the state several of these tests set up.
+type StoryOverrides = Partial<
+  Omit<MyStoryWithCover, "current_draft_revision_id" | "published_revision_id">
+> & {
+  current_draft_revision_id?: string | null;
+  published_revision_id?: string | null;
+};
+
+function makeStory(overrides: StoryOverrides = {}) {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     title: "Picking apples in Hawke's Bay",
@@ -35,6 +59,7 @@ function makeStory(overrides: Partial<MyStoryWithCover> = {}) {
     version: 1,
     updated_at: "2026-08-01T00:00:00.000Z",
     regions: [],
+    draftRevisionStatus: "draft",
     coverMediaId: "33333333-3333-4333-8333-333333333333",
     coverAltText: "An orchard at dawn",
     ...overrides,
@@ -48,6 +73,10 @@ function makeStory(overrides: Partial<MyStoryWithCover> = {}) {
 let store: Record<string, string> = {};
 
 beforeEach(() => {
+  push.mockClear();
+  // jsdom implements no layout, so Element.prototype.scrollIntoView does not
+  // exist -- goToPage() calls it when the page changes.
+  Element.prototype.scrollIntoView = vi.fn();
   store = {};
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => store[key] ?? null,
@@ -367,5 +396,201 @@ describe("MyStoriesView", () => {
         screen.queryByText(/haven't started a story yet/i),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("offers Edit on a published story with nothing in flight, and asks before starting one", async () => {
+    const { startStoryRevisionAction } =
+      await import("@/app/(contributor)/stories/[id]/preview/actions");
+    const user = userEvent.setup();
+    render(
+      <MyStoriesView
+        stories={[
+          makeStory({
+            lifecycle_status: "published",
+            published_revision_id: "55555555-5555-4555-8555-555555555555",
+            current_draft_revision_id: null,
+            draftRevisionStatus: null,
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Edit Picking apples in Hawke's Bay",
+      }),
+    );
+
+    // Nothing has been created yet -- the contributor is asked first, and
+    // told the live story stays live.
+    expect(startStoryRevisionAction).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: "Make changes to this story?" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/stays up, unchanged/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Yes, edit it" }));
+
+    await waitFor(() =>
+      expect(startStoryRevisionAction).toHaveBeenCalledWith(
+        "11111111-1111-4111-8111-111111111111",
+      ),
+    );
+    await waitFor(() =>
+      expect(push).toHaveBeenCalledWith(
+        "/stories/11111111-1111-4111-8111-111111111111/edit",
+      ),
+    );
+  });
+
+  it("backs out of starting a revision when the contributor says no", async () => {
+    const { startStoryRevisionAction } =
+      await import("@/app/(contributor)/stories/[id]/preview/actions");
+    vi.mocked(startStoryRevisionAction).mockClear();
+    const user = userEvent.setup();
+    render(
+      <MyStoriesView
+        stories={[
+          makeStory({
+            lifecycle_status: "published",
+            published_revision_id: "55555555-5555-4555-8555-555555555555",
+            current_draft_revision_id: null,
+            draftRevisionStatus: null,
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Edit Picking apples in Hawke's Bay",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(
+      screen.queryByRole("heading", { name: "Make changes to this story?" }),
+    ).not.toBeInTheDocument();
+    expect(startStoryRevisionAction).not.toHaveBeenCalled();
+  });
+
+  it("hides Edit while a published story's update is with a moderator, and says so", () => {
+    render(
+      <MyStoriesView
+        stories={[
+          makeStory({
+            lifecycle_status: "published",
+            published_revision_id: "55555555-5555-4555-8555-555555555555",
+            draftRevisionStatus: "submitted",
+          }),
+        ]}
+      />,
+    );
+
+    // lifecycle_status is still "published" -- that is what keeps the live
+    // version live -- so the submitted revision is the only signal there is.
+    expect(screen.getByText("Published")).toBeInTheDocument();
+    expect(screen.getByText("Update in review")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /^Edit/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Edit/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps Edit available on a published story's unsubmitted update", () => {
+    render(
+      <MyStoriesView
+        stories={[
+          makeStory({
+            lifecycle_status: "published",
+            published_revision_id: "55555555-5555-4555-8555-555555555555",
+            draftRevisionStatus: "draft",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Update in progress")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Edit Picking apples in Hawke's Bay" }),
+    ).toHaveAttribute(
+      "href",
+      "/stories/11111111-1111-4111-8111-111111111111/edit",
+    );
+  });
+
+  // A contributor's catalogue only grows, so the list is paged at
+  // STORIES_PER_PAGE (12) -- client-side, over the stories already loaded,
+  // so the Region/Destination filter chips still see the whole set.
+  function makeManyStories(count: number) {
+    return Array.from({ length: count }, (_, i) =>
+      makeStory({
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+        title: `Story ${String(i + 1).padStart(2, "0")}`,
+      }),
+    );
+  }
+
+  it("shows nothing but the stories when they all fit on one page", () => {
+    render(<MyStoriesView stories={makeManyStories(12)} />);
+
+    expect(
+      screen.queryByRole("navigation", { name: "Story pages" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+  });
+
+  it("pages a longer catalogue, keeping the running number continuous across pages", async () => {
+    const user = userEvent.setup();
+    render(<MyStoriesView stories={makeManyStories(15)} />);
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+    expect(screen.getByText("Story 01")).toBeInTheDocument();
+    expect(screen.queryByText("Story 13")).not.toBeInTheDocument();
+
+    const nav = screen.getByRole("navigation", { name: "Story pages" });
+    expect(within(nav).getByText("1–12 of 15")).toBeInTheDocument();
+    expect(
+      within(nav).getByRole("button", { name: "Previous" }),
+    ).toBeDisabled();
+
+    await user.click(within(nav).getByRole("button", { name: "Next" }));
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByText("Story 13")).toBeInTheDocument();
+    expect(screen.queryByText("Story 01")).not.toBeInTheDocument();
+    expect(within(nav).getByText("13–15 of 15")).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Next" })).toBeDisabled();
+    // The list view's ordinal keeps counting rather than restarting at 01.
+    expect(screen.getByText("13")).toBeInTheDocument();
+  });
+
+  it("goes back to page 1 when the filter changes, instead of stranding you past the end", async () => {
+    const user = userEvent.setup();
+    const stories = makeManyStories(15).map((story, i) => ({
+      ...story,
+      // Only the last three carry Otago, so filtering to it leaves fewer
+      // stories than the page you are currently on.
+      regions:
+        i >= 12
+          ? [{ region_name: "Otago", destination_name: "Queenstown" }]
+          : [{ region_name: "Nelson", destination_name: "Motueka" }],
+    })) as MyStoryWithCover[];
+    render(<MyStoriesView stories={stories} />);
+
+    const nav = screen.getByRole("navigation", { name: "Story pages" });
+    await user.click(within(nav).getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Story 13")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Otago" }));
+
+    // Page 1 of a 3-story result, not an empty page 2.
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByText("Story 13")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("navigation", { name: "Story pages" }),
+    ).not.toBeInTheDocument();
   });
 });

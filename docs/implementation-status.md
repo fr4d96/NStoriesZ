@@ -3,25 +3,61 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-02 (My Stories' per-story N+1 deleted — one RPC, not one preview call per
-story; earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
+Last updated: 2026-09-02 (My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
+story; earlier: the custom-label copy bug that broke editing a published story;
+earlier: contributor edits to published stories, and the tag-input dropdown fix;
+earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-02 (latest) — My Stories stopped fetching a whole story per thumbnail.**
+**2026-09-02 (latest) — My Stories is paged.**
 
+12 stories per page (`STORIES_PER_PAGE` in `app/(contributor)/my-stories/my-stories-view.tsx`). 12
+divides evenly by both grid widths — 2 columns on a phone, 3 from `sm` — so a page never ends in a
+ragged half-row, and it keeps the list view to about one screen.
+
+**Paged client-side, deliberately.** The Region/Destination filter chips above the list are built by
+`buildLocationAxes()` from the whole set, and an axis earns its row only if it can actually split
+that set. Server-side paging would rebuild those chips from whatever 12 stories happened to be on
+screen, so a filter could disappear just because you turned the page. `list_my_stories()` returns one
+contributor's own stories in a single round trip (one RPC as of the N+1 removal below), which is a
+few dozen rows at this product's scale. If that stops being true, the RPC needs `p_limit`/`p_offset`
+**and** the axes need their own query — together, not one without the other.
+
+Details worth keeping:
+
+- The current page is **clamped on read** (`Math.min(page, pageCount)`), not corrected in state.
+  Applying a filter can shrink the list below the page you are on, and a stored out-of-range page
+  renders an empty screen with no obvious way back. Deriving it also keeps this out of an effect
+  (`react-hooks/set-state-in-effect`, the same rule the tag editor's browse list had to respect).
+- Changing or clearing a filter resets to page 1 — page 3 of the old result set means nothing in the
+  new one.
+- The list view's running ordinal continues across pages (`pageStart + index + 1`), so page 2 starts
+  at 13, not 01.
+- Previous/Next are **disabled** at the ends rather than hidden, so the controls don't move under the
+  pointer between pages; the range readout carries `aria-live="polite"`, since paging is otherwise
+  silent to a screen reader.
+- Page state is component state, like the filters — it does not survive a reload or a trip into a
+  story and back. Putting the page in the URL would be worth doing only alongside the filters, and
+  that is a bigger change than this.
+
+Three tests added to `my-stories-view.test.tsx` (19 total): no controls at all when everything fits,
+paging with the ordinal continuing, and the filter-resets-to-page-1 case set up so the old page is
+past the end of the new result. Checked at 390px in the real app (43 stories → "1–12 of 43",
+"1 / 4"). `npm run verify` clean: 678 tests.
+
+**2026-09-02 — My Stories stopped fetching a whole story per thumbnail.**
+
+Closing the "still outstanding" item recorded two entries below.
 `lib/story/contributor-queries.ts#listMyStoriesWithCovers()` called `getStoryPreview(story.id)` once
 per story inside a `Promise.all`. That is an N+1 — a contributor with 30 drafts cost 31 round trips
 — and each of those calls built the ENTIRE preview payload (the revision's full `content_json` plus
 a `jsonb_agg` of every attached media row) so the caller could keep three scalars.
 
 `20260831090000_list_my_stories_cover.sql` had already added `cover_media_id`/`cover_alt_text` to
-`list_my_stories()` precisely to kill this (see "Item 2" further down), and the TypeScript was never
-switched over. What blocked the straight swap was that the same fan-out had since become the source
-of `draftRevisionStatus` — the flag My Stories uses to tell an in-flight draft the contributor may
-still edit apart from one already submitted and waiting on a moderator. On a published story those
-two look identical (`lifecycle_status = 'published'` plus a draft pointer), and that sameness is
-exactly what keeps the live version live (Engineering Rule 11). So:
+`list_my_stories()` precisely to kill this, and the TypeScript was never switched over. What
+blocked the straight swap was that the same fan-out had since become the source of
+`draftRevisionStatus` too. So:
 
 - **`20260902090300_list_my_stories_draft_revision_status.sql`** (DROP+CREATE — the return shape
   grows). One trailing OUT column, `draft_revision_status public.story_revision_status`. Every
@@ -33,8 +69,7 @@ exactly what keeps the live version live (Engineering Rule 11). So:
   revision's status (`'approved'`) for a story with nothing in flight — which says nothing about
   work in flight and is exactly the ambiguity the column exists to remove. No draft ⇒ NULL, straight
   out of the LEFT JOIN. That is the same value the old TypeScript derived the long way round, by
-  keeping `preview.revisionStatus` only when
-  `preview.revisionId === story.current_draft_revision_id`.
+  keeping `preview.revisionStatus` only when `preview.revisionId === story.current_draft_revision_id`.
 - **Security unchanged (Rules 2, 13, 14).** Still no storage path of any kind — only
   `cover_media_id` + `cover_alt_text`, with the signed URL minted separately after an independent
   authorization re-check. `revision_status` is not new information to this caller either: it is the
@@ -44,9 +79,8 @@ exactly what keeps the live version live (Engineering Rule 11). So:
   `Promise.all`, the per-story try/catch, the `my-stories.preview_unavailable` log, and the
   `logAppEvent`/`getErrorMessage` imports. **Deleting that catch is safe because of the swap, not
   in spite of it** — `get_story_preview()` RAISES "has no revision to preview" for a story with
-  neither a current draft nor a published revision (a rejected first submission, say);
-  `list_my_stories()` just returns nulls for the same story, so the error path stopped existing
-  rather than being ignored.
+  neither a current draft nor a published revision; `list_my_stories()` just returns nulls for the
+  same story, so the error path stopped existing rather than being ignored.
 
 **Applied via the MCP `apply_migration` path**, not `supabase db push` — that still fails with
 `LegacyDbPushMissingLocalError` (now 11 remote versions with no local file; see the ledger-drift
@@ -58,6 +92,122 @@ Verified: `npm run verify` clean (0 lint errors, 675/675 tests, build compiles),
 `PLAYWRIGHT_PORT=3100 node --env-file=.env.test.local node_modules/.bin/playwright test
 e2e/contributor-story-update.spec.ts --workers=1` — 2/2 passing live against the rebuilt function,
 which is the spec that covers the My Stories chips and the Edit control.
+
+**2026-09-02 — "Edit a published story" raised a check-constraint violation for almost
+every story. Migration 20260902100000.**
+
+Reported straight after the feature shipped: clicking Edit on a published story showed an error and
+nothing was created. Not the UI — `create_next_draft_revision()` itself, and a bug that had been
+sitting there since 2026-08-15 with nothing calling it.
+
+`20260812110000_work_type_tag_custom_labels.sql` added a `custom_label` column to
+`story_revision_tags` and `story_revision_work_types` — a row is EITHER a lookup reference OR a
+label the contributor typed, enforced by a `*_one_of` CHECK — and updated
+`set_revision_tags()`/`set_revision_work_types()`. `create_next_draft_revision()` was rewritten
+three days later (20260815110000) and kept copying only the id columns:
+
+```sql
+insert into public.story_revision_tags (revision_id, tag_id)
+select v_new_revision_id, tag_id from ...
+```
+
+A typed label has `tag_id = NULL`, so it copied as `(NULL, NULL)`, raised **23514**, and rolled the
+whole transaction back — which is why the two stories the user tried still had exactly one revision
+and a null draft pointer afterwards. Diagnosed with an isolated rolled-back probe against the live
+dev project, running as the story's own owner:
+
+```
+23514 | new row for relation "story_revision_work_types" violates check constraint
+        "story_revision_work_types_one_of"
+```
+
+And the data says how wide it was: 3 of 4 work-type rows are custom labels (all on published
+stories), and **10 of 16** `story_revision_tags` rows across 7 revisions are custom labels. Since
+"add your own if you don't see it" is exactly how the tag editor asks contributors to work, this
+was close to unconditional for real stories — while every fixture in
+`tests/integration/story-rls.integration.test.ts` attaches lookup-row tags, which is precisely why
+the suite exercised this function for weeks without seeing it.
+
+The fix is two columns in two inserts; everything else in the function is reproduced verbatim
+(the draft-pointer-before-child-copies ordering and the dangling-embed-token strip, both from
+20260815110000). Work types are retired from authoring but their rows are never deleted and
+`get_published_story()` still resolves them, so they are copied faithfully rather than dropped — a
+new draft has to be a true copy of what is published, not a quietly lossy one.
+
+Verified with the same probe after applying: both reported stories now create a draft, with their
+tag and work-type rows carried over, and the probe rolled back leaving revision counts and story
+versions untouched. Regression test added to the RLS suite ("copies a typed tag label into the next
+draft instead of failing the one_of check") — it types its tags rather than picking lookup rows, and
+passes live.
+
+**2026-09-02 — Contributors can edit a published story, and the tag box stopped
+interrupting people.**
+
+Two user reports, one small and one not.
+
+**1. The tag field popped a list open while you typed.** `TagEditor` used a native `<datalist>`, so
+every keystroke re-filtered a suggestion overlay on top of the field (and the browser's own
+form-history popup added a second one). Rebuilt as two separate things: the text box now types
+freely — no `list=`, `autoComplete="off"` — and a "Choose tags" button beside it opens the curated
+list on demand. Picking leaves the list open (adding two or three in a row is the normal case) and
+the list stops rendering once nothing is left to offer, which is derived from `selected`, not stored
+— a `setState` in an effect trips `react-hooks/set-state-in-effect`, and would be fighting the
+render it reacts to anyway. The panel is right-anchored: left-anchored, it ran off the right edge at
+390px (checked in the browser, not assumed). Nothing about what a tag IS changed —
+`set_revision_tags()` is still the boundary that resolves labels, dedupes and caps.
+
+**2. Contributors could not edit a story once it was published.** The whole mechanism for this
+already existed and had NO caller anywhere in the app: `create_next_draft_revision()` copies the
+published (or newer terminal) revision into a fresh draft, and — this is the part that matters —
+neither it nor `submit_revision_with_consent()` touches `published_revision_id` or a `published`
+lifecycle status, so the live story stays live through the entire second review;
+`finalize_story_publication()` is the only thing that swaps the pointer. So this change is UI, not
+schema. **No migration.**
+
+- `startStoryRevisionAction()` (`app/(contributor)/stories/[id]/preview/actions.ts`, beside the
+  other lifecycle actions) wraps the RPC. The RPC re-derives the caller and refuses a non-owner, an
+  archived story, or one that already has something in flight — this action adds no authority.
+- `components/story/start-revision-button.tsx` — confirm-then-create, used as an icon in My Stories
+  and a labelled button on the private preview page. It asks first because it MAKES something, and
+  the question states the guarantee: _"the version people can read now stays up, unchanged, until
+  the new one is approved."_ Also offered on a `changes_requested` story, which had the same dead
+  end for a different reason.
+- **My Stories had no way to tell "editable draft" from "waiting on a moderator" on a published
+  story**, because both look like `lifecycle_status = 'published'` with a draft pointer set — that
+  sameness is exactly what keeps the old version live. `list_my_stories()` returns the draft's id
+  but not its status, so `listMyStoriesWithCovers()` now derives `draftRevisionStatus` from the
+  per-story `get_story_preview()` call it was already making. A published story with work in flight
+  keeps its "Published" badge and gains an "Update in progress" / "Update in review" chip.
+
+**Found and fixed in passing: one unpreviewable story took the whole My Stories page down.**
+`listMyStoriesWithCovers()` fanned out to `get_story_preview()` for every story inside a single
+`Promise.all`. That RPC RAISES "has no revision to preview" for a story with neither a current draft
+nor a published revision (a rejected first submission, for instance), so one such row 500'd the
+entire page for that contributor. Reproduced live — it is what made the new e2e spec fail first.
+Now caught per story: an unpreviewable story costs its own thumbnail and logs
+`my-stories.preview_unavailable`, nothing more.
+
+**Was outstanding here, now done (see the 2026-09-02 latest entry above):** migration
+20260831090000 added `cover_media_id`/`cover_alt_text` to `list_my_stories()` precisely to delete
+this N+1, and the TypeScript was never switched over to them. Doing that would also have dropped
+`draftRevisionStatus`, so it needed a migration adding the in-flight revision's status —
+`20260902090300_list_my_stories_draft_revision_status.sql`. Both the fan-out and the per-story
+catch described just above are gone with it; a story with no revision now simply yields null
+columns instead of raising.
+
+Tests: `e2e/contributor-story-update.spec.ts` (new, 2/2 passing live) watches the PUBLIC page signed
+out across the whole cycle — original title live, update submitted and still the original title
+live, approved and only then replaced — plus the tag box in the real editor. Unit tests added to
+`tag-editor.test.tsx` (10) and `my-stories-view.test.tsx` (16). `npm run verify` clean.
+`playwright.config.ts` gained an optional `PLAYWRIGHT_PORT`: `reuseExistingServer` will happily
+attach to whatever already holds 3000 — another session's server, a stale build — and the failures
+that produces look exactly like app bugs. Default behaviour is unchanged.
+
+**Pre-existing e2e failures, confirmed not caused by this work** (same 5 fail on a stashed,
+rebuilt baseline): `founding-story-workflow` ("Mark ready for contributor review" status message),
+all three `content-import-body-size` cases, `pdf-import`, and `public-discovery`'s signed-out
+report-form prompt. The `sitemap.xml` failure only appears under a non-3000 `PLAYWRIGHT_PORT`
+(`NEXT_PUBLIC_SITE_URL` is pinned to :3000) and is a test-run artifact, not a defect.
 
 **2026-09-02 — Moderation: the "content cannot be rendered" bug, and a queue you can
 triage from.**

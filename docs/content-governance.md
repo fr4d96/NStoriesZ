@@ -308,6 +308,13 @@ row (every structural foreign key in the domain is `on delete restrict`, deliber
 enforced at the schema level, not just by which functions happen to exist). Full deletion remains
 out of scope, exactly as planned.
 
+**Reachable by contributors as of 2026-09-02.** Until then `create_next_draft_revision()` had no
+caller anywhere in the app — the correcting-revision path existed in the database and could only be
+started by hand. My Stories and the private preview page now offer "Edit" on a published story,
+behind a confirmation that states the policy above in the contributor's own words before anything
+is created: their published story stays up, unchanged, until the correction is approved. Nothing
+about the policy or the lifecycle functions changed; only the way in.
+
 ## Operational readiness (Prompt 7)
 
 The founding-catalogue import process this document describes now has an operational tooling layer
