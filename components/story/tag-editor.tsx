@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { RevisionTagSelection } from "@/lib/story/contributor-queries";
 import type { ActiveTag } from "@/lib/story/active-lookups";
 import { MAX_TAGS_PER_REVISION, TAG_MAX_LENGTH } from "@/lib/validation/story";
@@ -11,10 +11,17 @@ import { CloseIcon } from "@/components/icons";
  * 2026-08-16), and a contributor may add as many as they like rather than
  * ticking a fixed list plus one "Other" box.
  *
- * Type a label and press Enter (or comma, or "Add") and it becomes a
- * removable chip. The curated `tags` rows are offered as native <datalist>
- * suggestions rather than as 30-odd checkboxes -- discoverable, but never a
- * ceiling on what can be entered.
+ * Two ways in, deliberately kept apart (changed 2026-09-02, on a contributor
+ * report that the old <datalist> "keeps showing a dropdown while I type"):
+ *
+ * - The TEXT BOX is for typing. It never opens, filters, or suggests
+ *   anything -- type a label and press Enter (or comma, or "Add") and it
+ *   becomes a removable chip. autoComplete="off" also stops the browser's
+ *   own form-history popup, which was the other thing appearing over the
+ *   field mid-sentence.
+ * - The DROPDOWN BUTTON beside it is for browsing. Click it and the curated
+ *   `tags` rows are listed to pick from; that list is never a ceiling on
+ *   what can be entered.
  *
  * Everything enforced here is a fast, friendly mirror only:
  * set_revision_tags() independently resolves a typed label that names an
@@ -33,9 +40,12 @@ export function TagEditor({
 }) {
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [browseOpen, setBrowseOpen] = useState(false);
   const inputId = useId();
   const listId = useId();
   const noticeId = useId();
+  const browseRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   const atCap = selected.length >= MAX_TAGS_PER_REVISION;
 
@@ -83,6 +93,27 @@ export function TagEditor({
       ),
   );
 
+  // Close the browse list on a click anywhere outside it, the same way any
+  // popover has to -- pointerdown rather than click, so the list is already
+  // gone by the time the click lands on whatever was underneath it.
+  useEffect(() => {
+    if (!browseOpen) return;
+    function onPointerDown(event: PointerEvent) {
+      const container = browseRef.current;
+      if (container && !container.contains(event.target as Node)) {
+        setBrowseOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [browseOpen]);
+
+  // Derived, not stored: the list has nothing to show once the last
+  // suggestion has been taken or the cap is reached, so it simply stops
+  // rendering rather than sitting open and empty (and rather than a
+  // setState-in-effect that would fight the render it reacts to).
+  const showBrowseList = browseOpen && !atCap && unusedSuggestions.length > 0;
+
   return (
     <fieldset>
       <legend className="text-sm font-medium">
@@ -97,8 +128,8 @@ export function TagEditor({
         </span>
       </legend>
       <p className="mt-1 text-xs text-muted-foreground">
-        What was this trip about — the work, the places, the practicalities. Add
-        your own if you don&apos;t see it. Up to {MAX_TAGS_PER_REVISION}.
+        What was this trip about — the work, the places, the practicalities.
+        Type your own, or pick from the list. Up to {MAX_TAGS_PER_REVISION}.
       </p>
 
       {selected.length > 0 && (
@@ -128,7 +159,11 @@ export function TagEditor({
         <input
           id={inputId}
           type="text"
-          list={listId}
+          // No list=, and autoComplete/autoCorrect off: typing in this box
+          // must never pop anything open over what is being typed.
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={draft}
           disabled={atCap}
           maxLength={TAG_MAX_LENGTH}
@@ -136,8 +171,7 @@ export function TagEditor({
           aria-describedby={notice ? noticeId : undefined}
           onChange={(e) => {
             const value = e.target.value;
-            // A datalist pick fires change, not keydown -- but so does plain
-            // typing, so only commit on the separator characters.
+            // Comma is a separator, not a character in a tag label.
             if (value.endsWith(",")) {
               addTag(value.slice(0, -1));
               return;
@@ -158,11 +192,63 @@ export function TagEditor({
           }}
           className="min-w-0 flex-1 rounded-md border border-border-subtle px-3 py-2 text-sm disabled:opacity-60 sm:flex-none sm:w-64 dark:bg-transparent"
         />
-        <datalist id={listId}>
-          {unusedSuggestions.map((tag) => (
-            <option key={tag.id} value={tag.name} />
-          ))}
-        </datalist>
+
+        <div className="relative" ref={browseRef}>
+          <button
+            type="button"
+            ref={toggleRef}
+            onClick={() => {
+              setNotice(null);
+              setBrowseOpen((open) => !open);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && showBrowseList) setBrowseOpen(false);
+            }}
+            disabled={atCap || unusedSuggestions.length === 0}
+            aria-expanded={showBrowseList}
+            aria-controls={listId}
+            aria-haspopup="listbox"
+            title={
+              unusedSuggestions.length === 0
+                ? "No suggested tags left to add"
+                : "Choose from suggested tags"
+            }
+            className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-3 py-2 text-sm font-medium disabled:opacity-50 hover:bg-surface-muted"
+          >
+            Choose tags
+            <ChevronDownIcon open={showBrowseList} />
+          </button>
+
+          {showBrowseList && (
+            <ul
+              id={listId}
+              role="listbox"
+              aria-label="Suggested tags"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setBrowseOpen(false);
+                  toggleRef.current?.focus();
+                }
+              }}
+              // Right-anchored: this button sits near the right edge of a
+              // phone-width column, and a left-anchored panel ran off it.
+              className="absolute right-0 z-20 mt-1 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-border-subtle bg-surface p-1 shadow-lg"
+            >
+              {unusedSuggestions.map((tag) => (
+                <li key={tag.id} role="option" aria-selected={false}>
+                  <button
+                    type="button"
+                    onClick={() => addTag(tag.name)}
+                    className="w-full rounded px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                  >
+                    {tag.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => addTag(draft)}
@@ -183,5 +269,23 @@ export function TagEditor({
         </p>
       )}
     </fieldset>
+  );
+}
+
+function ChevronDownIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
   );
 }
