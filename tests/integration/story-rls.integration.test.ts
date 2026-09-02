@@ -713,6 +713,10 @@ describe("reports", () => {
       "create_self_service_draft",
       {
         p_title: slug("report-target"),
+        // Content is required at submit time as of migration
+        // 20260902090000 (submit_revision_with_consent raises WHV03 on an
+        // empty document), and this fixture submits below.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const revisionId = created![0].revision_id;
@@ -798,6 +802,9 @@ describe("submit_revision_with_consent terms-version enforcement (migration 2026
       "create_self_service_draft",
       {
         p_title: slug("terms-mismatch"),
+        // Content so this test still exercises the TERMS check -- an empty
+        // document would now fail earlier, on WHV03.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const revisionId = created![0].revision_id;
@@ -818,6 +825,9 @@ describe("submit_revision_with_consent terms-version enforcement (migration 2026
       "create_self_service_draft",
       {
         p_title: slug("terms-match"),
+        // This case asserts submit SUCCEEDS, so it needs content (migration
+        // 20260902090000).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const revisionId = created![0].revision_id;
@@ -840,6 +850,9 @@ describe("awaiting-contributor-approval submission path (the 'awaiting-approval 
       {
         p_contributor_id: ownerContributorId,
         p_title: slug("awaiting-approval"),
+        // Submitted below; content is required at submit time as of
+        // migration 20260902090000 (WHV03 on an empty document).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     expect(createError).toBeNull();
@@ -885,6 +898,10 @@ describe("source-kind-partitioned authorization survives contributor relinking (
       "create_self_service_draft",
       {
         p_title: slug("relink-isolation"),
+        // Content so the "other cannot submit consent" assertion below
+        // still fails on the ACTOR check, not on the empty-content check
+        // added in migration 20260902090000.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const storyId = created![0].story_id;
@@ -1481,6 +1498,9 @@ describe("Prompt 5: public contributor directory and detail", () => {
       {
         p_contributor_id: anonContributor!.id,
         p_title: slug("anon-attribution-story"),
+        // Submitted below; content is required at submit time as of
+        // migration 20260902090000 (WHV03 on an empty document).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const { error: anonSubmitError } = await editor.client.rpc(
@@ -1521,6 +1541,9 @@ describe("Prompt 5: public contributor directory and detail", () => {
       {
         p_contributor_id: realContributor!.id,
         p_title: slug("real-contributor-story"),
+        // Submitted below; content is required at submit time as of
+        // migration 20260902090000 (WHV03 on an empty document).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const { error: realSubmitError } = await editor.client.rpc(
@@ -1589,7 +1612,11 @@ describe("editor is denied every moderator/publication-attempt action", () => {
   beforeAll(async () => {
     const { data: created } = await owner.client.rpc(
       "create_self_service_draft",
-      { p_title: slug("editor-denial") },
+      {
+        p_title: slug("editor-denial"),
+        // Submitted below; content required as of migration 20260902090000.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
+      },
     );
     storyId = created![0].story_id;
     revisionId = created![0].revision_id;
@@ -2196,4 +2223,91 @@ describe("get_story_for_moderator never returns contributor identity fields (mig
     expect(error).toBeNull();
     expect(data?.[0]?.revision_id).toBe(story.revisionId);
   }, 30000);
+});
+
+describe("create_next_draft_revision: contributor-authored labels", () => {
+  /**
+   * Regression for 20260902100000. 20260812110000 gave story_revision_tags
+   * and story_revision_work_types a `custom_label` column with a *_one_of
+   * CHECK (a row is EITHER a lookup reference OR a typed label), but
+   * create_next_draft_revision() kept copying only the id columns -- so a
+   * typed label copied as (NULL, NULL), raised 23514, and rolled the whole
+   * "edit my published story" transaction back. Every fixture in this file
+   * attached lookup-row tags, which is exactly why the suite never saw it.
+   * This one types its tags, the way the tag editor tells contributors to.
+   */
+  it("copies a typed tag label into the next draft instead of failing the one_of check", async () => {
+    const { data: created, error: createError } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug("custom-label-copy"),
+        p_content_json: [
+          { type: "paragraph", text: [{ text: "Typed-tag fixture." }] },
+        ],
+      },
+    );
+    expect(createError).toBeNull();
+    const storyId = created![0].story_id;
+    const revisionId = created![0].revision_id;
+
+    const { data: beforeTags } = await owner.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: storyId },
+    );
+    const { error: tagError } = await owner.client.rpc("set_revision_tags", {
+      p_revision_id: revisionId,
+      p_expected_version: beforeTags![0].version,
+      // No tag_id: a label this contributor made up, with no lookup row
+      // behind it. This is the case that used to break the copy.
+      p_tags: [{ custom_label: "Ferry to Picton" }],
+    });
+    expect(tagError).toBeNull();
+
+    const { data: beforeSubmit } = await owner.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: storyId },
+    );
+    const { error: submitError } = await owner.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: revisionId,
+        p_expected_version: beforeSubmit![0].version,
+        p_confirmation_method: "account",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+      },
+    );
+    expect(submitError).toBeNull();
+    const { error: approveError } = await approveRevision(
+      moderator.client,
+      revisionId,
+    );
+    expect(approveError).toBeNull();
+
+    // The published story now carries a typed tag. Starting the correcting
+    // revision must succeed, and must bring that label with it.
+    const { data: nextRevisionId, error: nextError } = await owner.client.rpc(
+      "create_next_draft_revision",
+      { p_story_id: storyId },
+    );
+    expect(nextError).toBeNull();
+    expect(nextRevisionId).toBeTruthy();
+
+    const { data: selections, error: selectionsError } = await owner.client.rpc(
+      "get_revision_selections",
+      {
+        p_revision_id: nextRevisionId!,
+      },
+    );
+    expect(selectionsError).toBeNull();
+    const tags = selections![0].tags as unknown as Array<{
+      tagId: string | null;
+      customLabel: string | null;
+      name: string;
+    }>;
+    expect(tags).toHaveLength(1);
+    expect(tags[0].tagId).toBeNull();
+    expect(tags[0].customLabel).toBe("Ferry to Picton");
+    expect(tags[0].name).toBe("Ferry to Picton");
+  });
 });

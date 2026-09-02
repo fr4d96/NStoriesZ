@@ -14,6 +14,7 @@ import { ContributorReviewPanel } from "@/components/story/contributor-review-pa
 import { WhatsPublicSummary } from "@/components/story/whats-public-summary";
 import { StickyVisible } from "@/components/sticky-visible";
 import { StoryStepProgress } from "@/components/story/story-steps";
+import { StartRevisionButton } from "@/components/story/start-revision-button";
 import {
   EDITING_STORY_STEPS,
   missingStoryRequirements,
@@ -93,6 +94,19 @@ export default async function StoryPreviewPage({
     preview.revisionStatus === "draft" &&
     (preview.lifecycleStatus === "draft" ||
       preview.lifecycleStatus === "published");
+
+  // Nothing in flight, and this is the contributor's own published (or
+  // sent-back) story: offer to START a new draft. get_story_preview()
+  // resolves the revision as coalesce(current_draft_revision_id,
+  // published_revision_id), so a revisionStatus of "approved" here means the
+  // page is showing the PUBLISHED revision and no draft exists -- exactly
+  // create_next_draft_revision()'s precondition. The RPC re-checks
+  // ownership and the in-flight rule itself regardless.
+  const canStartRevision =
+    (preview.viewerRelationship === "owner" ||
+      preview.viewerRelationship === "linked_contributor") &&
+    preview.revisionStatus === "approved" &&
+    preview.lifecycleStatus === "published";
 
   // Required-before-submit gate: Title/Story content already have their own
   // stricter server-side enforcement (revisionInputSchema rejects an empty
@@ -194,6 +208,21 @@ export default async function StoryPreviewPage({
           Back to My Stories
         </Link>
       </div>
+
+      {canStartRevision && (
+        <div className="mt-4 flex flex-col gap-2 rounded-md border border-border-subtle p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            This is your published story. You can change it — it stays live
+            while a moderator reviews your update.
+          </p>
+          <StartRevisionButton
+            storyId={preview.storyId}
+            storyTitle={preview.title}
+            isPublished
+            className="journiq-button inline-flex shrink-0 items-center gap-2 bg-accent text-accent-foreground"
+          />
+        </div>
+      )}
 
       {canEdit && (
         <div className="mt-4 border-b border-border-subtle pb-4">

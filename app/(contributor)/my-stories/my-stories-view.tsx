@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
@@ -9,6 +9,7 @@ import { deleteDraftStoryAction } from "./actions";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ALL, FilterRow } from "@/components/story/filter-row";
+import { StartRevisionButton } from "@/components/story/start-revision-button";
 import { destinationNames, regionNames } from "@/lib/story/card-fields";
 import { EditorialPencilIcon, EyeIcon, TrashIcon } from "@/components/icons";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
@@ -22,6 +23,22 @@ const ACTION_ICON_CLASS =
 type ViewMode = "grid" | "list";
 
 const VIEW_STORAGE_KEY = "kaki-my-stories-view";
+
+/**
+ * 12 per page. It divides evenly by both grid widths (2 columns on a phone,
+ * 3 from `sm`), so a page never ends in a ragged half-row, and it keeps the
+ * list view to roughly one screen of scrolling.
+ *
+ * Paged CLIENT-side, over the stories this page already loaded, because the
+ * Region/Destination filter axes above the list are built from the whole set
+ * (buildLocationAxes) -- server-side paging would rebuild those chips from
+ * whatever 12 stories happened to be on screen, so a filter could vanish
+ * just because you turned the page. list_my_stories() returns a single
+ * contributor's own stories in one round trip, which is a few dozen rows at
+ * the scale this product is for; if that ever stops being true, the RPC
+ * needs p_limit/p_offset AND the axes need their own query, together.
+ */
+const STORIES_PER_PAGE = 12;
 
 // Same useSyncExternalStore pattern as components/theme-toggle.tsx: the DOM
 // (here, localStorage) is the source of truth, read synchronously rather
@@ -83,7 +100,15 @@ function formatDate(value: string | null): string | null {
 function storyStatusFlags(story: MyStoryWithCover) {
   const awaitingApproval =
     story.lifecycle_status === "awaiting_contributor_approval";
-  const inReview = story.lifecycle_status === "pending_review";
+  // "In review" has two shapes. A FIRST submission moves the whole story to
+  // pending_review. An edit to an ALREADY-PUBLISHED story deliberately
+  // leaves lifecycle_status = 'published' from submit right through
+  // approval -- that is exactly what keeps the live version live
+  // (Engineering Rule 11) -- so there it shows up only as a submitted
+  // in-flight revision.
+  const inReview =
+    story.lifecycle_status === "pending_review" ||
+    story.draftRevisionStatus === "submitted";
   const editable =
     Boolean(story.current_draft_revision_id) && !awaitingApproval && !inReview;
   // Coarse client-side gate matching delete_draft_story()'s cheap
@@ -95,7 +120,44 @@ function storyStatusFlags(story: MyStoryWithCover) {
   // hiding the button.
   const deletable =
     story.lifecycle_status === "draft" && story.published_revision_id === null;
-  return { awaitingApproval, editable, deletable };
+  // Nothing is in flight, but there IS something to revise: a published
+  // story the contributor wants to correct, or one a moderator sent back
+  // asking for changes. Both need a new draft to be created first
+  // (create_next_draft_revision()), which is why this is a confirm-then-act
+  // button rather than a link. Mirrors that RPC's own preconditions:
+  // it refuses a story that already has an in-flight revision, and an
+  // archived one.
+  const canStartRevision =
+    !story.current_draft_revision_id &&
+    (story.lifecycle_status === "published" ||
+      story.lifecycle_status === "changes_requested");
+  // A published story with work in flight keeps its "Published" badge --
+  // because it genuinely is still published -- so the in-flight edit needs
+  // its own small marker, or the page looks identical either way.
+  const updateInFlight =
+    story.published_revision_id !== null &&
+    Boolean(story.current_draft_revision_id);
+  return {
+    awaitingApproval,
+    editable,
+    deletable,
+    canStartRevision,
+    inReview,
+    updateInFlight,
+  };
+}
+
+/**
+ * The marker described above: shown only on a published story that has an
+ * edit in flight, saying whether that edit is still the contributor's to
+ * work on or is now sitting with a moderator.
+ */
+function UpdateChip({ inReview }: { inReview: boolean }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-bold text-foreground/65">
+      {inReview ? "Update in review" : "Update in progress"}
+    </span>
+  );
 }
 
 /**
@@ -310,6 +372,37 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
     (axis) => activeFilters[axis.key] && activeFilters[axis.key] !== ALL,
   );
 
+  const [page, setPage] = useState(1);
+  const listTopRef = useRef<HTMLDivElement>(null);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / STORIES_PER_PAGE));
+  // Clamped on read rather than corrected in state: applying a filter can
+  // shrink the list below the page you are on, and a stored out-of-range
+  // page renders an empty screen with no obvious way back. Deriving it also
+  // keeps this out of an effect (react-hooks/set-state-in-effect).
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * STORIES_PER_PAGE;
+  const visible = filtered.slice(pageStart, pageStart + STORIES_PER_PAGE);
+
+  function goToPage(next: number) {
+    setPage(next);
+    // The controls sit below the list, so paging without this leaves you
+    // looking at the bottom of a page you have not read yet.
+    listTopRef.current?.scrollIntoView({ block: "start" });
+  }
+
+  // Any change to what is being filtered starts again from page 1 -- page 3
+  // of the old result set means nothing in the new one.
+  function changeFilter(key: string, value: string) {
+    setActiveFilters((current) => ({ ...current, [key]: value }));
+    setPage(1);
+  }
+
+  function clearFilters() {
+    setActiveFilters({});
+    setPage(1);
+  }
+
   function changeView(next: ViewMode) {
     setStoredView(next);
   }
@@ -398,12 +491,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                   label={axis.label}
                   options={[ALL, ...axis.options]}
                   active={activeFilters[axis.key] ?? ALL}
-                  onChange={(value) =>
-                    setActiveFilters((current) => ({
-                      ...current,
-                      [axis.key]: value,
-                    }))
-                  }
+                  onChange={(value) => changeFilter(axis.key, value)}
                 />
               ))}
             </div>
@@ -420,7 +508,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                   {" · "}
                   <button
                     type="button"
-                    onClick={() => setActiveFilters({})}
+                    onClick={clearFilters}
                     className="underline underline-offset-4 hover:text-accent"
                   >
                     CLEAR
@@ -430,12 +518,14 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
             </p>
           )}
 
+          <div ref={listTopRef} className="scroll-mt-4" />
+
           {filtered.length === 0 ? (
             <p className="mt-8 text-foreground/65">
               No stories match those filters.{" "}
               <button
                 type="button"
-                onClick={() => setActiveFilters({})}
+                onClick={clearFilters}
                 className="text-accent underline underline-offset-2"
               >
                 Clear filters
@@ -448,9 +538,15 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                 axes.length > 0 ? "mt-4" : "mt-8"
               }`}
             >
-              {filtered.map((story) => {
-                const { awaitingApproval, editable, deletable } =
-                  storyStatusFlags(story);
+              {visible.map((story) => {
+                const {
+                  awaitingApproval,
+                  editable,
+                  deletable,
+                  canStartRevision,
+                  inReview,
+                  updateInFlight,
+                } = storyStatusFlags(story);
                 const title = story.title ?? "Untitled story";
                 const href = primaryStoryHref(story);
                 return (
@@ -469,6 +565,11 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                     </Link>
                     <div className="mt-2">
                       <p className="truncate text-sm font-medium">{title}</p>
+                      {updateInFlight && (
+                        <p className="mt-1">
+                          <UpdateChip inReview={inReview} />
+                        </p>
+                      )}
                       <div className="-ml-1.5 mt-1 flex flex-wrap items-center">
                         {editable && (
                           <ActionIconLink
@@ -478,6 +579,15 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                           >
                             <EditorialPencilIcon className="h-4 w-4" />
                           </ActionIconLink>
+                        )}
+                        {canStartRevision && (
+                          <StartRevisionButton
+                            storyId={story.id}
+                            storyTitle={title}
+                            isPublished={story.lifecycle_status === "published"}
+                            variant="icon"
+                            className={`${ACTION_ICON_CLASS} text-accent`}
+                          />
                         )}
                         {awaitingApproval ? (
                           <ActionIconLink
@@ -513,9 +623,15 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
             // carries its own Edit/Preview actions -- so the thumbnail and title
             // are the linked targets and the actions sit alongside.
             <ul className={axes.length > 0 ? "mt-4" : "mt-8"}>
-              {filtered.map((story, index) => {
-                const { awaitingApproval, editable, deletable } =
-                  storyStatusFlags(story);
+              {visible.map((story, index) => {
+                const {
+                  awaitingApproval,
+                  editable,
+                  deletable,
+                  canStartRevision,
+                  inReview,
+                  updateInFlight,
+                } = storyStatusFlags(story);
                 const updated = formatDate(story.updated_at);
                 const title = story.title ?? "Untitled story";
                 const href = primaryStoryHref(story);
@@ -531,7 +647,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                         aria-hidden="true"
                         className="hidden font-mono text-sm text-foreground/40 tabular-nums sm:block"
                       >
-                        {String(index + 1).padStart(2, "0")}
+                        {String(pageStart + index + 1).padStart(2, "0")}
                       </span>
 
                       <Link
@@ -556,6 +672,9 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                               {title}
                             </Link>
                             <StatusBadge status={story.lifecycle_status} />
+                            {updateInFlight && (
+                              <UpdateChip inReview={inReview} />
+                            )}
                           </div>
                           {story.excerpt && (
                             <p className="mt-1 line-clamp-2 text-sm text-foreground/70">
@@ -578,6 +697,17 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                             >
                               <EditorialPencilIcon className="h-4 w-4" />
                             </ActionIconLink>
+                          )}
+                          {canStartRevision && (
+                            <StartRevisionButton
+                              storyId={story.id}
+                              storyTitle={title}
+                              isPublished={
+                                story.lifecycle_status === "published"
+                              }
+                              variant="icon"
+                              className={`${ACTION_ICON_CLASS} text-accent`}
+                            />
                           )}
                           {awaitingApproval ? (
                             <ActionIconLink
@@ -606,6 +736,46 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                 );
               })}
             </ul>
+          )}
+
+          {pageCount > 1 && (
+            <nav
+              aria-label="Story pages"
+              className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-5 text-sm"
+            >
+              {/* Announced on change: without this, paging is silent to a
+                  screen reader -- the list swaps out with nothing said. */}
+              <span
+                aria-live="polite"
+                className="font-mono text-xs text-foreground/50 tabular-nums"
+              >
+                {pageStart + 1}–{pageStart + visible.length} of{" "}
+                {filtered.length}
+              </span>
+              <div className="flex items-center gap-4">
+                {/* Disabled rather than hidden at the ends, so the controls
+                    don't jump around under the pointer between pages. */}
+                <button
+                  type="button"
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="underline underline-offset-4 hover:text-accent disabled:no-underline disabled:opacity-40 disabled:hover:text-foreground"
+                >
+                  Previous
+                </button>
+                <span className="font-mono text-xs text-foreground/50 tabular-nums">
+                  {currentPage} / {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === pageCount}
+                  className="underline underline-offset-4 hover:text-accent disabled:no-underline disabled:opacity-40 disabled:hover:text-foreground"
+                >
+                  Next
+                </button>
+              </div>
+            </nav>
           )}
         </>
       )}

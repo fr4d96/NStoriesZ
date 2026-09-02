@@ -22,30 +22,44 @@ export type MyStoryWithCover = Awaited<
 >[number] & {
   coverMediaId: string | null;
   coverAltText: string | null;
+  /**
+   * The status of the story's in-flight revision ("draft" or "submitted"),
+   * or null when nothing is in flight. The story's own lifecycle_status is
+   * not enough on a PUBLISHED story: an edit to a published story leaves
+   * lifecycle_status = 'published' the whole way through review (that is
+   * what keeps the old version live), so the draft pointer alone cannot say
+   * whether the contributor may still edit it or is waiting on a moderator.
+   */
+  draftRevisionStatus: string | null;
 };
 
 /**
- * listMyStories() plus each story's cover image reference (never a storage
- * path — only media_id, same rule as getStoryPreview below), for the grid
- * view's thumbnails. list_my_stories() itself has no media join, so this
- * fans out to get_story_preview() per story via Promise.all -- acceptable
- * for a single contributor's own story count, and it's the same private,
- * authorization-checked RPC the edit/preview pages already rely on for
- * media, not a new access path.
+ * listMyStories() in the shape the grid/list view wants: the cover image
+ * reference for its thumbnails, plus the in-flight draft's status for its
+ * chips and Edit control.
+ *
+ * Both come straight off list_my_stories() -- `cover_media_id`/
+ * `cover_alt_text` (20260831090000_list_my_stories_cover.sql) and
+ * `draft_revision_status` (20260902090300_list_my_stories_draft_revision_status.sql).
+ * This used to fan out to get_story_preview() once per story via Promise.all
+ * to derive the same three values, which was an N+1 (30 drafts = 31 round
+ * trips) and pulled an entire preview payload -- full content_json, every
+ * attached media row -- per story to keep three scalars. One RPC now; the
+ * per-story try/catch that used to swallow get_story_preview()'s "has no
+ * revision to preview" RAISE went with it, since a story with no revision
+ * simply yields nulls here.
+ *
+ * Still no storage path of any kind -- only a mediaId, from which a signed
+ * URL is minted separately after an independent authorization re-check.
  */
 export async function listMyStoriesWithCovers(): Promise<MyStoryWithCover[]> {
   const stories = await listMyStories();
-  const previews = await Promise.all(
-    stories.map((story) => getStoryPreview(story.id)),
-  );
-  return stories.map((story, i) => {
-    const cover = previews[i]?.media.find((m) => m.isCover) ?? null;
-    return {
-      ...story,
-      coverMediaId: cover?.mediaId ?? null,
-      coverAltText: cover?.altText ?? null,
-    };
-  });
+  return stories.map((story) => ({
+    ...story,
+    coverMediaId: story.cover_media_id ?? null,
+    coverAltText: story.cover_alt_text ?? null,
+    draftRevisionStatus: story.draft_revision_status ?? null,
+  }));
 }
 
 /**

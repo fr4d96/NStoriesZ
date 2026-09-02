@@ -73,24 +73,34 @@ export type ModeratorStoryDetail = {
   story_id: string;
   slug: string;
   story_version: number;
+  lifecycle_status: string;
+  source_kind: string;
+  submitted_at: string | null;
   revision_id: string;
   revision_number: number;
   revision_status: string;
+  revision_updated_at: string;
   title: string;
   excerpt: string | null;
   content_json: unknown;
+  contributor_note: string | null;
   trip_start_date: string | null;
   trip_end_date: string | null;
   trip_year: number | null;
   travel_style: string | null;
   total_expense_nzd_cents: number | null;
+  contributor_display_name: string | null;
+  contributor_public_slug: string | null;
   consent_valid: boolean;
   media_processed: boolean;
   attribution_type: string | null;
   attribution_value: string | null;
   confirmation_method: string | null;
+  consent_recorded_at: string | null;
   image_rights_confirmed_at: string | null;
   identifiable_people_state: string | null;
+  region_names: string[] | null;
+  tag_names: string[] | null;
   media: unknown;
 };
 
@@ -233,6 +243,27 @@ export type ModerationQueueRow = {
   submitted_at: string | null;
   is_replacement: boolean;
   submission_kind: "first" | "replacement" | "resubmission";
+  revision_number: number;
+  source_kind: string | null;
+  contributor_display_name: string | null;
+  contributor_public_slug: string | null;
+  consent_method: string | null;
+  /**
+   * Non-whitespace character count of the submitted document, computed in
+   * SQL (_content_json_text_length) rather than by shipping content_json --
+   * a page of 50 rows must not drag 50 full story documents across the
+   * wire to answer "is this one empty". 0 means an empty submission, which
+   * is what the queue's "No story content" flag reads.
+   */
+  content_text_length: number;
+  image_count: number;
+  location_count: number;
+  tag_count: number;
+  open_report_count: number;
+  /** Non-null only in the `recently_reviewed` branch. */
+  decided_at: string | null;
+  /** The revision status the decision moved to; `recently_reviewed` only. */
+  decision: string | null;
   total_count: number;
 };
 

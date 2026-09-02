@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TagEditor } from "./tag-editor";
@@ -95,11 +95,64 @@ describe("TagEditor", () => {
     ]);
   });
 
-  it("never offers an already-selected tag as a suggestion", () => {
+  it("keeps the suggestion list shut while a tag is being typed", async () => {
+    const user = userEvent.setup();
+    const { input } = setup();
+
+    await user.type(input, "Ferry");
+
+    // The whole point of the 2026-09-02 change: typing opens nothing.
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /choose tags/i }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens the suggestion list only when the dropdown button is clicked, and adds the picked tag", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup();
+
+    await user.click(screen.getByRole("button", { name: /choose tags/i }));
+
+    const list = screen.getByRole("listbox", { name: /suggested tags/i });
+    expect(
+      within(list)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Van life", "Fruit picking"]);
+
+    await user.click(
+      within(list).getByRole("button", { name: "Fruit picking" }),
+    );
+
+    expect(onChange).toHaveBeenCalledWith([
+      { id: "t2", name: "Fruit picking" },
+    ]);
+    // Still open: picking two or three tags in a row is the normal case, and
+    // the list shrinks as each one is taken.
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("never offers an already-selected tag as a suggestion", async () => {
+    const user = userEvent.setup();
     setup([{ id: "t1", name: "Van life" }]);
-    const options = Array.from(
-      document.querySelectorAll("datalist option"),
-    ).map((o) => o.getAttribute("value"));
-    expect(options).toEqual(["Fruit picking"]);
+
+    await user.click(screen.getByRole("button", { name: /choose tags/i }));
+
+    const list = screen.getByRole("listbox", { name: /suggested tags/i });
+    expect(
+      within(list)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Fruit picking"]);
+  });
+
+  it("has nothing to open once every suggested tag is already on the story", () => {
+    setup([
+      { id: "t1", name: "Van life" },
+      { id: "t2", name: "Fruit picking" },
+    ]);
+
+    expect(screen.getByRole("button", { name: /choose tags/i })).toBeDisabled();
   });
 });

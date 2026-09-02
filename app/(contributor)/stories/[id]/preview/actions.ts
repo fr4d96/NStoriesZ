@@ -13,6 +13,7 @@ import {
   getCurrentTermsVersion,
   requestEditorialChanges,
   declineEditorialPublication,
+  createNextDraftRevision,
 } from "@/lib/story/mutations";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -142,4 +143,45 @@ export async function declineEditorialPublicationAction(
   revalidatePath(`/stories/${storyId.data}/preview`);
   revalidatePath("/my-stories");
   return { success: "Declined." };
+}
+
+export type StartStoryRevisionResult =
+  { ok: true; revisionId: string } | { ok: false; error: string };
+
+/**
+ * Backs "Edit" on a story that is already published (or that a moderator sent
+ * back with changes requested), from My Stories and from the preview page —
+ * the point where a contributor
+ * starts a SECOND pass over a story that has no in-flight draft.
+ *
+ * create_next_draft_revision() (via lib/story/mutations.ts) copies the
+ * published — or, if newer, the last rejected/changes-requested/withdrawn —
+ * revision into a fresh draft and points the story at it. It deliberately
+ * does NOT touch published_revision_id or a published lifecycle_status, and
+ * submit_revision_with_consent() leaves both alone too for an
+ * already-published story, so what the public sees keeps being the old
+ * revision right through the second review; approve_revision() is the only
+ * thing that swaps the pointer (Engineering Rule 11).
+ *
+ * The RPC is the real boundary: it re-derives the caller, refuses anyone but
+ * the owner or assigned editor, refuses a story that already has an in-flight
+ * revision, and refuses an archived story.
+ */
+export async function startStoryRevisionAction(
+  storyId: string,
+): Promise<StartStoryRevisionResult> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { ok: false, error: "You must be signed in." };
+  }
+
+  try {
+    const revisionId = await createNextDraftRevision(storyId);
+    return { ok: true, revisionId };
+  } catch (error) {
+    return {
+      ok: false,
+      error: getErrorMessage(error, "Could not start editing this story."),
+    };
+  }
 }

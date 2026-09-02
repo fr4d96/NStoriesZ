@@ -3,8 +3,444 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-08-31 (trip-date control redesign — segmented mode switch, designed native date
-fields, range readback).
+Last updated: 2026-09-02 (My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
+story; earlier: the custom-label copy bug that broke editing a published story;
+earlier: contributor edits to published stories, and the tag-input dropdown fix;
+earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
+and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
+every story since Prompt 3).
+
+**2026-09-02 (latest) — My Stories is paged.**
+
+12 stories per page (`STORIES_PER_PAGE` in `app/(contributor)/my-stories/my-stories-view.tsx`). 12
+divides evenly by both grid widths — 2 columns on a phone, 3 from `sm` — so a page never ends in a
+ragged half-row, and it keeps the list view to about one screen.
+
+**Paged client-side, deliberately.** The Region/Destination filter chips above the list are built by
+`buildLocationAxes()` from the whole set, and an axis earns its row only if it can actually split
+that set. Server-side paging would rebuild those chips from whatever 12 stories happened to be on
+screen, so a filter could disappear just because you turned the page. `list_my_stories()` returns one
+contributor's own stories in a single round trip (one RPC as of the N+1 removal below), which is a
+few dozen rows at this product's scale. If that stops being true, the RPC needs `p_limit`/`p_offset`
+**and** the axes need their own query — together, not one without the other.
+
+Details worth keeping:
+
+- The current page is **clamped on read** (`Math.min(page, pageCount)`), not corrected in state.
+  Applying a filter can shrink the list below the page you are on, and a stored out-of-range page
+  renders an empty screen with no obvious way back. Deriving it also keeps this out of an effect
+  (`react-hooks/set-state-in-effect`, the same rule the tag editor's browse list had to respect).
+- Changing or clearing a filter resets to page 1 — page 3 of the old result set means nothing in the
+  new one.
+- The list view's running ordinal continues across pages (`pageStart + index + 1`), so page 2 starts
+  at 13, not 01.
+- Previous/Next are **disabled** at the ends rather than hidden, so the controls don't move under the
+  pointer between pages; the range readout carries `aria-live="polite"`, since paging is otherwise
+  silent to a screen reader.
+- Page state is component state, like the filters — it does not survive a reload or a trip into a
+  story and back. Putting the page in the URL would be worth doing only alongside the filters, and
+  that is a bigger change than this.
+
+Three tests added to `my-stories-view.test.tsx` (19 total): no controls at all when everything fits,
+paging with the ordinal continuing, and the filter-resets-to-page-1 case set up so the old page is
+past the end of the new result. Checked at 390px in the real app (43 stories → "1–12 of 43",
+"1 / 4"). `npm run verify` clean: 678 tests.
+
+**2026-09-02 — My Stories stopped fetching a whole story per thumbnail.**
+
+Closing the "still outstanding" item recorded two entries below.
+`lib/story/contributor-queries.ts#listMyStoriesWithCovers()` called `getStoryPreview(story.id)` once
+per story inside a `Promise.all`. That is an N+1 — a contributor with 30 drafts cost 31 round trips
+— and each of those calls built the ENTIRE preview payload (the revision's full `content_json` plus
+a `jsonb_agg` of every attached media row) so the caller could keep three scalars.
+
+`20260831090000_list_my_stories_cover.sql` had already added `cover_media_id`/`cover_alt_text` to
+`list_my_stories()` precisely to kill this, and the TypeScript was never switched over. What
+blocked the straight swap was that the same fan-out had since become the source of
+`draftRevisionStatus` too. So:
+
+- **`20260902090300_list_my_stories_draft_revision_status.sql`** (DROP+CREATE — the return shape
+  grows). One trailing OUT column, `draft_revision_status public.story_revision_status`. Every
+  existing OUT column, the WHERE clause, the ordering, the grants and the security-definer settings
+  are unchanged.
+- **The join is the whole point.** Every other column reads `r` =
+  `coalesce(current_draft_revision_id, published_revision_id)`. This one reads a second alias `dr`
+  joined on `s.current_draft_revision_id` **alone**. Coalescing would report the PUBLISHED
+  revision's status (`'approved'`) for a story with nothing in flight — which says nothing about
+  work in flight and is exactly the ambiguity the column exists to remove. No draft ⇒ NULL, straight
+  out of the LEFT JOIN. That is the same value the old TypeScript derived the long way round, by
+  keeping `preview.revisionStatus` only when `preview.revisionId === story.current_draft_revision_id`.
+- **Security unchanged (Rules 2, 13, 14).** Still no storage path of any kind — only
+  `cover_media_id` + `cover_alt_text`, with the signed URL minted separately after an independent
+  authorization re-check. `revision_status` is not new information to this caller either: it is the
+  status of their OWN draft, on a story they already read title, excerpt and cover from, and the
+  same value `get_story_preview()` already hands them.
+- **`listMyStoriesWithCovers()` is now a plain `.map()`** over one RPC. Gone with the fan-out: the
+  `Promise.all`, the per-story try/catch, the `my-stories.preview_unavailable` log, and the
+  `logAppEvent`/`getErrorMessage` imports. **Deleting that catch is safe because of the swap, not
+  in spite of it** — `get_story_preview()` RAISES "has no revision to preview" for a story with
+  neither a current draft nor a published revision; `list_my_stories()` just returns nulls for the
+  same story, so the error path stopped existing rather than being ignored.
+
+**Applied via the MCP `apply_migration` path**, not `supabase db push` — that still fails with
+`LegacyDbPushMissingLocalError` (now 11 remote versions with no local file; see the ledger-drift
+note further down). Types regenerated with `npm run supabase:types:linked`: after Prettier, the
+diff against the committed file is exactly one added line, which also confirms the rest of the
+remote schema had not drifted.
+
+Verified: `npm run verify` clean (0 lint errors, 675/675 tests, build compiles), and
+`PLAYWRIGHT_PORT=3100 node --env-file=.env.test.local node_modules/.bin/playwright test
+e2e/contributor-story-update.spec.ts --workers=1` — 2/2 passing live against the rebuilt function,
+which is the spec that covers the My Stories chips and the Edit control.
+
+**2026-09-02 — "Edit a published story" raised a check-constraint violation for almost
+every story. Migration 20260902100000.**
+
+Reported straight after the feature shipped: clicking Edit on a published story showed an error and
+nothing was created. Not the UI — `create_next_draft_revision()` itself, and a bug that had been
+sitting there since 2026-08-15 with nothing calling it.
+
+`20260812110000_work_type_tag_custom_labels.sql` added a `custom_label` column to
+`story_revision_tags` and `story_revision_work_types` — a row is EITHER a lookup reference OR a
+label the contributor typed, enforced by a `*_one_of` CHECK — and updated
+`set_revision_tags()`/`set_revision_work_types()`. `create_next_draft_revision()` was rewritten
+three days later (20260815110000) and kept copying only the id columns:
+
+```sql
+insert into public.story_revision_tags (revision_id, tag_id)
+select v_new_revision_id, tag_id from ...
+```
+
+A typed label has `tag_id = NULL`, so it copied as `(NULL, NULL)`, raised **23514**, and rolled the
+whole transaction back — which is why the two stories the user tried still had exactly one revision
+and a null draft pointer afterwards. Diagnosed with an isolated rolled-back probe against the live
+dev project, running as the story's own owner:
+
+```
+23514 | new row for relation "story_revision_work_types" violates check constraint
+        "story_revision_work_types_one_of"
+```
+
+And the data says how wide it was: 3 of 4 work-type rows are custom labels (all on published
+stories), and **10 of 16** `story_revision_tags` rows across 7 revisions are custom labels. Since
+"add your own if you don't see it" is exactly how the tag editor asks contributors to work, this
+was close to unconditional for real stories — while every fixture in
+`tests/integration/story-rls.integration.test.ts` attaches lookup-row tags, which is precisely why
+the suite exercised this function for weeks without seeing it.
+
+The fix is two columns in two inserts; everything else in the function is reproduced verbatim
+(the draft-pointer-before-child-copies ordering and the dangling-embed-token strip, both from
+20260815110000). Work types are retired from authoring but their rows are never deleted and
+`get_published_story()` still resolves them, so they are copied faithfully rather than dropped — a
+new draft has to be a true copy of what is published, not a quietly lossy one.
+
+Verified with the same probe after applying: both reported stories now create a draft, with their
+tag and work-type rows carried over, and the probe rolled back leaving revision counts and story
+versions untouched. Regression test added to the RLS suite ("copies a typed tag label into the next
+draft instead of failing the one_of check") — it types its tags rather than picking lookup rows, and
+passes live.
+
+**2026-09-02 — Contributors can edit a published story, and the tag box stopped
+interrupting people.**
+
+Two user reports, one small and one not.
+
+**1. The tag field popped a list open while you typed.** `TagEditor` used a native `<datalist>`, so
+every keystroke re-filtered a suggestion overlay on top of the field (and the browser's own
+form-history popup added a second one). Rebuilt as two separate things: the text box now types
+freely — no `list=`, `autoComplete="off"` — and a "Choose tags" button beside it opens the curated
+list on demand. Picking leaves the list open (adding two or three in a row is the normal case) and
+the list stops rendering once nothing is left to offer, which is derived from `selected`, not stored
+— a `setState` in an effect trips `react-hooks/set-state-in-effect`, and would be fighting the
+render it reacts to anyway. The panel is right-anchored: left-anchored, it ran off the right edge at
+390px (checked in the browser, not assumed). Nothing about what a tag IS changed —
+`set_revision_tags()` is still the boundary that resolves labels, dedupes and caps.
+
+**2. Contributors could not edit a story once it was published.** The whole mechanism for this
+already existed and had NO caller anywhere in the app: `create_next_draft_revision()` copies the
+published (or newer terminal) revision into a fresh draft, and — this is the part that matters —
+neither it nor `submit_revision_with_consent()` touches `published_revision_id` or a `published`
+lifecycle status, so the live story stays live through the entire second review;
+`finalize_story_publication()` is the only thing that swaps the pointer. So this change is UI, not
+schema. **No migration.**
+
+- `startStoryRevisionAction()` (`app/(contributor)/stories/[id]/preview/actions.ts`, beside the
+  other lifecycle actions) wraps the RPC. The RPC re-derives the caller and refuses a non-owner, an
+  archived story, or one that already has something in flight — this action adds no authority.
+- `components/story/start-revision-button.tsx` — confirm-then-create, used as an icon in My Stories
+  and a labelled button on the private preview page. It asks first because it MAKES something, and
+  the question states the guarantee: _"the version people can read now stays up, unchanged, until
+  the new one is approved."_ Also offered on a `changes_requested` story, which had the same dead
+  end for a different reason.
+- **My Stories had no way to tell "editable draft" from "waiting on a moderator" on a published
+  story**, because both look like `lifecycle_status = 'published'` with a draft pointer set — that
+  sameness is exactly what keeps the old version live. `list_my_stories()` returns the draft's id
+  but not its status, so `listMyStoriesWithCovers()` now derives `draftRevisionStatus` from the
+  per-story `get_story_preview()` call it was already making. A published story with work in flight
+  keeps its "Published" badge and gains an "Update in progress" / "Update in review" chip.
+
+**Found and fixed in passing: one unpreviewable story took the whole My Stories page down.**
+`listMyStoriesWithCovers()` fanned out to `get_story_preview()` for every story inside a single
+`Promise.all`. That RPC RAISES "has no revision to preview" for a story with neither a current draft
+nor a published revision (a rejected first submission, for instance), so one such row 500'd the
+entire page for that contributor. Reproduced live — it is what made the new e2e spec fail first.
+Now caught per story: an unpreviewable story costs its own thumbnail and logs
+`my-stories.preview_unavailable`, nothing more.
+
+**Was outstanding here, now done (see the 2026-09-02 latest entry above):** migration
+20260831090000 added `cover_media_id`/`cover_alt_text` to `list_my_stories()` precisely to delete
+this N+1, and the TypeScript was never switched over to them. Doing that would also have dropped
+`draftRevisionStatus`, so it needed a migration adding the in-flight revision's status —
+`20260902090300_list_my_stories_draft_revision_status.sql`. Both the fan-out and the per-story
+catch described just above are gone with it; a story with no revision now simply yields null
+columns instead of raising.
+
+Tests: `e2e/contributor-story-update.spec.ts` (new, 2/2 passing live) watches the PUBLIC page signed
+out across the whole cycle — original title live, update submitted and still the original title
+live, approved and only then replaced — plus the tag box in the real editor. Unit tests added to
+`tag-editor.test.tsx` (10) and `my-stories-view.test.tsx` (16). `npm run verify` clean.
+`playwright.config.ts` gained an optional `PLAYWRIGHT_PORT`: `reuseExistingServer` will happily
+attach to whatever already holds 3000 — another session's server, a stale build — and the failures
+that produces look exactly like app bugs. Default behaviour is unchanged.
+
+**Pre-existing e2e failures, confirmed not caused by this work** (same 5 fail on a stashed,
+rebuilt baseline): `founding-story-workflow` ("Mark ready for contributor review" status message),
+all three `content-import-body-size` cases, `pdf-import`, and `public-discovery`'s signed-out
+report-form prompt. The `sitemap.xml` failure only appears under a non-3000 `PLAYWRIGHT_PORT`
+(`NEXT_PUBLIC_SITE_URL` is pinned to :3000) and is a test-run artifact, not a defect.
+
+**2026-09-02 — Moderation: the "content cannot be rendered" bug, and a queue you can
+triage from.**
+
+User report, two parts: (1) the stories queue does not say who submitted a story or when, and the
+review page is "messy here and there"; (2) "a lot of stories, when I click review, the contents
+cannot be rendered".
+
+**Part 2 was diagnosed first, and it was not a renderer bug.** 14 of the ~22 submitted revisions in
+the live queue have `content_json = '[]'::jsonb`. `normalizeStoryContentJson()` correctly refuses
+to read `[]` as content and returns null, so the page fell through to its
+"Could not render submitted content." branch. Nothing was lost: `updated_at` on every one of those
+rows moved for the first time **at submit time** (a burst on 2026-08-30 23:43–23:46, ~10s apart),
+so the text was never written. They are title-only shells that were submitted.
+
+Why they got in: `submit_revision_with_consent()` checked consent, terms version, attribution,
+image rights and media processing — but never that the story had any content. The
+"title and some content before you can submit" gate (`missingStoryRequirements()`, lib/story/steps.ts)
+is UI-only and postdates those submissions. That is exactly the Engineering Rule 2 case, so the fix
+is at the RPC.
+
+Built — two migrations:
+
+- **`20260902090000_submit_requires_story_content.sql`.** New internal
+  `_content_json_text_length(jsonb)` sums the non-whitespace length of every `text` leaf at any
+  depth via `jsonb_path_query(..., 'strict $.**.text')`, so it reads **every** historical
+  content_json shape (today's single markdown block, the paragraph/heading/quote/list union with
+  `TextRun[]`, and the oldest plain-string variant) — the same set `lib/story/legacy-content.ts`
+  can convert. `submit_revision_with_consent()` raises **`WHV03`** when that is 0.
+  - **Error code note:** `WHV02` was already taken by the last-admin guard
+    (20260823090000 / `isLastAdminError()`), hence `WHV03`. The message is written for the
+    contributor and reaches them verbatim — `getErrorMessage()` already surfaces a PostgrestError's
+    `message`, so no new plumbing was needed.
+  - **Placement** is with the revision-integrity checks, before the terms-version check: "you
+    haven't written anything" is actionable regardless of terms version and should not hide behind
+    a `WHV01`.
+  - **Deliberately not a minimum length.** "How long is long enough" is editorial policy for
+    docs/moderation-guidelines.md, not a number to bury in a migration. An image-only story still
+    passes, because `![[mediaId]]` is text in the markdown block — the same string
+    `missingStoryRequirements()` reads, so the DB and the UI gate can never disagree.
+  - **Seven RLS fixtures were relying on the hole** (they created a draft with no
+    `p_content_json` and then submitted). All now pass real content, including the negative
+    "other cannot submit consent" case — so that assertion still fails on the actor check rather
+    than passing for a new, wrong reason.
+- **`20260902090100_moderation_review_context.sql`.** `get_moderation_queue()` and
+  `get_story_for_moderator()` rebuilt (DROP+CREATE; return shapes grow). Filters, ordering,
+  clamping, authorization and `submission_kind` precedence are all unchanged.
+  - Queue rows gain: `revision_number`, `source_kind`, `contributor_display_name`,
+    `contributor_public_slug`, `consent_method`, `content_text_length`, `image_count`,
+    `location_count`, `tag_count`, `open_report_count`, and `decided_at`/`decision` (non-null in
+    the `recently_reviewed` branch only — that branch previously showed no decision at all).
+  - **Counts, never content.** `content_text_length` is computed in SQL; a page of 50 rows must not
+    drag 50 full story documents across the wire to answer "is this one empty".
+  - Detail rows gain: story `lifecycle_status`/`source_kind`/`submitted_at`,
+    `revision_updated_at`, `contributor_display_name`/`public_slug`, `contributor_note` (the
+    contributor's message to staff, previously never shown anywhere), `consent_recorded_at`, and
+    `region_names`/`tag_names`.
+  - **Fixes a latent duplicate-row bug:** `get_story_for_moderator()` left-joined
+    `story_publication_consents` on `revision_id` alone, so a revision with more than one consent
+    event returned one row per event and the page silently read `rows[0]` — the **oldest** event.
+    Now a `left join lateral ... order by event_number desc limit 1`. No such row exists in the dev
+    data today, so this is preventative, verified by reading the definition rather than by
+    reproducing it.
+
+Built — UI:
+
+- **New pure module `lib/story/moderation-queue-view.ts`** (+ 19 tests). Labels, relative time, the
+  signal chips, and `isEmptySubmission()` — deliberately shared, so what the queue calls "No story
+  content" is the same predicate the review page uses to decide it shows an empty-submission notice
+  instead of an error. `relativeTime()` is hand-rolled rather than `Intl.RelativeTimeFormat` (it
+  renders server-side beside the absolute timestamp) and takes an injectable `now` so the tests are
+  not clock-dependent; anything older than a week reads as a plain date, since "43 days ago" is not
+  a unit anyone triages in.
+- **Queue** (`app/(moderation)/moderation/stories/page.tsx`): cards instead of a divided list. Each
+  carries the submitter's name, relative + absolute submission time, `/slug`, character count, the
+  kind/source/revision badges, and severity-ordered signal chips (no content → open reports →
+  no place → no tags → photo count). Nothing is emitted for a healthy story, so a chip that appears
+  always means something. Empty submissions get a destructive-tinted card. The whole card is the
+  hit target via a stretched link (the old "Review" text link was a ~42px target on a phone) while
+  the accessible name stays the story title. A summary strip counts what is waiting, and how much
+  of this page is empty or reported — scoped to the page and labelled as such, because the window
+  count is the only queue-wide number the RPC returns.
+- **Review page** (`.../stories/[id]/page.tsx`): one grid, two columns from `lg` — the story to
+  read on the left, the facts to check in a sticky right column; a single column in working order
+  (story → checks → decision) below that. Consent/rights/media checks became a scannable list with
+  pass/fail icons rather than six sentences of `<dl>`. Contributor note, claimed regions/tags,
+  contributor identity and submitted-at are surfaced for the first time. Open reports moved above
+  the fold.
+- **The dead-end message is gone.** The page now separates two genuinely different failures that
+  were collapsed into one: content that is _empty_ (a complete, reviewable fact — "This submission
+  has no story content", with what to do about it), and content that _exists but cannot be parsed_
+  (a real defect, named as one, with "do not approve"). `ReviewControls` takes a `contentIsEmpty`
+  prop: it warns on the approve form, reorders so request-changes reads first, and pre-fills a
+  suggested contributor-facing reason. It never **disables** approve — a moderator may know
+  something the page does not, and silently removing a control is worse than warning about it.
+
+**Also fixed in passing: the "Self-service" source filter never worked.**
+`lib/validation/moderation.ts` accepted `self_service`, but `get_moderation_queue()` compares that
+string to `stories.source_kind::text`, whose enum label is `self_submitted` — so choosing
+"Self-service" silently returned zero rows instead of filtering. Now `self_submitted` on both
+sides; an old bookmarked `?sourceKind=self_service` fails the parse and falls back to "any source",
+which is the parser's documented behaviour for an unrecognised value and strictly better than the
+empty queue it used to produce.
+
+**A third migration, found by finally looking at the page: `consent_valid` was false for every
+single consented story.**
+
+`_latest_valid_consent_for_revision()` returns a COMPOSITE (`story_publication_consents` row type),
+and `get_story_for_moderator()` had tested it with `... is not null` since 20260803090700. For a
+composite, Postgres defines `rowvalue IS NOT NULL` as **"every field is non-null"**, not "a row was
+returned". `story_publication_consents` has several legitimately nullable columns —
+`image_rights_confirmed_at` is null for any story with no images, `editorial_assistance_confirmed_at`
+is null for every self-service story — so a valid, `granted` consent row reported false.
+
+Measured on the live dev project: of 24 submitted revisions, the old expression was true for **0**
+and the corrected `(...).id is not null` is true for **24**. Every one.
+
+Not a regression from this work — it predates it and was carried through every rewrite of that
+function, including 20260902090100. It stayed invisible while the page rendered it as a quiet
+"Consent valid: No" row inside a six-item `<dl>`. The redesigned page renders a failed check in
+destructive red with an alert icon, so the same wrong value became an alarm telling a moderator to
+withhold publication of a story whose consent is on file — which is how it got noticed at all. A
+checklist that cries wolf on every row is worse than no checklist, so it is fixed in
+[20260902090200_fix_consent_valid_composite_null_check.sql](../supabase/migrations/20260902090200_fix_consent_valid_composite_null_check.sql).
+
+**Scope of that fix is display-only, deliberately.** Every other caller of the helper
+(`moderate_revision`, `finalize_story_publication`, `publish_story`, `get_published_story`) tests
+`... is null` as a publication GATE. That form is correct for a composite — `IS NULL` is true only
+when no row came back at all, since a returned row always has a non-null `id` — so those are left
+untouched. Only the affirmative reading was broken, and it appeared in exactly one function.
+
+**Verification.** format, lint (0 errors), typecheck, 668 unit tests across 62 files, and
+`npm run build` all pass.
+
+**e2e: run, and passing.** `e2e/moderation.spec.ts` + `e2e/reports-triage.spec.ts` — **13/13**
+against the live linked project with `--workers=1` (serial is required; see moderation.spec.ts's own
+header). Three of those exercise the rewritten pages directly: the queue's "First submission" label,
+"Approve and publish", and the reject flow's combobox + `Reason shown to the contributor (required)`
+placeholder — all still work after the restyle. Credentials come from `.env.test.local`
+(`SUPABASE_RLS_TEST_*`), not `.env.local`.
+
+Beyond the committed specs, the new empty-content path was checked signed-in with a throwaway spec
+(since deleted): the queue shows "No story content" and the contributor's name; the review page
+shows "This submission has no story content." with the suggested reason pre-filled and **no**
+"Could not render submitted content."; the consent check reads "Valid"; and at a 375px viewport the
+page has zero horizontal overflow (Engineering Rule 18). Screenshots were reviewed at desktop and
+mobile in the light rendition.
+
+**That gap is now closed.** `e2e/moderation.spec.ts` gained three permanent tests (additive — no
+existing test was edited):
+
+1. **The review page for a legacy empty submission** — asserts "This submission has no story
+   content.", the ABSENCE of "Could not render submitted content.", and that the request-changes
+   reason is pre-filled with the suggested text.
+2. **The queue card for that story** — the "No story content" chip and the submitter's display
+   name, scoped to that fixture's own card rather than the page, so accumulated fixture debris
+   cannot make it pass or fail by accident.
+3. **A regression guard for the `consent_valid` composite-null fix** (20260902090200) — a story
+   with a granted consent row must read "Valid", never "Missing or invalid", in the Consent &
+   rights panel.
+
+**Fixture note, because it is not obvious:** the empty-submission fixture cannot simply submit an
+empty draft any more — `submit_revision_with_consent()` raises WHV03 for that as of 20260902090000.
+It also cannot just null the content out afterwards: `story_revisions_protect_immutable_content()`
+(20260803090200) freezes content columns for any row whose current status is not `draft`, for the
+service role too. So the fixture submits real content, then (service-role) puts the row back to
+`draft` for one status-only update and empties `content_json` while restoring `submitted` in the
+next statement — the trigger's guard is skipped when the OLD status is `draft`. Consent,
+`submitted_at` and the story's lifecycle status are never touched, so what remains is exactly the
+legacy shape. The service-role key is read from `.env.local` (`SUPABASE_SERVICE_ROLE_KEY`) and used
+only after checking it targets the same project as `SUPABASE_RLS_TEST_URL`; both those tests skip
+themselves if it is absent.
+
+**A decision hung the review page's UI — found while adding the above, traced, and FIXED by
+upgrading Next from 16.2.12 to 16.3.4.**
+
+The symptom: a moderator pressed Approve/Submit decision, the button went to
+"Approving…"/"Submitting…" and **stayed there forever**, even though the decision had already
+succeeded in the database. The approve/reject e2e tests failed roughly half the time.
+
+What the trace established (each point is a measured run):
+
+- The Server Action was never at fault. It returned **HTTP 200 in under a second** with
+  `x-action-revalidated: 1`, and the flight payload was complete and correct — row 1 was literally
+  `{"success":"Revision rejected."}`, followed by the full revalidated tree with no dangling
+  references. The server logged `outcome":"success"` every time.
+- The browser had everything and never committed it: no pending requests, no console errors, no
+  failed chunks, stylesheets loaded, and the router still navigable (the "← Back to the queue" link
+  worked). Only that one `useActionState` transition never completed.
+- **Production builds only** — `next dev` never reproduced it.
+- It needed **both** this date's rewritten `stories/[id]/page.tsx` (reverting just that file gave
+  4/4 passes) **and** the action's `revalidatePath()` calls (removing both gave 4/4). Neither half
+  alone triggered it.
+- It was a **race that scaled with the size of the page's tree**, not one faulty component:
+  deleting the review page's right-hand `<aside>` passed 3/3, keeping half of it still hung 2/3.
+  `<Link prefetch={false}>` made no difference. The DB was never involved — the rewritten queue
+  query runs in **14ms** on the live project (`EXPLAIN ANALYZE`).
+
+That profile said "framework race, not application bug", and it was: **on Next 16.3.4 the two
+decision tests pass 6/6 across three consecutive runs, with no application code changed.**
+`eslint-config-next` was bumped to 16.3.4 in the same step (they are versioned together), and both
+are pinned exactly, matching this project's convention. Post-upgrade gate: `npm run verify` passes
+(format, lint 0 errors, typecheck, **668 unit tests across 62 files**, build), and
+`e2e/moderation.spec.ts` + `e2e/reports-triage.spec.ts` are **16/16** serial.
+
+**Dependency note (Engineering Rule 20):** no dependency was added; `next` and `eslint-config-next`
+moved 16.2.12 → 16.3.4 specifically to fix the hang documented above.
+
+Latest full serial run: **16/16** across `e2e/moderation.spec.ts` and `e2e/reports-triage.spec.ts`
+(11 + 5), all three new tests included.
+
+**Pre-existing: `npm run verify` exits 1 on an untouched tree.** `app/(public)/page.test.tsx`
+triggers an unhandled jsdom error (`listRef.current?.scrollIntoView is not a function`,
+components/home/story-index.tsx:141) from a `requestAnimationFrame` callback that outlives the test.
+Every test passes; vitest fails the run on the stray rejection. Confirmed by stashing this change
+and re-running (`BASELINE_TEST_EXIT=1`, 61 files). Unrelated and left alone, but it means `verify`
+is not currently a usable gate and `build` has to be run separately.
+`types/database.ts` regenerated from the linked project via
+`supabase:types:linked` — the real diff is exactly the 25 new columns. Both migrations were applied
+to the linked dev project and then read back: every empty submission reports
+`content_text_length = 0`, and contributor/source/consent now resolve on real rows.
+**Not** verified: no moderator credentials exist in this environment, so the pages were never
+rendered signed-in and `e2e/moderation.spec.ts` was not run — the routes were only confirmed to
+return the intended flat 404 to an anonymous visitor. Someone with a moderator login should walk
+the queue and one empty story before this is called done.
+
+**Migration-ledger drift, unrelated but worth knowing:** `supabase db push --dry-run` fails with
+`LegacyDbPushMissingLocalError` — the remote has 8 migration versions with no local file
+(20260823090553, 20260823090623, 20260823091846, 20260823092110, 20260826101337, 20260827023242,
+20260829014241, 20260901234505), i.e. earlier changes went in through the MCP `apply_migration`
+path, which stamps its own timestamps. These two migrations were applied the same way for
+consistency. Repairing that history (`supabase migration repair` + `supabase db pull`) is a
+separate, deliberate decision and was **not** done here.
 
 **2026-08-31 (latest) — "When did you travel?" redesigned: `components/story/trip-date-field.tsx`.**
 
@@ -362,6 +798,7 @@ and applies nothing — it is deliberately left as follow-up work, described in 
   pretends otherwise. Making it genuinely cacheable means moving the filtering client-side — a
   separate, larger piece of work, not scheduled.
 - **Item 2 — a migration written, NOT applied: `supabase/migrations/20260831090000_list_my_stories_cover.sql`.**
+  (Since applied, and the TypeScript finally switched over to it on 2026-09-02 — see the latest entry at the top.)
   `lib/story/contributor-queries.ts#listMyStoriesWithCovers()` calls `getStoryPreview(story.id)` once
   per story via `Promise.all` purely to read one cover thumbnail. `get_story_preview()` builds the
   entire preview payload each time — the revision's full `content_json` plus a `jsonb_agg` of every
