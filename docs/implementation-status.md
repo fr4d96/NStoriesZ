@@ -3,11 +3,63 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-02 (moderation review rebuild — empty submissions blocked at the RPC, queue
+Last updated: 2026-09-02 (My Stories' per-story N+1 deleted — one RPC, not one preview call per
+story; earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-02 (latest) — Moderation: the "content cannot be rendered" bug, and a queue you can
+**2026-09-02 (latest) — My Stories stopped fetching a whole story per thumbnail.**
+
+`lib/story/contributor-queries.ts#listMyStoriesWithCovers()` called `getStoryPreview(story.id)` once
+per story inside a `Promise.all`. That is an N+1 — a contributor with 30 drafts cost 31 round trips
+— and each of those calls built the ENTIRE preview payload (the revision's full `content_json` plus
+a `jsonb_agg` of every attached media row) so the caller could keep three scalars.
+
+`20260831090000_list_my_stories_cover.sql` had already added `cover_media_id`/`cover_alt_text` to
+`list_my_stories()` precisely to kill this (see "Item 2" further down), and the TypeScript was never
+switched over. What blocked the straight swap was that the same fan-out had since become the source
+of `draftRevisionStatus` — the flag My Stories uses to tell an in-flight draft the contributor may
+still edit apart from one already submitted and waiting on a moderator. On a published story those
+two look identical (`lifecycle_status = 'published'` plus a draft pointer), and that sameness is
+exactly what keeps the live version live (Engineering Rule 11). So:
+
+- **`20260902090300_list_my_stories_draft_revision_status.sql`** (DROP+CREATE — the return shape
+  grows). One trailing OUT column, `draft_revision_status public.story_revision_status`. Every
+  existing OUT column, the WHERE clause, the ordering, the grants and the security-definer settings
+  are unchanged.
+- **The join is the whole point.** Every other column reads `r` =
+  `coalesce(current_draft_revision_id, published_revision_id)`. This one reads a second alias `dr`
+  joined on `s.current_draft_revision_id` **alone**. Coalescing would report the PUBLISHED
+  revision's status (`'approved'`) for a story with nothing in flight — which says nothing about
+  work in flight and is exactly the ambiguity the column exists to remove. No draft ⇒ NULL, straight
+  out of the LEFT JOIN. That is the same value the old TypeScript derived the long way round, by
+  keeping `preview.revisionStatus` only when
+  `preview.revisionId === story.current_draft_revision_id`.
+- **Security unchanged (Rules 2, 13, 14).** Still no storage path of any kind — only
+  `cover_media_id` + `cover_alt_text`, with the signed URL minted separately after an independent
+  authorization re-check. `revision_status` is not new information to this caller either: it is the
+  status of their OWN draft, on a story they already read title, excerpt and cover from, and the
+  same value `get_story_preview()` already hands them.
+- **`listMyStoriesWithCovers()` is now a plain `.map()`** over one RPC. Gone with the fan-out: the
+  `Promise.all`, the per-story try/catch, the `my-stories.preview_unavailable` log, and the
+  `logAppEvent`/`getErrorMessage` imports. **Deleting that catch is safe because of the swap, not
+  in spite of it** — `get_story_preview()` RAISES "has no revision to preview" for a story with
+  neither a current draft nor a published revision (a rejected first submission, say);
+  `list_my_stories()` just returns nulls for the same story, so the error path stopped existing
+  rather than being ignored.
+
+**Applied via the MCP `apply_migration` path**, not `supabase db push` — that still fails with
+`LegacyDbPushMissingLocalError` (now 11 remote versions with no local file; see the ledger-drift
+note further down). Types regenerated with `npm run supabase:types:linked`: after Prettier, the
+diff against the committed file is exactly one added line, which also confirms the rest of the
+remote schema had not drifted.
+
+Verified: `npm run verify` clean (0 lint errors, 675/675 tests, build compiles), and
+`PLAYWRIGHT_PORT=3100 node --env-file=.env.test.local node_modules/.bin/playwright test
+e2e/contributor-story-update.spec.ts --workers=1` — 2/2 passing live against the rebuilt function,
+which is the spec that covers the My Stories chips and the Edit control.
+
+**2026-09-02 — Moderation: the "content cannot be rendered" bug, and a queue you can
 triage from.**
 
 User report, two parts: (1) the stories queue does not say who submitted a story or when, and the
@@ -596,6 +648,7 @@ and applies nothing — it is deliberately left as follow-up work, described in 
   pretends otherwise. Making it genuinely cacheable means moving the filtering client-side — a
   separate, larger piece of work, not scheduled.
 - **Item 2 — a migration written, NOT applied: `supabase/migrations/20260831090000_list_my_stories_cover.sql`.**
+  (Since applied, and the TypeScript finally switched over to it on 2026-09-02 — see the latest entry at the top.)
   `lib/story/contributor-queries.ts#listMyStoriesWithCovers()` calls `getStoryPreview(story.id)` once
   per story via `Promise.all` purely to read one cover thumbnail. `get_story_preview()` builds the
   entire preview payload each time — the revision's full `content_json` plus a `jsonb_agg` of every

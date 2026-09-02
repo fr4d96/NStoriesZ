@@ -1870,6 +1870,7 @@ export type Database = {
           cover_media_id: string;
           created_at: string;
           current_draft_revision_id: string;
+          draft_revision_status: Database["public"]["Enums"]["story_revision_status"];
           excerpt: string;
           id: string;
           lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
