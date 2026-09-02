@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getPublicImageUrl } from "@/lib/story/public-image-url";
 import {
@@ -86,9 +86,21 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
   const [active, setActive] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const listRef = useRef<HTMLUListElement>(null);
-  // Set only by goToPage(), so the focus effect fires on a real page change
-  // and never on first render.
-  const pageChangedRef = useRef(false);
+  // The pending scroll/focus frame scheduled by goToPage(), so it can be
+  // cancelled if the component unmounts (or the reader pages again) before
+  // the browser gets round to running it. A callback that outlives its
+  // component would touch a ref belonging to a tree React has already torn
+  // down.
+  const scrollFrameRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+    },
+    [],
+  );
 
   /**
    * Changing a filter returns to the first page. Without it, narrowing a
@@ -128,7 +140,6 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
   function goToPage(next: number) {
     const clamped = Math.min(Math.max(1, next), pageCount);
     if (clamped === currentPage) return;
-    pageChangedRef.current = true;
     setPage(clamped);
     // Paging is a navigation: without this the reader is left at the
     // bottom of the section looking at the page controls, with the new
@@ -137,7 +148,11 @@ export function StoryIndex({ stories }: { stories: StoryCardData[] }) {
     // the filters, and a screen reader is told where it landed.
     // `instant` because app/globals.css sets `scroll-behavior: smooth` and
     // the focus() a line later cancels an animating scroll partway.
-    requestAnimationFrame(() => {
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
       listRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
       listRef.current?.focus({ preventScroll: true });
     });
