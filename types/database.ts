@@ -1268,6 +1268,7 @@ export type Database = {
         Args: { p_object_name: string };
         Returns: boolean;
       };
+      _content_json_text_length: { Args: { p_content: Json }; Returns: number };
       _generate_story_slug: { Args: { p_title: string }; Returns: string };
       _is_story_owner: { Args: { p_story_id: string }; Returns: boolean };
       _latest_valid_consent_for_revision: {
@@ -1528,12 +1529,24 @@ export type Database = {
           p_work_type_id?: string;
         };
         Returns: {
+          consent_method: string;
+          content_text_length: number;
+          contributor_display_name: string;
+          contributor_public_slug: string;
+          decided_at: string;
+          decision: string;
+          image_count: number;
           is_replacement: boolean;
+          location_count: number;
+          open_report_count: number;
           revision_id: string;
+          revision_number: number;
           slug: string;
+          source_kind: string;
           story_id: string;
           submission_kind: string;
           submitted_at: string;
+          tag_count: number;
           title: string;
           total_count: number;
         }[];
@@ -1688,19 +1701,29 @@ export type Database = {
           attribution_type: Database["public"]["Enums"]["attribution_type"];
           attribution_value: string;
           confirmation_method: string;
+          consent_recorded_at: string;
           consent_valid: boolean;
           content_json: Json;
+          contributor_display_name: string;
+          contributor_note: string;
+          contributor_public_slug: string;
           excerpt: string;
           identifiable_people_state: Database["public"]["Enums"]["identifiable_people_state"];
           image_rights_confirmed_at: string;
+          lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
           media: Json;
           media_processed: boolean;
+          region_names: string[];
           revision_id: string;
           revision_number: number;
           revision_status: Database["public"]["Enums"]["story_revision_status"];
+          revision_updated_at: string;
           slug: string;
+          source_kind: string;
           story_id: string;
           story_version: number;
+          submitted_at: string;
+          tag_names: string[];
           title: string;
           total_expense_nzd_cents: number;
           travel_style: string;
@@ -1843,6 +1866,8 @@ export type Database = {
         Args: never;
         Returns: {
           archived_at: string;
+          cover_alt_text: string;
+          cover_media_id: string;
           created_at: string;
           current_draft_revision_id: string;
           excerpt: string;

@@ -227,6 +227,20 @@ criteria tied to this app's actual two-decision `moderateRevision()` lifecycle, 
 report categories in practice, and an explicit statement that admin escalation is a process/
 communication step today, not an in-app feature.
 
+**Implemented 2026-09-02 — an empty story can no longer reach moderation:**
+`submit_revision_with_consent()` now refuses a revision whose `content_json` contains no
+non-whitespace text at all, raising `WHV03` with a message the contributor reads verbatim. This was
+previously only a UI gate (`missingStoryRequirements()`), and the queue had accumulated 14
+title-only shells submitted before that gate existed — a moderator opening any of them was shown
+"Could not render submitted content.", which read as a system fault rather than a reviewable fact
+about the submission. What counts as content is deliberately the same test the contributor-facing
+gate applies ("is there any text"), not a minimum length: how long a story must be is editorial
+policy for [docs/moderation-guidelines.md](moderation-guidelines.md), not a number to bury in a
+migration. Revisions submitted **before** this rule are still fully reviewable — the review page
+now names them as empty and suggests request-changes with a pre-filled reason, rather than showing
+a rendering error. The queue itself flags them ("No story content") so they need not be opened at
+all.
+
 ## Reporting
 
 - Any reader can report a published story or image for review (e.g. suspected impersonation, rights

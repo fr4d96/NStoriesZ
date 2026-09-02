@@ -9,7 +9,16 @@ import { z } from "zod";
 
 const moderationQueueFieldSchemas = {
   status: z.enum(["submitted", "recently_reviewed"]),
-  sourceKind: z.enum(["self_service", "editorial_import"]),
+  // "self_submitted", NOT "self_service": this value is compared directly
+  // against stories.source_kind::text inside get_moderation_queue(), and
+  // the enum's label is `self_submitted` (story_source_kind). The old
+  // "self_service" spelling matched no row at all, so choosing "Self-service"
+  // in the queue filter silently emptied the queue instead of filtering it.
+  // An old bookmarked ?sourceKind=self_service now fails this parse and is
+  // dropped (falling back to "any source"), which is the parser's documented
+  // behaviour for an unrecognised value -- and strictly better than the
+  // zero-results it used to produce.
+  sourceKind: z.enum(["self_submitted", "editorial_import"]),
   regionId: z.uuid(),
   consentMethod: z.enum([
     "account",

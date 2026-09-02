@@ -713,6 +713,10 @@ describe("reports", () => {
       "create_self_service_draft",
       {
         p_title: slug("report-target"),
+        // Content is required at submit time as of migration
+        // 20260902090000 (submit_revision_with_consent raises WHV03 on an
+        // empty document), and this fixture submits below.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const revisionId = created![0].revision_id;
@@ -798,6 +802,9 @@ describe("submit_revision_with_consent terms-version enforcement (migration 2026
       "create_self_service_draft",
       {
         p_title: slug("terms-mismatch"),
+        // Content so this test still exercises the TERMS check -- an empty
+        // document would now fail earlier, on WHV03.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const revisionId = created![0].revision_id;
@@ -818,6 +825,9 @@ describe("submit_revision_with_consent terms-version enforcement (migration 2026
       "create_self_service_draft",
       {
         p_title: slug("terms-match"),
+        // This case asserts submit SUCCEEDS, so it needs content (migration
+        // 20260902090000).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const revisionId = created![0].revision_id;
@@ -840,6 +850,9 @@ describe("awaiting-contributor-approval submission path (the 'awaiting-approval 
       {
         p_contributor_id: ownerContributorId,
         p_title: slug("awaiting-approval"),
+        // Submitted below; content is required at submit time as of
+        // migration 20260902090000 (WHV03 on an empty document).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     expect(createError).toBeNull();
@@ -885,6 +898,10 @@ describe("source-kind-partitioned authorization survives contributor relinking (
       "create_self_service_draft",
       {
         p_title: slug("relink-isolation"),
+        // Content so the "other cannot submit consent" assertion below
+        // still fails on the ACTOR check, not on the empty-content check
+        // added in migration 20260902090000.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const storyId = created![0].story_id;
@@ -1481,6 +1498,9 @@ describe("Prompt 5: public contributor directory and detail", () => {
       {
         p_contributor_id: anonContributor!.id,
         p_title: slug("anon-attribution-story"),
+        // Submitted below; content is required at submit time as of
+        // migration 20260902090000 (WHV03 on an empty document).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const { error: anonSubmitError } = await editor.client.rpc(
@@ -1521,6 +1541,9 @@ describe("Prompt 5: public contributor directory and detail", () => {
       {
         p_contributor_id: realContributor!.id,
         p_title: slug("real-contributor-story"),
+        // Submitted below; content is required at submit time as of
+        // migration 20260902090000 (WHV03 on an empty document).
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
     const { error: realSubmitError } = await editor.client.rpc(
@@ -1589,7 +1612,11 @@ describe("editor is denied every moderator/publication-attempt action", () => {
   beforeAll(async () => {
     const { data: created } = await owner.client.rpc(
       "create_self_service_draft",
-      { p_title: slug("editor-denial") },
+      {
+        p_title: slug("editor-denial"),
+        // Submitted below; content required as of migration 20260902090000.
+        p_content_json: [{ type: "markdown", text: "Fixture content." }],
+      },
     );
     storyId = created![0].story_id;
     revisionId = created![0].revision_id;
