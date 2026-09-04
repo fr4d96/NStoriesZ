@@ -7,7 +7,7 @@ import { STORY_STEPS } from "@/lib/story/steps";
 describe("StoryStepProgress", () => {
   it("names the current step and its position in the timeline", () => {
     render(<StoryStepProgress currentStep="trip" doneSteps={[]} />);
-    expect(screen.getByText(/Step 4 of 6/)).toBeInTheDocument();
+    expect(screen.getByText(/Step 4 of 7/)).toBeInTheDocument();
     expect(screen.getByText(/· Trip/)).toBeInTheDocument();
   });
 
@@ -22,7 +22,7 @@ describe("StoryStepProgress", () => {
   it("ticks the current step when it is also complete", () => {
     render(<StoryStepProgress currentStep="title" doneSteps={["title"]} />);
     expect(
-      screen.getByRole("button", { name: /Step 1 of 6: Title/ }),
+      screen.getByRole("button", { name: /Step 1 of 7: Title/ }),
     ).toHaveAccessibleName(/current step, done/);
   });
 
@@ -110,7 +110,7 @@ describe("StoryStepProgress", () => {
       />,
     );
     expect(
-      screen.getByRole("link", { name: /Step 1 of 6: Title/ }),
+      screen.getByRole("link", { name: /Step 1 of 7: Title/ }),
     ).toHaveAttribute("href", "/stories/abc/edit?step=title");
     // A step with no href stays a button -- the caller decides per step,
     // so the review step itself is not a link back to its own page.

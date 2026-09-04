@@ -106,14 +106,26 @@ export function StoryStepProgress({
         >
           {isDone ? "✓" : index + 1}
         </span>
-        <span
-          aria-hidden="true"
-          className={`hidden text-xs font-medium whitespace-nowrap lg:inline ${
-            isCurrent ? "text-foreground" : "text-muted-foreground"
-          }`}
-        >
-          {STORY_STEPS[index].label}
-        </span>
+        {/* The CURRENT step's label only, not all seven.
+            All seven never fitted: the rail needs ~807px and the editor
+            column is max-w-3xl (720px usable), and because that cap does not
+            grow with the viewport there is no width at which they would.
+            The old `lg:inline` did not reveal that -- it just let each
+            `whitespace-nowrap` label overflow its own shrunken box, which is
+            how "Review & submit" ended up printed 18px outside the
+            container.
+            Nothing is actually lost: the summary line above already names
+            the current step in full, and the circles carry the two things
+            the rail is for -- how far along you are, and which steps are
+            done. */}
+        {isCurrent && (
+          <span
+            aria-hidden="true"
+            className="hidden text-xs font-medium whitespace-nowrap text-foreground sm:inline"
+          >
+            {STORY_STEPS[index].label}
+          </span>
+        )}
       </>
     );
   }
@@ -131,17 +143,26 @@ export function StoryStepProgress({
         </span>
       </p>
 
-      <ol className="mt-2 flex items-center gap-1">
+      {/* `overflow-x-auto` is the safety net, not the plan: the rail is
+          tuned below to fit the editor's max-w-3xl column, and this stops a
+          future longer label (or a translation) from spilling outside the
+          container the way "Review & submit" did -- it ran 18px past the
+          right edge because `min-w-0` let each item shrink while its label
+          was `whitespace-nowrap`, so the text overflowed its own box. The
+          items are focusable links/buttons, so keyboard users reach a
+          scrolled-off step by tabbing and the browser scrolls it into view;
+          no tabIndex of its own is needed here. */}
+      <ol className="mt-2 flex items-center gap-1 overflow-x-auto">
         {STORY_STEPS.map((step, index) => {
           const { isCurrent } = stateOf(step.id, index);
           const inner = <Face id={step.id} index={index} />;
           const shared =
-            "flex items-center gap-2 rounded-full px-1 py-0.5 outline-none focus-visible:ring-2 focus-visible:ring-accent";
+            "flex items-center gap-2 rounded-full px-0.5 py-0.5 outline-none focus-visible:ring-2 focus-visible:ring-accent";
           const href = hrefs?.[step.id];
           const isLocked = locked.has(step.id);
 
           return (
-            <li key={step.id} className="flex min-w-0 items-center gap-1">
+            <li key={step.id} className="flex shrink-0 items-center gap-1">
               {isLocked ? (
                 // A plain <span>, not a disabled <button>: there is nothing
                 // to activate here, so it should not be in the tab order at
@@ -177,7 +198,7 @@ export function StoryStepProgress({
               {index < STORY_STEPS.length - 1 && (
                 <span
                   aria-hidden="true"
-                  className={`h-px w-3 shrink-0 lg:w-6 ${
+                  className={`h-px w-2 shrink-0 sm:w-3 lg:w-4 ${
                     index < currentIndex ? "bg-accent/60" : "bg-border-subtle"
                   }`}
                 />
