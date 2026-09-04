@@ -3,6 +3,7 @@ import {
   isSafeHref,
   storyContentBlockSchema,
   storyContentSchema,
+  draftContentSchema,
   storyContentText,
   markdownToStoryContent,
   imageBlockMediaIds,
@@ -237,12 +238,99 @@ describe("revisionInputSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects empty content", () => {
+  // DELIBERATELY REVERSED. This used to assert that empty content was
+  // rejected, which is what stopped every OTHER field on the same payload
+  // (sub-title, travel style, total expenses, contributor note) from saving
+  // on a story whose body had not been written yet -- and step 1 of the
+  // timeline is Title, step 2 is Your story, so walking the steps in order
+  // was the path straight into it. Content is a SUBMIT-time requirement,
+  // enforced by missingStoryRequirements() in the UI and by
+  // submit_revision_with_consent() in the database, not a save-time one.
+  it("accepts empty content, so a not-yet-written story can still save", () => {
     const result = revisionInputSchema.safeParse({
       title: "My trip",
       contentJson: [],
     });
+    expect(result.success).toBe(true);
+  });
+
+  it("saves the other fields on a story with no body text yet", () => {
+    const result = revisionInputSchema.safeParse({
+      title: "My trip",
+      excerpt: "A subtitle typed on step 1",
+      totalExpenseNzdCents: 1_400_000,
+      contentJson: [],
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.excerpt).toBe("A subtitle typed on step 1");
+    expect(result.data.totalExpenseNzdCents).toBe(1_400_000);
+  });
+
+  it("treats a whitespace-only block as no content, not as a broken block", () => {
+    // What the editor actually sends after you type and then delete it all.
+    const result = revisionInputSchema.safeParse({
+      title: "My trip",
+      contentJson: markdownToStoryContent("   \n  "),
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.contentJson).toEqual([]);
+  });
+
+  // Everything below still fails -- relaxing "there has to be some content"
+  // must not relax the rules that apply to content there IS.
+  it("still rejects an H1 inside the body", () => {
+    const result = revisionInputSchema.safeParse({
+      title: "My trip",
+      contentJson: markdownToStoryContent("# Not allowed"),
+    });
     expect(result.success).toBe(false);
+  });
+
+  it("still rejects a pasted markdown image link", () => {
+    const result = revisionInputSchema.safeParse({
+      title: "My trip",
+      contentJson: markdownToStoryContent("![alt](https://example.com/a.png)"),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("still rejects an unsafe link href", () => {
+    const result = revisionInputSchema.safeParse({
+      title: "My trip",
+      contentJson: markdownToStoryContent("[x](javascript:alert(1))"),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("still rejects more than one content block", () => {
+    const result = revisionInputSchema.safeParse({
+      title: "My trip",
+      contentJson: [
+        { type: "markdown", text: "a" },
+        { type: "markdown", text: "b" },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("draftContentSchema vs storyContentSchema", () => {
+  // The import/paste paths (PDF, HTML, legacy) keep the strict one: there,
+  // "must have content" IS the requirement, not incidental to it.
+  it("storyContentSchema still rejects empty content", () => {
+    expect(storyContentSchema.safeParse([]).success).toBe(false);
+  });
+
+  it("draftContentSchema accepts empty content", () => {
+    expect(draftContentSchema.safeParse([]).success).toBe(true);
+  });
+
+  it("both accept a real block", () => {
+    const blocks = markdownToStoryContent("Real writing.");
+    expect(storyContentSchema.safeParse(blocks).success).toBe(true);
+    expect(draftContentSchema.safeParse(blocks).success).toBe(true);
   });
 });
 

@@ -156,6 +156,60 @@ export const storyContentSchema = z
   .array(storyContentBlockSchema)
   .length(1, "Your story needs at least some content.");
 
+/**
+ * The same content rules, minus "there has to be some" -- for SAVING a
+ * draft, as opposed to importing one or submitting it.
+ *
+ * WHY THIS EXISTS. Every field on the editor's debounced "fields" save
+ * (title, sub-title, travel style, total expenses, contributor note) goes
+ * through revisionInputSchema in ONE parse, so `contentJson` failing took
+ * the whole payload down with it. On a story with no body text yet -- which
+ * is every story for as long as it takes to get from step 1 to step 2 --
+ * that meant nothing on step 1 could be saved at all: the editor showed
+ * "Your story needs at least some content." and silently kept "Not saved
+ * yet". Confirmed live before this fix, and confirmed in the database
+ * afterwards (`excerpt` stayed NULL on a real draft while the field on
+ * screen had text in it).
+ *
+ * The timeline makes that unavoidable rather than unlikely: step 1 is
+ * Title, step 2 is Your story, so following the steps in order is exactly
+ * the path that hits it. createDraftSchema below already says the quiet
+ * part -- "at least some content" is a save-time/submit-time rule, not
+ * something an empty shell revision should be blocked on.
+ *
+ * WHAT THIS DOES NOT RELAX. Empty-text blocks are dropped rather than
+ * accepted, so a document is either genuinely empty or a real block that
+ * still faces every original rule: length ceiling, the no-H1 rule, the
+ * no-pasted-image-links rule, and the safe-href rule. `storyContentSchema`
+ * itself is untouched and stays strict for the paths where "must have
+ * content" is the actual requirement -- PDF/HTML/legacy import and paste.
+ *
+ * AND IT DOES NOT WEAKEN SUBMIT (Engineering Rules 2/3). An empty story
+ * still cannot be submitted: the UI gate is missingStoryRequirements()
+ * (lib/story/steps.ts) and the non-bypassable one is
+ * submit_revision_with_consent(), which has required real content in the
+ * database since 20260902090000_submit_requires_story_content.sql. This
+ * only changes what may be SAVED while still being written.
+ */
+export const draftContentSchema = z.preprocess(
+  (value) => {
+    if (!Array.isArray(value)) return value;
+    return value.filter(
+      (block) =>
+        !(
+          block !== null &&
+          typeof block === "object" &&
+          (block as { type?: unknown }).type === "markdown" &&
+          typeof (block as { text?: unknown }).text === "string" &&
+          (block as { text: string }).text.trim() === ""
+        ),
+    );
+  },
+  z
+    .array(storyContentBlockSchema)
+    .max(1, "A story has a single content block."),
+);
+
 // Mirrors supabase/migrations/20260803090200_story_revisions.sql's CHECK
 // constraints — duplicated deliberately for fast/friendly form errors; the
 // DB constraints (and the immutability trigger) are the non-bypassable
@@ -184,7 +238,11 @@ export const revisionInputSchema = z
   .object({
     title: z.string().trim().min(1, "Title is required.").max(200),
     excerpt: z.string().trim().max(500).optional().or(z.literal("")),
-    contentJson: storyContentSchema,
+    // draftContentSchema, NOT storyContentSchema -- see its comment above.
+    // This schema is the DRAFT-SAVE boundary (the editor's autosave and
+    // saveRevisionFieldsAction); requiring content here blocked every other
+    // field on the same payload from saving on a story not yet written.
+    contentJson: draftContentSchema,
     tripStartDate: z.iso.date().optional().or(z.literal("")),
     tripEndDate: z.iso.date().optional().or(z.literal("")),
     tripYear: z.number().int().min(2000).max(2100).optional(),
@@ -268,6 +326,43 @@ export const revisionTagsSchema = z
   .max(MAX_TAGS_PER_REVISION, {
     message: `You can add up to ${MAX_TAGS_PER_REVISION} tags to a story.`,
   });
+
+/**
+ * Optional per-category expense breakdown (2026-09-02). The lump
+ * `totalExpenseNzdCents` above stays the headline number and stays
+ * independent of this -- a partial breakdown is the normal case, not an
+ * error, so nothing here (and nothing in the database) requires the
+ * categories to add up to the total. "The categories exceed the stated
+ * total" is an advisory finding in lib/story/content-quality-checks.ts.
+ *
+ * Categories are CURATED -- there is deliberately no `customLabel` escape
+ * hatch like tags have. A tag labels one story; an expense exists to be
+ * added up across stories, and free text ("car" / "van stuff" / "vehicle")
+ * makes that impossible. The `other` category plus `note` carries the rest.
+ */
+export const EXPENSE_NOTE_MAX_LENGTH = 120;
+
+/**
+ * One row per category is all the table allows
+ * (story_revision_expenses_one_per_category), so this cap is really just
+ * "no more rows than there are categories" with generous headroom -- it
+ * exists so an array schema can never be handed something unbounded.
+ */
+export const MAX_EXPENSE_ROWS_PER_REVISION = 40;
+
+export const revisionExpenseSchema = z.object({
+  categoryId: z.uuid(),
+  // Cents, non-negative. An empty amount is not zero: the form drops such a
+  // row before it ever reaches here, and set_revision_expenses() drops it
+  // again server-side, so "I didn't record it" is never stored as "it cost
+  // nothing".
+  amountNzdCents: z.number().int().min(0),
+  note: z.string().trim().max(EXPENSE_NOTE_MAX_LENGTH).nullable().optional(),
+});
+
+export const revisionExpensesSchema = z
+  .array(revisionExpenseSchema)
+  .max(MAX_EXPENSE_ROWS_PER_REVISION);
 
 export const confirmationMethods = [
   "account",
