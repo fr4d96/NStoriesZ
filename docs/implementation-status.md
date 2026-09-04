@@ -5808,3 +5808,473 @@ Verified: `documentElement.scrollWidth === clientWidth` at 375px, with no unclip
 elements left anywhere on the page, and sampled every ~45ms across a full throw animation —
 overflow stayed at 0 throughout, where before the throw pushed the document wider mid-flight.
 `npm run verify` clean: 649/649 tests, build compiles.
+
+## 2026-09-03 — Story expenses gain an optional per-category breakdown
+
+A story carried exactly one money number, `story_revisions.total_expense_nzd_cents`, which
+answers "what did the whole thing cost" and nothing else. This adds the optional follow-up —
+flights $2,000, vehicle $3,500 — captured in the New Story flow's Trip step, directly beneath
+the existing total.
+
+**Migrations written but NOT pushed.** Five files under `supabase/migrations/`; pushing to the
+linked dev project is the user's call, so nothing has been applied and `types/database.ts` has
+not been regenerated. See "What still needs doing after a push" at the end of this entry.
+
+### Two tables, split by access model rather than by topic
+
+This schema separates tables by **how they are reached**, not by what they hold, and the
+breakdown needs one of each:
+
+- `expense_categories` (`20260902110000`) is reference data — no ownership, no lifecycle,
+  nothing sensitive — so it mirrors `tags` in `20260803090000_lookup_tables.sql` exactly: plain
+  RLS with real grants, the same four policies (anon/authenticated read active, staff read all,
+  admin writes), the same slug format and `set_updated_at` trigger. It adds `description` (one
+  line of guidance in the editor, so two contributors bucket the same spend the same way) and
+  `sort_order` (the editor lists these in trip order, which is neither alphabetical nor creation
+  order).
+- `story_revision_expenses` (`20260902110100`) is per-revision child data, so it follows
+  `20260803090300_story_revision_relations.sql`: keyed off `revision_id` (never `story_id`, or an
+  unapproved edit could reach a public read — Rules 10/11), RLS on with **zero policies**, the
+  shared `_protect_revision_child_immutability()` trigger reused rather than reimplemented, and
+  an explicit `revoke all ... from public, anon, authenticated` in the creating migration.
+
+That revoke is required, not decorative: Supabase grants broad privileges to `anon`/
+`authenticated` on every new public-schema table independent of RLS, which is why
+`20260803090900_lock_down_story_domain_grants.sql` had to retro-fit it across fourteen tables.
+A new table starts in exactly that state.
+
+### Four decisions worth writing down
+
+- **Curated categories only — no free-text label.** Deliberately unlike
+  `story_revision_tags.custom_label`. A tag labels one story; an expense exists to be _aggregated
+  across_ stories, and free text ("car" / "van stuff" / "vehicle") makes that impossible. The
+  `other` category plus a short `note` carries the long tail without poisoning the numbers.
+- **`total_expense_nzd_cents` stays independent.** No generated column, no CHECK tying it to the
+  sum. A partial breakdown is the normal case, not an error. The one genuinely odd combination —
+  the parts exceeding the whole — is an advisory finding (`expense_breakdown_exceeds_total`) in
+  `lib/story/content-quality-checks.ts` and a plain sentence in the editor, never a constraint.
+- **An empty amount drops the row; it is never stored as 0.** "I didn't record it" and "it cost
+  nothing" are different claims, and `Number("")` is 0 rather than NaN, so this needs an explicit
+  guard. Enforced twice: `expenseRowsToPayload()` client-side, `set_revision_expenses()` again in
+  the database.
+- **No trip-length column.** `trip_start_date`/`trip_end_date` already live on the revision, so a
+  per-week figure is derived, never stored twice and never able to disagree.
+
+### The silent-loss bug, fixed before it could happen
+
+`create_next_draft_revision()` copies a published revision's child rows into a new draft. It did
+not know about expenses, so editing a published story would have discarded the entire budget.
+
+This is the same bug `20260902100000_copy_custom_labels_into_next_draft.sql` fixed two days
+earlier — a child table gained a column, the copy function was not updated. That one at least
+**failed loudly**: a check constraint caught the bad row and the transaction rolled back. This
+one would not. Nothing constrains a revision to having expense rows (a partial or absent
+breakdown is valid by design), so an uncopied breakdown raises nothing, logs nothing, and is
+indistinguishable from a contributor who never filled one in.
+
+`20260902110300` fixes it, reproducing the rest of the function verbatim (draft-pointer update
+before child copies, or `_protect_revision_child_immutability()` rejects every row as an orphan).
+It also puts an explicit **child-table checklist inside the function body**, at the point where
+the mistake gets made, rather than in a doc nobody opens while editing SQL.
+
+### The save shape — the one genuinely new bit of the form
+
+`story-edit-form.tsx` had exactly two save shapes, and expenses are neither:
+
+- **Typing** (title/body/total) is debounced onto the `"fields"` queue slot and takes the
+  server's returned version as authoritative.
+- **Discrete actions** (tags/locations) fire immediately on their own slot and bump
+  `versionRef.current += 1` locally, since those RPCs return void.
+
+Expenses are both. Adding a category row is discrete; typing `2000` into an amount box passes
+through `2`, `20`, `200`. As a discrete action that is four saves per number; folded into
+`"fields"` it drags the whole title/body payload along with every keystroke.
+
+**Resolution: debounced like typing, but enqueued on its own `"expenses"` slot.** `MutationQueue`
+coalesces per slot, so a burst collapses to one call, and staying off `"fields"` means it can
+neither delay a body autosave nor collide with the editorial import-apply, which deliberately
+owns that slot for its destructive replace. Version bumps `+= 1`, since the RPC returns void.
+
+Dollars→cents uses the identical `Math.round(Number(x) * 100)` as the headline total, in one
+shared `expenseRowsToPayload()`, so the two numbers on the same screen cannot round differently.
+(Pinned in a test: `"1.005"` gives 100, not 101, because `1.005 * 100` is `100.49999999999999` —
+a quirk worth agreeing on rather than fixing in one place only.)
+
+### Also changed
+
+- `tripFilled` ticked the Trip step on dates alone, so a contributor who filled a full budget and
+  no dates saw an unticked step they had just completed. Now dates **or** expenses.
+- `missingStoryRequirements()` in `lib/story/steps.ts` is deliberately **unchanged** — the Trip
+  step is optional and expenses stay optional. Verified, not assumed.
+- `/editorial/:id/edit` renders the same `StoryEditForm`, so staff get the breakdown
+  automatically. Expected, not a bug.
+
+### What still needs doing after a push
+
+The migrations are written and unpushed, so `npm run supabase:types:linked` cannot yet reflect
+them. Nothing is hand-edited into `types/database.ts`. Three call sites use the repo's existing
+stale-types escape hatch and must go back to plain, fully-typed calls once types are regenerated:
+
+- `getRevisionSelections()` and `setRevisionExpenses()` route through
+  `lib/supabase/call-untyped-rpc.ts` (which had zero call sites since 2026-08-31 — this is
+  exactly the gap it is kept for).
+- `listActiveExpenseCategories()` routes through a new `lib/supabase/call-untyped-table.ts`, the
+  table-level twin of that helper, for the same reason and with the same "delete the call site
+  when real types land" rule. The RLS integration suite has carried its own local copy of both
+  escape hatches since Prompt 4; this is the first one in application code.
+
+Also unrun: `tests/integration/story-rls.integration.test.ts`'s new
+`story_revision_expenses` block (`npm run test:rls` needs the migrations live). It covers
+non-owner write denied, direct table write denied, stale version, frozen-revision write denied,
+the empty-amount-is-not-zero rule, and **the next-draft copy preserving expenses** — that last
+one specifically because the custom-label bug got through precisely by never having a fixture for
+the breaking case.
+
+### Not in scope this batch (explicit call)
+
+Public story page display of the breakdown, the aggregate "what it actually cost" page, and
+moderator review page display.
+
+`npm run verify` clean.
+
+### Per-month view (same day, follow-up)
+
+`lib/story/expense-per-month.ts` — the total divided by the trip length, **derived at render
+time, never stored**. $10k over three months and $10k over twelve are different stories and the
+raw total cannot tell them apart; `trip_start_date`/`trip_end_date` are already recorded, so this
+needed no column and no migration. It also works on every story that already has a total,
+breakdown or not.
+
+Deliberately a pure module with no React and no Supabase import: the editor consumes it today,
+and a public story page or a cross-story aggregate can call the identical function later without
+any of it moving.
+
+Three decisions worth keeping:
+
+- **A trip under 28 days renders nothing** (`MIN_TRIP_DAYS_FOR_PER_MONTH`). $3,000 spent in 10
+  days is not "$9,132 a month" — that is extrapolation wearing the costume of data, and
+  Engineering Rule 17 makes it the wrong thing to print. `too-short` is a distinct result from
+  `no-dates` so the caller can tell "cannot compute" from "chose not to".
+- **Dates parse as explicit UTC**, not via `new Date(str)`. These are calendar dates (Rule 9) and
+  a contributor's browser timezone must never change how long their trip was. Duration counts
+  both endpoints, so a same-day trip is 1 day, not 0.
+- **Months use 30.436875** (365.2425 / 12), not a flat 30, so a 365-day trip reads as exactly
+  "12 months" rather than 12.2 — the case people actually notice, since a WHV is commonly a year.
+
+`formatNzdCents()` now lives in this module and `expense-breakdown.tsx` imports it, replacing its
+local copy — one currency formatter, so two figures on the same screen cannot format differently.
+
+17 new unit tests (`lib/story/expense-per-month.test.ts`). `npm run verify` clean: 65 test files,
+**725/725**, 0 lint errors, build compiles.
+
+### Deploy ordering — matters
+
+`listActiveExpenseCategories()` does `if (error) throw error`, matching `listActiveTags()`
+directly above it. So until the five migrations are actually pushed, **`/stories/:id/edit` and
+`/editorial/:id/edit` will throw** — `expense_categories` does not exist yet. The migrations must
+land before this code ships; they are not independently deployable in either order. Left as a
+throw rather than a silent empty list on purpose: a missing lookup table is a deployment fault
+and should be loud, not a feature that quietly disappears.
+
+This is also why none of this was browser-verified: the pages that render it cannot load against
+the linked project until the push happens.
+
+## 2026-09-03 — Expenses becomes its own step, with a donut
+
+Expenses stopped being a panel inside **Trip** and became step 5 of seven: **Title → Your story →
+Photos → Trip → Expenses → Places & tags → Review & submit**. It carries two inputs, the derived
+per-month line, a repeating category list and a figure — more than the Trip step could hold
+without burying the dates above it.
+
+Adding a step cost one line in `lib/story/steps.ts`. Every consumer already derived from
+`STORY_STEPS` (`findIndex`, `length - 2`, `EDITING_STORY_STEPS`), so nothing hardcoded six. The
+only edits were three `of 6` → `of 7` strings in `story-steps.test.tsx`.
+
+**Trip and Expenses now tick independently.** They were briefly one flag (`tripFilled` counted
+dates _or_ expenses), which meant filling in a budget silently ticked "Trip". Dates belong to
+Trip, money to Expenses.
+
+### The donut — `components/story/expense-donut.tsx`
+
+Inputs left, figure right, `lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]`. The editor column is
+`max-w-3xl`, so splitting any earlier squeezes the amount fields into wrapping; below `lg` the
+figure simply follows the list it describes (Rule 18).
+
+Hand-drawn SVG, **no charting dependency** (Rule 20): one figure, one shape, ~20 lines of arc
+maths, and it themes itself from the app's own tokens. A library would bring its own theming,
+font stack and DOM for that.
+
+Decisions:
+
+- **Six slices, hard cap.** Past ~6 segments a donut stops being readable at a glance, so the
+  tail folds into one **"Smaller categories"** slice rather than growing a seventh hue — a
+  generated hue is indistinguishable from an existing one under CVD. The fold is deliberately not
+  called "Other": `other` is a real expense category a contributor may have picked, and both can
+  be on screen at once.
+- **Slices sort descending**, so colour is assigned by rank. Safe only because this figure never
+  sits beside a second one it would have to agree with — a cross-story aggregate would need
+  colour pinned to the category instead.
+- **A lone slice draws as a stroked circle, not an arc.** A full-turn arc's start and end points
+  coincide and the path collapses to nothing.
+- **The SVG is `aria-hidden`.** Identity comes from the legend (name + amount + share, in ink
+  tokens, never colour alone) and from the editable list to its left, which is the same data as a
+  table. A screen reader gets the numbers twice and is never read a slice.
+- **`<1%`, never a bare `0%`**, for an expense that is genuinely there.
+
+### A new categorical palette — `--expense-1..6`
+
+The existing `--chart-1..4` could not be reused: it is documented "staff analytics only … never on
+a public route", and more importantly it is **one sequential teal hue**. These slices are
+identities ("flights" vs "rent"), not magnitudes, so a single ramp would make adjacent slices
+unreadable. This is the app's only categorical palette.
+
+Both renditions were **computed, not eyeballed** — `scripts/validate_palette.js` from the dataviz
+skill, which checks lightness band, chroma floor, adjacent-pair CVD separation, normal-vision
+floor, and contrast against that rendition's `--surface`:
+
+- Light `#009489 #b4761a #8043a0 #4a8020 #1f6fd0 #a83250` — ALL CHECKS PASS against `#fffefc`.
+- Dark `#2aa89b #b8842a #a06ec2 #689a35 #4a90dd #d55f7d` — ALL CHECKS PASS against `#0d1218`.
+
+Three rounds were needed: the first candidate failed the chroma floor on teal and slate (they read
+as gray) and put terracotta and ochre 10.6 ΔE apart in _normal_ vision; the first dark set was
+uniformly too light for the dark band. Dark is its own steps from the same hues, not a flip.
+
+The worst adjacent tritan pair sits in the 6–8 band, which is legal **only** with secondary
+encoding — here the direct labels, the legend, and the 2px surface gaps between slices. Do not
+remove those and keep these colours.
+
+### Verified
+
+`npm run verify` clean: 66 test files, **736/736**, 0 lint errors, build compiles. 13 new donut
+tests. The React Compiler's "Cannot reassign variable after render completes" rule caught a
+mutable `let cursor` accumulating slice offsets during render — now a fold.
+
+Geometry was rendered and inspected at 2, 3, 6 and 95/4/1 slices: hues stay distinct, the gaps
+read, and a 1% sliver still draws as a visible mark instead of vanishing. That was done by
+injecting the arc maths into a page in the browser, **not** by loading the editor — which still
+cannot run until the migrations are pushed (see the deploy-ordering note above).
+
+## 2026-09-03 — Migrations pushed; two real bugs found and fixed
+
+### The five expense migrations are applied
+
+Applied to the linked dev project (`ybhydepjaantkngngvuf`) and verified: 11 categories seeded, RLS
+on, **zero policies and zero grants** on `story_revision_expenses` (SECURITY DEFINER functions are
+the only way in), the shared immutability trigger attached, and both `create_next_draft_revision`
+and `get_revision_selections` carrying their expense changes. `types/database.ts` regenerated from
+the live schema.
+
+**Not via `supabase db push`** — it refuses, and correctly. The migration history has **13
+remote-only entries with no local file** (`20260823090553` beside a local `20260823090000`, and
+twelve more), the signature of migrations applied through the dashboard/MCP, which stamps its own
+timestamp. The CLI's suggested fix is `migration repair --status reverted` on all 13, which
+rewrites migration history; that was **deliberately not done** — the drift predates this work and
+is the user's call.
+
+Checked before deciding, not assumed: all 14 functions those 12 local files define already exist
+remotely, and all 12 are `create or replace function` (no new tables), so their content is live
+and only the bookkeeping disagrees. The 5 expense migrations were applied individually instead.
+**The drift is still there** and still blocks `db push`.
+
+### Bug 1 — no field could save on a story with no body text
+
+`revisionInputSchema` required story content, and every field on the editor's debounced "fields"
+save (title, sub-title, travel style, total expenses, contributor note) goes through it in ONE
+parse. So `contentJson: []` took the whole payload down: the editor showed "Your story needs at
+least some content." and silently stayed on "Not saved yet".
+
+The timeline makes that the normal path, not an edge case — step 1 is Title, step 2 is Your story,
+so following the steps in order walks straight into it. Reproduced live, and confirmed in the
+database (`excerpt` stayed NULL while the field on screen had text in it).
+
+Fixed with `draftContentSchema` (`lib/validation/story.ts`): empty-text blocks are dropped and an
+empty document is allowed, so a document is either genuinely empty or a real block still facing
+every original rule — length ceiling, no-H1, no-pasted-image-links, safe-href.
+
+- `storyContentSchema` is **untouched** and stays strict for PDF/HTML/legacy import and paste,
+  where "must have content" is the actual requirement.
+- Submit is **not** weakened (Rules 2/3): `missingStoryRequirements()` still gates the UI and
+  `submit_revision_with_consent()` still requires real content in the database
+  (20260902090000). This only changes what may be SAVED while a story is still being written.
+- The existing "rejects empty content" test is deliberately reversed, with the reason in the test.
+
+### Bug 2 (feature) — the total now follows the breakdown
+
+Requested: auto-fill "Total expenses (NZD)" from the per-category breakdown.
+
+Built as a _smart default_, not a hard mirror, because the two are independent in the database on
+purpose: a partial breakdown ("I know my flights and my van, not my groceries") is normal, and the
+total is what `/stories`' cost-band filter reads — so a partial breakdown silently overwriting a
+real total would file the story under a band its author never claimed.
+
+- The total follows the breakdown while in `auto` mode.
+- Typing in the total switches to `manual`, and the breakdown stops touching it.
+- "Use the breakdown total ($X)" hands it back; shown only when it would change something.
+- Re-opening a story whose stored total disagrees with its breakdown starts on `manual`, so an
+  author's own figure is never silently rewritten.
+- `breakdownTotalDollars()` sums through `expenseRowsToPayload()`, so the auto-filled total counts
+  exactly the rows that will be saved — a half-typed amount contributes nothing to either. An
+  empty breakdown yields `""`, not `"0"`.
+- A story that already had a breakdown but no total is reconciled **once on mount** (a write, not
+  a display-only derivation — showing $1,700 in a box whose saved value is empty would be the
+  editor lying, and the cost-band filter reads the stored number). The React Compiler rejected the
+  first attempt ("Calling setState synchronously within an effect"); the display now comes from
+  initial state and the effect only schedules the save.
+
+Both writes fire together safely: `MutationQueue` runs every slot strictly one at a time in
+scheduling order, so the "fields" save always observes the version the "expenses" save produced.
+
+### Verified
+
+`npm run verify` clean: 66 test files, **749/749**, 0 lint errors, build compiles — run against the
+regenerated types, not the hand-written stand-ins.
+
+Live, against the linked project: expenses save and reload; the donut draws sorted with the total
+in its hole; a sub-title saves on a body-less story ("Saved just now", and `excerpt` non-NULL in
+the database); the total back-filled to 1700 on load, tracked to 5000 when a row was added
+(`total_expense_nzd_cents = 500000 = breakdown_sum_cents`), and held at a manually typed 14000
+with the re-sync link offered.
+
+## 2026-09-03 (later) — A draft with expenses could not be deleted
+
+Found while clearing test data, which is the only reason it was found at all.
+
+`delete_draft_story()` clears its child tables **by name**, one delete per table, and
+`story_revision_expenses` (20260902110100) was never added to that list. Its
+`revision_id references story_revisions(id) on delete restrict` — the same restrict every other
+per-revision child table carries — then refused the function's own
+`delete from public.story_revisions`, the exception rolled the whole transaction back, and the
+story stayed exactly where it was.
+
+**It failed silently.** The confirm dialog closed, the list re-rendered, and the story was still
+there; nothing surfaced an error. Confirmed in the database before writing the fix, and confirmed
+fixed by deleting the same story afterwards (story row, revision rows and expense rows all gone,
+zero orphans).
+
+`supabase/migrations/20260903090000_delete_draft_story_expenses.sql` adds the one missing delete.
+
+### The checklist was in the wrong place
+
+20260902110300 put a child-table checklist inside `create_next_draft_revision()` precisely so the
+next person would not miss a table. That was **one site of two**, and putting the checklist only
+there is what made this easy to miss. Both functions now carry it and both name each other:
+
+- `create_next_draft_revision()` — COPIES every child table into the new draft. A miss loses the
+  contributor's data silently.
+- `delete_draft_story()` — DELETES every child table before the revision. A miss makes deletion
+  fail and roll back silently.
+
+Adding a per-revision table means editing both in the same change. Three migrations
+(20260902100000, 20260902110300, 20260903090000) now exist only because that did not happen.
+
+Checked at the same time: seven functions mention `story_revision_tags` but not
+`story_revision_expenses`. Six are read paths (`get_published_story`, `get_story_for_moderator`,
+`get_moderation_queue`, `list_published_stories`, `get_content_readiness_queue`,
+`set_revision_tags`) — none is blocked by the new table, and surfacing the breakdown publicly or
+in moderation remains scoped work nobody has asked for. `delete_draft_story` was the only real
+break.
+
+## 2026-09-03 — The breakdown list is a fixed-height scroll region
+
+`h-56` (224px) with `overflow-y-auto` on the category list inside "Break it down by category".
+"Add a category" and the running subtotal sit outside it and stay put, so the controls never
+scroll away from you.
+
+Fixed height rather than max height, deliberately: from `lg` up the donut sits BESIDE this list,
+and without it every added row grew the column and pushed the figure down the page mid-edit.
+
+`tabIndex={0}` plus `role="group"` and a label are not decoration — a scroll container that only
+answers the mouse strands keyboard users at whatever is clipped (WCAG 2.1.1), and a focusable
+region needs an accessible name. `overscroll-contain` stops a wheel gesture that reaches the end
+of the list from carrying on into the editor underneath.
+
+Verified live: `height: 224px`, `overflow-y: auto`, `scrollHeight 238 > clientHeight 224`,
+`tabIndex 0`, and the clipped row fully reachable by scrolling with the panel height unchanged.
+
+`npm run verify` clean: 66 test files, **749/749**, 0 lint errors.
+
+## 2026-09-03 — "Other" looks like every other category, and the timeline stops overflowing
+
+### "Other" writes its own sub-title
+
+The typed note now sits in the SAME slot as every other category's description, instead of a
+separate full-width input below the row — which is what made this one row a different shape from
+the rest. Styled as the sub-title it replaces (same size, same muted ink) with a dashed underline
+so it still reads as something you can type in; a borderless input in a list of static text has no
+affordance at all. Placeholder "What was it?", still capped at `EXPENSE_NOTE_MAX_LENGTH`, still
+`sr-only`-labelled.
+
+### The step rail was printing outside its container
+
+Measured, not eyeballed: `ol.scrollWidth` **742px** against `clientWidth` **720px**, with the last
+label's right edge at **1018px** against a container edge of **1000px** — "Review & submit" was
+drawn 18px outside the rail.
+
+Two separate causes:
+
+1. **`min-w-0` on each `<li>` let items shrink while their labels were `whitespace-nowrap`**, so
+   the text overflowed its own box rather than the box growing. Now `shrink-0`, with
+   `overflow-x-auto` on the `<ol>` as a safety net so a future longer label (or a translation)
+   scrolls instead of spilling. The items are focusable links/buttons, so keyboard users reach a
+   scrolled-off step by tabbing — no `tabIndex` of its own needed.
+2. **All seven labels never fitted, at any width.** With the shrinking removed the rail wanted
+   **807px** in a **720px** column, and because the editor is capped at `max-w-3xl` that cap does
+   not grow with the viewport — there is no screen size at which seven labels would have fitted.
+   The old `lg:inline` did not reveal that; it just hid the failure inside the overflow.
+
+So the rail now labels **only the current step** (`sm:inline`). Nothing is lost: the summary line
+directly above already names the current step in full ("Step 5 of 7 · Expenses"), and the circles
+carry what the rail is actually for — how far along you are, and which steps are done.
+
+Connectors and face padding were tightened alongside (`w-2 sm:w-3 lg:w-4`, `px-0.5`) so the rail
+also fits a 375px phone without a scrollbar, which the `overflow-x-auto` had otherwise started
+showing there.
+
+Verified live at both widths, by measurement rather than by looking:
+
+| viewport       | ol scrollWidth | clientWidth | overflowing | page overflow |
+| -------------- | -------------- | ----------- | ----------- | ------------- |
+| 375 (mobile)   | 343            | 343         | no          | no            |
+| 1280 (desktop) | 720            | 720         | no          | no            |
+
+At 1280 the last item's right edge is 708 against a 1000 container edge — comfortably inside,
+where it was 18px outside before.
+
+`npm run verify` clean: 66 test files, **749/749**, 0 lint errors.
+
+## 2026-09-03 — RLS suite run against the live project: 77/77
+
+`npm run test:rls` — **77 passed, 77 total**, exit 0, against the linked dev project. This is the
+first run since the expense migrations were applied; the seven `story_revision_expenses` cases had
+been written but never executed, because the tables did not exist until today.
+
+All seven ran and passed:
+
+- nobody can read or write the table directly, not even the story's owner
+- a non-owner cannot write the breakdown
+- the owner writes a breakdown and reads it back through `get_revision_selections`
+- an empty amount is dropped, never stored as a zero
+- a stale expected version is rejected
+- a frozen (submitted, non-editable) revision cannot be written
+- **`create_next_draft_revision` carries the breakdown into the new draft**
+
+That last one is the case the custom-label bug got through by never having a fixture for
+(20260902100000), and the reason 20260902110300 exists. It is now covered by a test rather than by
+a comment.
+
+The first two together are the claim the whole design rests on: `story_revision_expenses` has zero
+grants and zero policies, so the only way in is a `SECURITY DEFINER` function that re-derives
+ownership — Engineering Rules 2 and 3, demonstrated rather than asserted.
+
+`posttest:rls` cleanup ran and returned no rows, so this run left no fixture debris behind
+(unlike every earlier prompt's accepted accumulation).
+
+### Still open
+
+- **Migration-history drift.** 13 remote-only entries with no local file; `db push` still refuses,
+  and six migrations have now been applied individually rather than through it. Clearing it needs
+  `supabase migration repair --status reverted` on those 13, which rewrites migration history —
+  flagged, deliberately not done.
+- Story takedown, contributor avatars, public display of the breakdown, the aggregate
+  "what it actually cost" page, and wiring `content-quality-checks.ts` to any UI (its findings,
+  including the new `expense_breakdown_exceeds_total`, still have no caller).

@@ -406,7 +406,14 @@ convention.
   `editor_note` lives in a sibling table, `story_revision_editor_notes` (staff-only, no owner
   policy at all) — RLS can't hide one column of an otherwise-readable row, so it isn't one.
 - **Per-revision relations** — `story_revision_locations` (a trigger enforces the selected
-  destination belongs to the selected region), `story_revision_work_types`, `story_revision_tags`.
+  destination belongs to the selected region), `story_revision_work_types`, `story_revision_tags`,
+  and `story_revision_expenses` (2026-09-03: an optional per-category money breakdown, one row per
+  `expense_categories` entry, independent of the revision's own lump `total_expense_nzd_cents` —
+  a partial breakdown is valid, so nothing constrains the parts to sum to the whole).
+  `expense_categories` itself is a **lookup** table, sitting with regions/destinations/tags rather
+  than here, because it is reference data with no ownership — the split throughout this schema is
+  by access model, not by topic. Unlike tags it is deliberately **closed**: no contributor-authored
+  labels, since expenses only earn their keep if they can be aggregated across stories.
 - **Media** — `story_media` (story-scoped, reusable across revisions) and `story_revision_media`
   (revision-scoped presentation: `alt_text`/`caption`/`decorative`/`sort_order`/`is_cover`, with a
   deterministic `unique (revision_id, sort_order)` and a partial-unique index for at most one cover
