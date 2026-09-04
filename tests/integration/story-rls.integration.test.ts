@@ -2311,3 +2311,196 @@ describe("create_next_draft_revision: contributor-authored labels", () => {
     expect(tags[0].name).toBe("Ferry to Picton");
   });
 });
+
+/**
+ * Per-category expense breakdown (2026-09-02). Three things are checked,
+ * and the third is the reason this block exists at all: the identical bug
+ * shape had just been fixed for contributor-authored tag labels
+ * (20260902100000), and it got that far precisely BECAUSE the fixtures
+ * here never covered the breaking case. An uncopied expense breakdown
+ * would be worse still -- nothing constrains a revision to having expense
+ * rows, so it would fail silently rather than raising.
+ */
+describe("story_revision_expenses (migrations 20260902110000-110400)", () => {
+  let categoryId: string;
+  let secondCategoryId: string;
+  let storyId: string;
+  let revisionId: string;
+
+  beforeAll(async () => {
+    // expense_categories is an anon-readable lookup table with real grants,
+    // exactly like tags/regions -- unlike story_revision_expenses itself,
+    // which has zero grants and zero policies.
+    const { data: categories, error: categoryError } = (await anon
+      .from("expense_categories" as never)
+      .select("id, slug")
+      .in("slug", ["flights", "vehicle"])
+      .order("slug")) as unknown as {
+      data: Array<{ id: string; slug: string }> | null;
+      error: { message: string } | null;
+    };
+    if (categoryError || !categories || categories.length < 2) {
+      throw new Error(
+        `expense_categories seed rows missing: ${categoryError?.message ?? "not found"}`,
+      );
+    }
+    categoryId = categories.find((c) => c.slug === "flights")!.id;
+    secondCategoryId = categories.find((c) => c.slug === "vehicle")!.id;
+
+    const { data } = await owner.client.rpc("create_self_service_draft", {
+      p_title: slug("expenses"),
+      p_content_json: [{ type: "paragraph", text: "Budget story." }],
+    });
+    storyId = data![0].story_id;
+    revisionId = data![0].revision_id;
+  }, 30000);
+
+  async function currentVersion(): Promise<number> {
+    const { data } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    return data![0].version;
+  }
+
+  it("nobody can read or write the table directly, not even the owner", async () => {
+    const { error: readError } = await untypedTable(
+      owner.client,
+      "story_revision_expenses",
+    )
+      .update({ amount_nzd_cents: 1 })
+      .eq("revision_id", revisionId);
+    expect(readError).not.toBeNull();
+  });
+
+  it("a non-owner cannot write the breakdown", async () => {
+    const { error } = await untypedRpc(other.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_expenses: [{ category_id: categoryId, amount_nzd_cents: 200000 }],
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/owner or assigned editor/i);
+  });
+
+  it("the owner writes a breakdown, and reads it back through get_revision_selections", async () => {
+    const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_expenses: [
+        { category_id: categoryId, amount_nzd_cents: 200000 },
+        {
+          category_id: secondCategoryId,
+          amount_nzd_cents: 350000,
+          note: "Old Legacy",
+        },
+        // Re-sent duplicate and a negative: the RPC dedupes by category and
+        // clamps, rather than raising, so a sloppy client never breaks a save.
+        { category_id: categoryId, amount_nzd_cents: 999 },
+        { category_id: null, amount_nzd_cents: 4200 },
+      ],
+    });
+    expect(error).toBeNull();
+
+    const { data: selections } = await untypedRpc<
+      Array<{
+        expenses: Array<{
+          categoryId: string;
+          slug: string;
+          name: string;
+          amountNzdCents: number;
+          note: string | null;
+        }>;
+      }>
+    >(owner.client, "get_revision_selections", { p_revision_id: revisionId });
+    const expenses = selections![0].expenses;
+    // Two rows, not four: the duplicate collapsed and the category-less row
+    // was dropped.
+    expect(expenses).toHaveLength(2);
+    const flights = expenses.find((e) => e.slug === "flights")!;
+    expect(flights.amountNzdCents).toBe(200000);
+    const vehicle = expenses.find((e) => e.slug === "vehicle")!;
+    expect(vehicle.note).toBe("Old Legacy");
+  });
+
+  it("an empty amount is dropped, never stored as a zero", async () => {
+    const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_expenses: [
+        { category_id: categoryId, amount_nzd_cents: 200000 },
+        // "I didn't record this" -- must not become a confident $0.00.
+        { category_id: secondCategoryId, amount_nzd_cents: null },
+      ],
+    });
+    expect(error).toBeNull();
+
+    const { data: selections } = await untypedRpc<
+      Array<{ expenses: Array<{ slug: string }> }>
+    >(owner.client, "get_revision_selections", { p_revision_id: revisionId });
+    expect(selections![0].expenses.map((e) => e.slug)).toEqual(["flights"]);
+  });
+
+  it("a stale expected version is rejected", async () => {
+    const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: (await currentVersion()) - 1,
+      p_expenses: [{ category_id: categoryId, amount_nzd_cents: 1 }],
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/stale version/i);
+  });
+
+  it("a frozen (submitted, non-editable) revision cannot be written", async () => {
+    await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    });
+
+    const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_expenses: [{ category_id: categoryId, amount_nzd_cents: 1 }],
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/not currently editable/i);
+  }, 30000);
+
+  it("create_next_draft_revision carries the breakdown into the new draft", async () => {
+    // THE REGRESSION THIS BLOCK EXISTS FOR. Without the copy added in
+    // 20260902110300, this passes through every constraint and simply
+    // returns an empty array -- the contributor's whole budget gone, with
+    // nothing raised anywhere to say so.
+    const { error: approveError } = await approveRevision(
+      moderator.client,
+      revisionId,
+    );
+    expect(approveError).toBeNull();
+
+    const { data: nextRevisionId, error: nextError } = await owner.client.rpc(
+      "create_next_draft_revision",
+      { p_story_id: storyId },
+    );
+    expect(nextError).toBeNull();
+    expect(nextRevisionId).toBeTruthy();
+
+    const { data: selections, error: selectionsError } = await untypedRpc<
+      Array<{
+        expenses: Array<{
+          slug: string;
+          amountNzdCents: number;
+          note: string | null;
+        }>;
+      }>
+    >(owner.client, "get_revision_selections", {
+      p_revision_id: nextRevisionId as unknown as string,
+    });
+    expect(selectionsError).toBeNull();
+    const expenses = selections![0].expenses;
+    expect(expenses).toHaveLength(1);
+    expect(expenses[0].slug).toBe("flights");
+    expect(expenses[0].amountNzdCents).toBe(200000);
+  }, 30000);
+});

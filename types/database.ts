@@ -177,6 +177,39 @@ export type Database = {
           },
         ];
       };
+      expense_categories: {
+        Row: {
+          active: boolean;
+          created_at: string;
+          description: string | null;
+          id: string;
+          name: string;
+          slug: string;
+          sort_order: number;
+          updated_at: string;
+        };
+        Insert: {
+          active?: boolean;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name: string;
+          slug: string;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Update: {
+          active?: boolean;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name?: string;
+          slug?: string;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       moderation_action_notes: {
         Row: {
           action_id: string;
@@ -933,6 +966,45 @@ export type Database = {
           },
         ];
       };
+      story_revision_expenses: {
+        Row: {
+          amount_nzd_cents: number;
+          category_id: string;
+          id: string;
+          note: string | null;
+          revision_id: string;
+        };
+        Insert: {
+          amount_nzd_cents: number;
+          category_id: string;
+          id?: string;
+          note?: string | null;
+          revision_id: string;
+        };
+        Update: {
+          amount_nzd_cents?: number;
+          category_id?: string;
+          id?: string;
+          note?: string | null;
+          revision_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_revision_expenses_category_id_fkey";
+            columns: ["category_id"];
+            isOneToOne: false;
+            referencedRelation: "expense_categories";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "story_revision_expenses_revision_id_fkey";
+            columns: ["revision_id"];
+            isOneToOne: false;
+            referencedRelation: "story_revisions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       story_revision_locations: {
         Row: {
           destination_id: string | null;
@@ -1664,6 +1736,7 @@ export type Database = {
       get_revision_selections: {
         Args: { p_revision_id: string };
         Returns: {
+          expenses: Json;
           locations: Json;
           tags: Json;
           work_types: Json;
@@ -2109,6 +2182,14 @@ export type Database = {
           p_trip_year?: number;
         };
         Returns: number;
+      };
+      set_revision_expenses: {
+        Args: {
+          p_expected_version: number;
+          p_expenses: Json;
+          p_revision_id: string;
+        };
+        Returns: undefined;
       };
       set_revision_locations: {
         Args: {
