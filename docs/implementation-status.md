@@ -6278,3 +6278,57 @@ ownership — Engineering Rules 2 and 3, demonstrated rather than asserted.
 - Story takedown, contributor avatars, public display of the breakdown, the aggregate
   "what it actually cost" page, and wiring `content-quality-checks.ts` to any UI (its findings,
   including the new `expense_breakdown_exceeds_total`, still have no caller).
+
+## 2026-09-03 — Migration history drift cleared (and the trap it hid)
+
+`supabase migration list --linked` now reports **93 entries, zero local-only, zero remote-only**.
+`db push` works normally again for the first time in weeks.
+
+### What the drift was
+
+19 remote rows with no local file, and 18 local files not recorded as applied. Querying
+`supabase_migrations.schema_migrations` for the orphans' names showed they mapped one-to-one onto
+the local files — the same migrations, applied through the dashboard/MCP, which stamps its own
+timestamp instead of the file's.
+
+One name had no local counterpart: `revoke_anon_admin_set_user_role` (20260823092110), which
+revokes `anon`'s execute on `admin_set_user_role`. That looked like schema the repo did not
+describe — a privilege guard living only in the database. It is not: the local
+`20260823090000_admin_set_user_role_last_admin_guard.sql` already carries the identical
+`revoke ... from public, anon` (its lines 96-97); the remote entry was a follow-up later folded
+into that file. Checked before deleting any history row, because the alternative reading was a
+security regression waiting for the next rebuild.
+
+### How it was cleared
+
+1. `migration repair --status reverted` on all 19 orphan rows — history only, no schema touched.
+2. `migration repair --status applied` on the 6 expense migrations. Their content was already
+   live and two of them contain `create table`, so replaying was not an option.
+3. `db push --include-all` for the rest.
+
+Two migrations then had to be marked `applied` mid-way rather than replayed
+(`20260823090100_admin_user_accounts`, `20260823090200_user_account_existence_check`): they use
+bare `create function`, with no preceding `drop`, so re-running raised
+`function "list_user_accounts" already exists`. The first idempotency sweep missed them — it
+checked for `create table/type/index/policy/trigger` and for `create or replace function`, and
+bare `create function` fell between the two. Each migration is transactional, so the failed push
+applied nothing of that file and stopped cleanly.
+
+### The replay clobbered a newer function — caught by a test
+
+Re-running the older `20260902100000_copy_custom_labels_into_next_draft.sql` reinstalled a
+`create_next_draft_revision` that predates the expense copy added in `20260902110300`, silently
+undoing it. `npm run test:rls` failed on exactly one case: **"create_next_draft_revision carries
+the breakdown into the new draft"** — the test written because the custom-label bug got through by
+having no fixture for that case. It has now paid for itself twice.
+
+Fixed by reverting `20260902110300` in the history and pushing it again, so the correct definition
+is reinstated through the migration system rather than around it. `test:rls` back to **77/77**,
+drift still clear.
+
+**The lesson, for next time:** replaying an old migration on top of newer state reverts whatever a
+later migration changed about the same object. `db push --include-all` is only safe when the
+migrations being replayed are the newest definition of everything they touch. That was only
+needed here because of the drift; with history clean, `db push` applies new migrations only and
+the hazard does not arise. If drift ever recurs, verify the object-level ordering before reaching
+for `--include-all`.
