@@ -10,6 +10,7 @@ import {
   listActiveRegions,
   listActiveDestinations,
   listActiveTags,
+  listActiveExpenseCategories,
 } from "@/lib/story/active-lookups";
 import { StoryEditForm } from "@/components/story/story-edit-form";
 import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
@@ -77,13 +78,15 @@ export default async function EditStoryPage({
     );
   }
 
-  const [selections, preview, regions, destinations, tags] = await Promise.all([
-    getRevisionSelections(draft.revision_id),
-    getStoryPreview(id),
-    listActiveRegions(),
-    listActiveDestinations(),
-    listActiveTags(),
-  ]);
+  const [selections, preview, regions, destinations, tags, expenseCategories] =
+    await Promise.all([
+      getRevisionSelections(draft.revision_id),
+      getStoryPreview(id),
+      listActiveRegions(),
+      listActiveDestinations(),
+      listActiveTags(),
+      listActiveExpenseCategories(),
+    ]);
 
   const parsedContent = normalizeStoryContentJson(draft.content_json);
 
@@ -103,10 +106,12 @@ export default async function EditStoryPage({
       initialContributorNote={draft.contributor_note ?? ""}
       initialLocations={selections.locations}
       initialTags={selections.tags}
+      initialExpenses={selections.expenses}
       initialMedia={preview?.media ?? []}
       regions={regions}
       destinations={destinations}
       tags={tags}
+      expenseCategories={expenseCategories}
       isNewStory={draft.revision_number === 1}
       initialStep={resolveStep(step)}
     />

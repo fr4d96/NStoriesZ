@@ -6,6 +6,7 @@ import {
   revisionInputSchema,
   revisionLocationsSchema,
   revisionTagsSchema,
+  revisionExpensesSchema,
   type RevisionInput,
 } from "@/lib/validation/story";
 import { getErrorMessage } from "@/lib/errors";
@@ -13,6 +14,7 @@ import {
   saveRevisionDraft,
   setRevisionLocations,
   setRevisionTags,
+  setRevisionExpenses,
   updateStoryMediaCaption,
   reorderStoryMedia,
   setStoryCoverMedia,
@@ -134,6 +136,37 @@ export async function setTagsAction(
   }
   try {
     await setRevisionTags(revisionId, expectedVersion, parsed.data);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
+}
+
+/**
+ * The optional per-category expense breakdown. Ownership is never taken
+ * from the client here (there is no contributor/story id in the payload at
+ * all) -- the revisionId is authorized server-side by
+ * _authorize_revision_edit() inside set_revision_expenses(), exactly like
+ * every other authoring mutation, and that same RPC re-applies the
+ * amount/category/dedupe rules this schema checks.
+ */
+export async function setExpensesAction(
+  revisionId: string,
+  expectedVersion: number,
+  expenses: unknown,
+): Promise<MutationResult> {
+  const authError = await requireSignedIn();
+  if (authError) return authError;
+
+  const parsed = revisionExpensesSchema.safeParse(expenses);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid expenses.",
+    };
+  }
+  try {
+    await setRevisionExpenses(revisionId, expectedVersion, parsed.data);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: errorMessage(error) };

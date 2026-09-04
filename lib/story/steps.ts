@@ -27,6 +27,7 @@ export const STORY_STEPS = [
   { id: "story", label: "Your story", hint: "The writing itself" },
   { id: "photos", label: "Photos", hint: "Optional" },
   { id: "trip", label: "Trip", hint: "Optional" },
+  { id: "expenses", label: "Expenses", hint: "Optional" },
   { id: "places", label: "Places & tags", hint: "Where and what" },
   { id: "review", label: "Review & submit", hint: "Check it, then send" },
 ] as const;

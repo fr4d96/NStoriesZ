@@ -12,6 +12,11 @@ import {
 } from "@/lib/validation/story";
 import { removeMediaEmbeds } from "@/lib/story/markdown-media";
 import {
+  expensePerMonth,
+  formatMonths,
+  formatNzdCents,
+} from "@/lib/story/expense-per-month";
+import {
   StoryContentEditor,
   type StoryContentEditorHandle,
 } from "@/components/story/story-content-editor";
@@ -26,18 +31,28 @@ import { getErrorMessage } from "@/lib/errors";
 import type {
   RevisionMediaItem,
   RevisionTagSelection,
+  RevisionExpenseSelection,
 } from "@/lib/story/contributor-queries";
 import type {
   ActiveRegion,
   ActiveDestination,
   ActiveTag,
+  ActiveExpenseCategory,
 } from "@/lib/story/active-lookups";
 import {
   saveRevisionFieldsAction,
   setLocationsAction,
   setTagsAction,
+  setExpensesAction,
 } from "@/app/(contributor)/stories/[id]/edit/actions";
 import { TagEditor } from "@/components/story/tag-editor";
+import {
+  ExpenseBreakdown,
+  expenseRowsToPayload,
+  breakdownTotalDollars,
+  type ExpenseDraftRow,
+} from "@/components/story/expense-breakdown";
+import { ExpenseDonut } from "@/components/story/expense-donut";
 import { TripDateField } from "@/components/story/trip-date-field";
 import { StoryStepProgress } from "@/components/story/story-steps";
 import {
@@ -65,11 +80,20 @@ export type StoryEditFormProps = {
     sortOrder: number;
   }>;
   initialTags: RevisionTagSelection[];
+  /** The revision's saved per-category expense breakdown, if any. */
+  initialExpenses: RevisionExpenseSelection[];
   initialMedia: RevisionMediaItem[];
   regions: ActiveRegion[];
   destinations: ActiveDestination[];
   /** Suggestions only -- a contributor may add any label they like. */
   tags: ActiveTag[];
+  /**
+   * The whole vocabulary for the expense breakdown -- CURATED, unlike
+   * tags: this list is a ceiling, and nothing in the UI or the RPC lets a
+   * contributor invent a category (see
+   * components/story/expense-breakdown.tsx for why).
+   */
+  expenseCategories: ActiveExpenseCategory[];
   /**
    * Editorial-only addition (Prompt 4 Sub-phase 4): shows the paste/convert
    * content-import panel above the rich text editor. Omitted (falsy) by
@@ -263,10 +287,12 @@ export function StoryEditForm({
   initialContributorNote,
   initialLocations,
   initialTags,
+  initialExpenses,
   initialMedia,
   regions,
   destinations,
   tags,
+  expenseCategories,
   showContentImport,
   isNewStory = false,
   initialStep = "title",
@@ -341,10 +367,43 @@ export function StoryEditForm({
       ? "other"
       : "preset",
   );
-  const [expenseDollars, setExpenseDollars] = useState(
+  /** The story's stored total, "" when it has none. */
+  const storedTotalDollars =
     initialTotalExpenseNzdCents != null
       ? String(initialTotalExpenseNzdCents / 100)
-      : "",
+      : "";
+  const [expenseDollars, setExpenseDollars] = useState(() => {
+    if (storedTotalDollars !== "") return storedTotalDollars;
+    // No stored total, but a saved breakdown: show its sum from the very
+    // first render rather than an empty box that only fills in once a row
+    // is touched. The effect below makes the STORED value catch up.
+    return breakdownTotalDollars(
+      initialExpenses.map((e) => ({
+        categoryId: e.categoryId,
+        name: e.name,
+        slug: e.slug,
+        amountDollars: String(e.amountNzdCents / 100),
+        note: e.note ?? "",
+      })),
+    );
+  });
+  /**
+   * Whether the headline total is still following the breakdown ("auto") or
+   * has been typed by hand ("manual"). Starts as manual only for a story
+   * that ALREADY has a total which the breakdown does not account for --
+   * re-opening such a draft must not silently rewrite a figure its author
+   * chose. A new story, or one whose total already equals its breakdown,
+   * starts on auto.
+   */
+  const [expenseTotalMode, setExpenseTotalMode] = useState<"auto" | "manual">(
+    () => {
+      const breakdownCents = initialExpenses.reduce(
+        (sum, e) => sum + e.amountNzdCents,
+        0,
+      );
+      if (initialTotalExpenseNzdCents == null) return "auto";
+      return initialTotalExpenseNzdCents === breakdownCents ? "auto" : "manual";
+    },
   );
   const [contributorNote, setContributorNote] = useState(
     initialContributorNote,
@@ -355,6 +414,18 @@ export function StoryEditForm({
   >(null);
   const [selectedTags, setSelectedTags] =
     useState<RevisionTagSelection[]>(initialTags);
+  // Amounts live here as the raw strings being typed, exactly like
+  // expenseDollars above. Cents are derived once, at save time, by the one
+  // shared expenseRowsToPayload().
+  const [expenseRows, setExpenseRows] = useState<ExpenseDraftRow[]>(() =>
+    initialExpenses.map((e) => ({
+      categoryId: e.categoryId,
+      name: e.name,
+      slug: e.slug,
+      amountDollars: String(e.amountNzdCents / 100),
+      note: e.note ?? "",
+    })),
+  );
 
   // Which step of the timeline is on screen. Every step's section is
   // rendered and stays MOUNTED -- inactive ones are hidden with a class,
@@ -667,6 +738,143 @@ export function StoryEditForm({
     saveTags(next);
   }
 
+  /**
+   * The expense breakdown is the one thing on this form that is BOTH kinds
+   * of edit at once, which is why it gets its own handling rather than
+   * reusing either existing path.
+   *
+   * Adding or removing a category row is discrete, like a tag. But typing
+   * "2000" into an amount box passes through "2", "20" and "200" first --
+   * that is typing, like the title. Treating the whole thing as discrete
+   * would fire four saves for one number; folding it into scheduleSave()
+   * would drag the entire title/body/dates payload along with every
+   * keystroke in an amount box.
+   *
+   * So: debounced like typing, but enqueued on its OWN "expenses" slot.
+   * The mutation queue coalesces per slot, so a burst of keystrokes
+   * collapses into a single call of the latest value, and being off the
+   * "fields" slot means it can neither delay a body autosave nor collide
+   * with the editorial import-apply, which deliberately owns that slot for
+   * its destructive replace.
+   *
+   * `versionRef.current += 1` (not the server's returned version) for the
+   * same reason as saveTags/saveLocations: set_revision_expenses() returns
+   * void and bumps stories.version by exactly 1 on success.
+   */
+  const expenseDebounceHandle = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  function saveExpenses(next: ExpenseDraftRow[]) {
+    if (expenseDebounceHandle.current) {
+      clearTimeout(expenseDebounceHandle.current);
+    }
+    setSaving(true);
+    expenseDebounceHandle.current = setTimeout(() => {
+      // Rows with an empty/part-typed amount are dropped here rather than
+      // stored as a confident 0 -- see expenseRowsToPayload()'s own
+      // comment, and the same rule applied again inside the RPC.
+      const payload = expenseRowsToPayload(next);
+      queue.enqueue("expenses", async () => {
+        const result = await setExpensesAction(
+          revisionId,
+          versionRef.current,
+          payload,
+        );
+        if (result.ok) {
+          versionRef.current += 1;
+          bumpVersion();
+          setLastSavedAt(Date.now());
+        } else {
+          throw new Error(result.error);
+        }
+      });
+    }, FIELDS_SAVE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Adding, removing or retyping a breakdown row also refreshes the headline
+   * total -- but only while the total is still FOLLOWING the breakdown.
+   *
+   * The two numbers stay independent in the database on purpose: a partial
+   * breakdown ("I know what my flights and my van cost, not my groceries")
+   * is the normal case, and the total is what /stories' cost-band filter
+   * reads, so a partial breakdown silently overwriting a real total would
+   * file the story under a band its author never claimed. So: auto-fill by
+   * default, and the moment a contributor types their own total, it is
+   * theirs and this stops touching it (`expenseTotalMode`). "Use the
+   * breakdown total" in the UI below hands it back.
+   *
+   * Both writes are safe to fire together: MutationQueue runs every slot
+   * strictly one at a time in scheduling order (see mutation-queue.ts), so
+   * the debounced "fields" save always observes the version the "expenses"
+   * save produced rather than racing it.
+   */
+  function changeExpenses(next: ExpenseDraftRow[]) {
+    setExpenseRows(next);
+    saveExpenses(next);
+    if (expenseTotalMode !== "auto") return;
+    const nextTotal = breakdownTotalDollars(next);
+    setExpenseDollars(nextTotal);
+    scheduleSave({ expenseDollars: nextTotal });
+  }
+
+  /**
+   * A story that already had a breakdown but no total -- every story
+   * written before the total started following the breakdown -- would
+   * otherwise sit on an empty total until someone happened to retype a row,
+   * because changeExpenses() is the only thing that fills it.
+   *
+   * Reconciled ONCE, on mount, and only when it would actually change
+   * something: auto mode, a breakdown that parses to a real figure, and a
+   * stored total that disagrees. Deliberately a write rather than a
+   * display-only derivation -- showing $1,700 in a box whose saved value is
+   * still empty would be the editor lying about what the story says, and
+   * the cost-band filter reads the stored number, not the rendered one.
+   */
+  /**
+   * A story that already had a breakdown but no total -- every story
+   * written before the total started following the breakdown -- would
+   * otherwise never persist one, because changeExpenses() is the only
+   * other thing that fills it.
+   *
+   * Reconciled ONCE, on mount, and only when it would actually change
+   * something: auto mode, a breakdown that parses to a real figure, and a
+   * stored total that disagrees. Deliberately a write rather than a
+   * display-only derivation -- showing $1,700 in a box whose saved value is
+   * empty would be the editor lying about what the story says, and the
+   * cost-band filter reads the stored number, not the rendered one.
+   *
+   * The DISPLAY is handled by expenseDollars' own initial state (above), so
+   * nothing is set here -- setState synchronously inside an effect triggers
+   * cascading renders, which the React Compiler rejects outright. All this
+   * does is make the stored value catch up with what is already on screen,
+   * on a timeout so the save is scheduled rather than run during commit.
+   */
+  const reconciledTotalRef = useRef(false);
+  useEffect(() => {
+    if (reconciledTotalRef.current) return;
+    reconciledTotalRef.current = true;
+    if (expenseTotalMode !== "auto") return;
+    const derived = breakdownTotalDollars(expenseRows);
+    if (derived === "" || derived === storedTotalDollars) return;
+    const handle = setTimeout(
+      () => scheduleSave({ expenseDollars: derived }),
+      0,
+    );
+    return () => clearTimeout(handle);
+    // Mount only: every later change goes through changeExpenses().
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Hands the total back to the breakdown after a manual override. */
+  function resyncExpenseTotal() {
+    const nextTotal = breakdownTotalDollars(expenseRows);
+    setExpenseTotalMode("auto");
+    setExpenseDollars(nextTotal);
+    scheduleSave({ expenseDollars: nextTotal });
+  }
+
   function updateLocation(
     index: number,
     patch: Partial<(typeof locations)[number]>,
@@ -742,16 +950,54 @@ export function StoryEditForm({
   // complain about this". Photos and Trip are genuinely optional: they tick
   // when filled, but their absence never blocks anything.
   const contentFilled = Boolean(storyContentText(content).trim());
+  // Dates OR any money: a contributor who filled in a full budget but no
+  // dates was previously shown an unticked Trip step, which reads as "you
+  // haven't done this" about a step they had just done. Both halves of the
+  // step are optional, so either one filled means it has been visited.
+  // Derived from what is already on screen -- no state, no save, no column.
+  // A year-only story has no range to divide by, so it passes null and the
+  // readout stays hidden rather than guessing.
+  const perMonth = useMemo(
+    () =>
+      expensePerMonth({
+        startDate: dateMode === "range" ? tripStartDate : null,
+        endDate: dateMode === "range" ? tripEndDate : null,
+        totalCents: expenseDollars
+          ? Math.round(Number(expenseDollars) * 100)
+          : null,
+      }),
+    [dateMode, tripStartDate, tripEndDate, expenseDollars],
+  );
+
+  // Feeds the donut from the SAME rows the list writes, through the same
+  // parse the save path uses -- the figure and the numbers beside it read
+  // one source, so they cannot disagree while a row is half-typed.
+  const donutRows = useMemo(
+    () =>
+      expenseRowsToPayload(expenseRows).map((row) => ({
+        label:
+          expenseRows.find((r) => r.categoryId === row.categoryId)?.name ??
+          "Other",
+        cents: row.amountNzdCents,
+      })),
+    [expenseRows],
+  );
+
+  // Trip and Expenses tick independently now that they are separate steps:
+  // dates belong to Trip, and money to Expenses. Before the split these were
+  // one flag, which meant filling in a budget silently ticked "Trip".
   const tripFilled =
     dateMode === "year"
       ? Boolean(tripYear)
       : Boolean(tripStartDate && tripEndDate);
+  const expensesFilled = Boolean(expenseDollars.trim()) || donutRows.length > 0;
   const doneSteps: StoryStepId[] = (
     [
       [Boolean(title.trim()), "title"],
       [contentFilled, "story"],
       [initialMedia.length > 0, "photos"],
       [tripFilled, "trip"],
+      [expensesFilled, "expenses"],
       [locations.length > 0 && selectedTags.length > 0, "places"],
     ] as const
   )
@@ -1057,23 +1303,109 @@ export function StoryEditForm({
               />
             )}
           </div>
+        </StepSection>
 
-          <div>
-            <label htmlFor="edit-expense" className="block text-sm font-medium">
-              Total expenses (NZD)
-            </label>
-            <input
-              id="edit-expense"
-              type="number"
-              min={0}
-              step="0.01"
-              value={expenseDollars}
-              onChange={(e) => {
-                setExpenseDollars(e.target.value);
-                scheduleSave({ expenseDollars: e.target.value });
-              }}
-              className="mt-1 w-40 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-            />
+        {/* Expenses is its own step, not a panel inside Trip. It carries two
+            inputs, a derived per-month line, a repeating category list and a
+            figure -- more than the Trip step could hold without burying the
+            dates above it. Steps are freely clickable and this one is
+            optional, so promoting it costs a contributor who does not care
+            about money exactly one click past it. */}
+        <StepSection id="expenses" activeStep={step}>
+          {/* Inputs left, figure right, from `lg` only. The editor column is
+              max-w-3xl, so a two-column split any earlier squeezes the
+              amount fields to the point of wrapping; below that the figure
+              simply follows the list it describes (Engineering Rule 18). */}
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
+            <div className="min-w-0">
+              <label
+                htmlFor="edit-expense"
+                className="block text-sm font-medium"
+              >
+                Total expenses (NZD)
+              </label>
+              <input
+                id="edit-expense"
+                type="number"
+                min={0}
+                step="0.01"
+                value={expenseDollars}
+                onChange={(e) => {
+                  // Typing here claims the number: the breakdown stops
+                  // overwriting it until "Use the breakdown total" below
+                  // hands it back.
+                  setExpenseTotalMode("manual");
+                  setExpenseDollars(e.target.value);
+                  scheduleSave({ expenseDollars: e.target.value });
+                }}
+                className="mt-1 w-40 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+              />
+
+              {expenseTotalMode === "auto" && donutRows.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Adding up your breakdown. Type your own figure here if the
+                  breakdown doesn&apos;t cover everything.
+                </p>
+              )}
+
+              {/* Only offered when it would actually change something -- a
+                  manual total that already equals the breakdown needs no
+                  button, and neither does an empty breakdown. */}
+              {expenseTotalMode === "manual" &&
+                donutRows.length > 0 &&
+                breakdownTotalDollars(expenseRows) !== expenseDollars && (
+                  <button
+                    type="button"
+                    onClick={resyncExpenseTotal}
+                    className="mt-2 block text-xs underline underline-offset-2 hover:no-underline"
+                  >
+                    Use the breakdown total (
+                    {formatNzdCents(
+                      Math.round(
+                        Number(breakdownTotalDollars(expenseRows) || 0) * 100,
+                      ),
+                    )}
+                    )
+                  </button>
+                )}
+
+              {/* Derived, never stored: the same total divided by the trip
+                  length recorded on the previous step. $10k over three
+                  months and $10k over twelve are different stories and the
+                  raw total cannot tell them apart. Silent unless it has both
+                  halves -- a year-only story, a half-typed date range, or a
+                  trip too short for "per month" to describe anything real
+                  all render nothing rather than a confident-looking
+                  extrapolation (lib/story/expense-per-month.ts). */}
+              {perMonth.kind === "ok" && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  That&apos;s about{" "}
+                  <strong className="font-medium">
+                    {formatNzdCents(perMonth.perMonthCents)}
+                  </strong>{" "}
+                  a month across {formatMonths(perMonth.months)} months.
+                </p>
+              )}
+
+              {/* The per-category breakdown stays subordinate to the total
+                  above: that number is what the story is filed under (and
+                  what /stories' cost-band filter reads), and this answers
+                  the follow-up question rather than replacing it. Nothing
+                  ties the two together -- see expense-breakdown.tsx. */}
+              <ExpenseBreakdown
+                categories={expenseCategories}
+                rows={expenseRows}
+                totalExpenseDollars={expenseDollars}
+                onChange={changeExpenses}
+              />
+            </div>
+
+            {/* Reads the same rows the list writes, so it can never disagree
+                with the numbers beside it. Purely derived -- no state, no
+                save. */}
+            <div className="min-w-0 lg:pt-7">
+              <ExpenseDonut rows={donutRows} />
+            </div>
           </div>
         </StepSection>
 

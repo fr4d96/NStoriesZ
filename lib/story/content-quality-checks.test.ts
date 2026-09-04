@@ -31,6 +31,41 @@ describe("runContentQualityChecks", () => {
     expect(runContentQualityChecks(baseInput)).toEqual([]);
   });
 
+  it("flags an expense breakdown that adds up to more than the stated total", () => {
+    const findings = runContentQualityChecks({
+      ...baseInput,
+      totalExpenseNzdCents: 500000,
+      expenseBreakdownTotalNzdCents: 900000,
+    });
+    expect(findings.map((f) => f.code)).toContain(
+      "expense_breakdown_exceeds_total",
+    );
+  });
+
+  it("says nothing about a partial breakdown, which is the normal case", () => {
+    // The parts are allowed to fall short of the whole: "I know what my
+    // flights cost, not my groceries" is exactly what the feature is for.
+    expect(
+      runContentQualityChecks({
+        ...baseInput,
+        totalExpenseNzdCents: 900000,
+        expenseBreakdownTotalNzdCents: 200000,
+      }),
+    ).toEqual([]);
+  });
+
+  it("says nothing when either expense figure is absent", () => {
+    expect(
+      runContentQualityChecks({
+        ...baseInput,
+        expenseBreakdownTotalNzdCents: 900000,
+      }),
+    ).toEqual([]);
+    expect(
+      runContentQualityChecks({ ...baseInput, totalExpenseNzdCents: 500000 }),
+    ).toEqual([]);
+  });
+
   it("flags a short body as missing trip context", () => {
     const findings = runContentQualityChecks({
       ...baseInput,

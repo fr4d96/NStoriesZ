@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
+import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 
 // Every function here derives the caller from the session internally — none
 // accept a userId parameter (the RPCs themselves also re-derive auth.uid()
@@ -188,6 +189,21 @@ export type RevisionTagSelection = {
   name: string;
 };
 
+/**
+ * One saved expense row on a revision. `categoryId` always references an
+ * `expense_categories` row -- there is no contributor-authored variant, on
+ * purpose (see lib/validation/story.ts). `name` is resolved server-side so
+ * a retired (inactive) category, absent from the form's own options list,
+ * still renders with its real name rather than as a blank row.
+ */
+export type RevisionExpenseSelection = {
+  categoryId: string;
+  slug: string;
+  name: string;
+  amountNzdCents: number;
+  note: string | null;
+};
+
 export type RevisionSelections = {
   locations: Array<{
     regionId: string;
@@ -195,6 +211,7 @@ export type RevisionSelections = {
     sortOrder: number;
   }>;
   tags: RevisionTagSelection[];
+  expenses: RevisionExpenseSelection[];
 };
 
 /**
@@ -205,15 +222,25 @@ export type RevisionSelections = {
  * The RPC still returns a `work_types` payload for already-recorded rows;
  * it is deliberately ignored here, since work types are retired from every
  * authoring surface (2026-08-16).
+ *
+ * Routed through callUntypedRpc() as of 2026-09-02: the function was
+ * re-signed with an added `expenses` output column
+ * (supabase/migrations/20260902110400_get_revision_selections_expenses.sql)
+ * and types/database.ts has not been regenerated since. Put it back on a
+ * plain, fully-typed `supabase.rpc(...)` call the moment it has.
  */
 export async function getRevisionSelections(
   revisionId: string,
 ): Promise<RevisionSelections> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("get_revision_selections", {
-    p_revision_id: revisionId,
-  });
-  if (error) throw error;
+  const data = await callUntypedRpc<
+    Array<{
+      locations: unknown;
+      work_types: unknown;
+      tags: unknown;
+      expenses: unknown;
+    }>
+  >(supabase, "get_revision_selections", { p_revision_id: revisionId });
   const row = data?.[0];
   const locations =
     (row?.locations as Array<{
@@ -227,6 +254,14 @@ export async function getRevisionSelections(
       customLabel: string | null;
       name: string | null;
     }> | null) ?? [];
+  const expenses =
+    (row?.expenses as Array<{
+      categoryId: string;
+      slug: string | null;
+      name: string | null;
+      amountNzdCents: number;
+      note: string | null;
+    }> | null) ?? [];
   return {
     locations,
     tags: tags
@@ -238,5 +273,12 @@ export async function getRevisionSelections(
       // meaningfully re-sent; dropping it is safer than rendering a blank
       // chip the contributor can't identify.
       .filter((t) => t.name.length > 0),
+    expenses: expenses.map((e) => ({
+      categoryId: e.categoryId,
+      slug: e.slug ?? "",
+      name: e.name ?? "",
+      amountNzdCents: e.amountNzdCents,
+      note: e.note,
+    })),
   };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
+import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 import type {
   RevisionInput,
   SubmitRevisionInput,
@@ -291,6 +292,41 @@ export async function setRevisionTags(
     })),
   });
   if (error) throw error;
+}
+
+/**
+ * Replaces a revision's optional per-category expense breakdown
+ * (supabase/migrations/20260902110200_set_revision_expenses.sql).
+ *
+ * The RPC independently drops rows with no category or no amount, clamps a
+ * negative amount to 0, trims/truncates the note and dedupes by category,
+ * so this wrapper carries no rules of its own -- it only renames the keys
+ * to the snake_case the function reads.
+ *
+ * Routed through callUntypedRpc() because the migration has not been
+ * pushed and types/database.ts therefore has no signature for it yet; put
+ * it back on a plain, fully-typed `supabase.rpc(...)` call once it has.
+ */
+export async function setRevisionExpenses(
+  revisionId: string,
+  expectedVersion: number,
+  expenses: Array<{
+    categoryId: string;
+    amountNzdCents: number;
+    note?: string | null;
+  }>,
+) {
+  await requireUser();
+  const supabase = await createClient();
+  await callUntypedRpc<null>(supabase, "set_revision_expenses", {
+    p_revision_id: revisionId,
+    p_expected_version: expectedVersion,
+    p_expenses: expenses.map((e) => ({
+      category_id: e.categoryId,
+      amount_nzd_cents: e.amountNzdCents,
+      note: e.note ?? null,
+    })),
+  });
 }
 
 /**

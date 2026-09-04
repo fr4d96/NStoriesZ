@@ -115,6 +115,26 @@
   --chart-2: #17968b;
   --chart-3: #00706a;
   --chart-4: #004b46;
+  /* Expense categories -- the ONLY categorical palette in the app, for the
+     expense donut in the story editor. Distinct from --chart-* above, which
+     is one sequential teal hue for staff analytics: these slices are
+     IDENTITIES ("flights" vs "rent"), not magnitudes, so a single ramp would
+     make adjacent slices unreadable. Six is the hard cap -- past ~6 segments
+     a donut stops being readable at a glance, so the seventh and beyond fold
+     into "Smaller categories" rather than growing a seventh hue.
+     Assigned in fixed order, never cycled.
+     Validated per rendition (scripts/validate_palette.js, dataviz skill):
+     lightness band, chroma floor >= 0.1, adjacent-pair CVD separation,
+     normal-vision floor, and >= 3:1 against this rendition's --surface. Worst
+     adjacent tritan pair sits in the 6-8 band, which is legal ONLY because
+     the donut also ships direct labels, a legend, and 2px surface gaps
+     between slices -- do not remove those and keep these colors. */
+  --expense-1: #009489;
+  --expense-2: #b4761a;
+  --expense-3: #8043a0;
+  --expense-4: #4a8020;
+  --expense-5: #1f6fd0;
+  --expense-6: #a83250;
   /* Elevation. Light mode cannot express depth with fills -- see the note at
      the top of this file -- so it carries the whole hierarchy in these
      shadows: warm ink (never neutral black, which reads as a cold smudge on
@@ -244,6 +264,26 @@
     --chart-2: #2f9086;
     --chart-3: #3cbdb0;
     --chart-4: #7fe9df;
+    /* Expense categories -- the ONLY categorical palette in the app, for the
+       expense donut in the story editor. Distinct from --chart-* above, which
+       is one sequential teal hue for staff analytics: these slices are
+       IDENTITIES ("flights" vs "rent"), not magnitudes, so a single ramp would
+       make adjacent slices unreadable. Six is the hard cap -- past ~6 segments
+       a donut stops being readable at a glance, so the seventh and beyond fold
+       into "Smaller categories" rather than growing a seventh hue.
+       Assigned in fixed order, never cycled.
+       Validated per rendition (scripts/validate_palette.js, dataviz skill):
+       lightness band, chroma floor >= 0.1, adjacent-pair CVD separation,
+       normal-vision floor, and >= 3:1 against this rendition's --surface. Worst
+       adjacent tritan pair sits in the 6-8 band, which is legal ONLY because
+       the donut also ships direct labels, a legend, and 2px surface gaps
+       between slices -- do not remove those and keep these colors. */
+    --expense-1: #2aa89b;
+    --expense-2: #b8842a;
+    --expense-3: #a06ec2;
+    --expense-4: #689a35;
+    --expense-5: #4a90dd;
+    --expense-6: #d55f7d;
     /* Dark's counterpart. Depth here already comes from the surface fills
      (#05070a -> #0d1218 is a 2.8x luminance jump, which dark-adapted vision
      reads clearly), so these stay near-invisible -- they exist only to keep a
@@ -293,6 +333,26 @@
   --chart-2: #17968b;
   --chart-3: #00706a;
   --chart-4: #004b46;
+  /* Expense categories -- the ONLY categorical palette in the app, for the
+     expense donut in the story editor. Distinct from --chart-* above, which
+     is one sequential teal hue for staff analytics: these slices are
+     IDENTITIES ("flights" vs "rent"), not magnitudes, so a single ramp would
+     make adjacent slices unreadable. Six is the hard cap -- past ~6 segments
+     a donut stops being readable at a glance, so the seventh and beyond fold
+     into "Smaller categories" rather than growing a seventh hue.
+     Assigned in fixed order, never cycled.
+     Validated per rendition (scripts/validate_palette.js, dataviz skill):
+     lightness band, chroma floor >= 0.1, adjacent-pair CVD separation,
+     normal-vision floor, and >= 3:1 against this rendition's --surface. Worst
+     adjacent tritan pair sits in the 6-8 band, which is legal ONLY because
+     the donut also ships direct labels, a legend, and 2px surface gaps
+     between slices -- do not remove those and keep these colors. */
+  --expense-1: #009489;
+  --expense-2: #b4761a;
+  --expense-3: #8043a0;
+  --expense-4: #4a8020;
+  --expense-5: #1f6fd0;
+  --expense-6: #a83250;
   /* Elevation. Light mode cannot express depth with fills -- see the note at
      the top of this file -- so it carries the whole hierarchy in these
      shadows: warm ink (never neutral black, which reads as a cold smudge on
@@ -344,6 +404,26 @@
   --chart-2: #2f9086;
   --chart-3: #3cbdb0;
   --chart-4: #7fe9df;
+  /* Expense categories -- the ONLY categorical palette in the app, for the
+     expense donut in the story editor. Distinct from --chart-* above, which
+     is one sequential teal hue for staff analytics: these slices are
+     IDENTITIES ("flights" vs "rent"), not magnitudes, so a single ramp would
+     make adjacent slices unreadable. Six is the hard cap -- past ~6 segments
+     a donut stops being readable at a glance, so the seventh and beyond fold
+     into "Smaller categories" rather than growing a seventh hue.
+     Assigned in fixed order, never cycled.
+     Validated per rendition (scripts/validate_palette.js, dataviz skill):
+     lightness band, chroma floor >= 0.1, adjacent-pair CVD separation,
+     normal-vision floor, and >= 3:1 against this rendition's --surface. Worst
+     adjacent tritan pair sits in the 6-8 band, which is legal ONLY because
+     the donut also ships direct labels, a legend, and 2px surface gaps
+     between slices -- do not remove those and keep these colors. */
+  --expense-1: #2aa89b;
+  --expense-2: #b8842a;
+  --expense-3: #a06ec2;
+  --expense-4: #689a35;
+  --expense-5: #4a90dd;
+  --expense-6: #d55f7d;
   /* Dark's counterpart. Depth here already comes from the surface fills
      (#05070a -> #0d1218 is a 2.8x luminance jump, which dark-adapted vision
      reads clearly), so these stay near-invisible -- they exist only to keep a

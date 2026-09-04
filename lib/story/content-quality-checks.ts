@@ -34,6 +34,21 @@ export type QualityCheckInput = {
   hasRegion: boolean;
   hasTag: boolean;
   media?: QualityCheckMediaInput[];
+  /**
+   * The headline lump figure from story_revisions.total_expense_nzd_cents,
+   * and the sum of the revision's optional per-category breakdown
+   * (story_revision_expenses). Both optional -- most stories carry neither.
+   *
+   * These are deliberately INDEPENDENT in the schema: no generated column,
+   * no CHECK constraint tying them together, because a partial breakdown
+   * ("I know what my flights cost, not my groceries") is the normal case,
+   * not an error. That is exactly why the one genuinely odd combination --
+   * the parts adding up to more than the whole -- surfaces here, as an
+   * advisory finding a human reads, rather than as a constraint that would
+   * reject a save.
+   */
+  totalExpenseNzdCents?: number | null;
+  expenseBreakdownTotalNzdCents?: number | null;
 };
 
 // Strips Markdown syntax down to roughly what a reader would see -- good
@@ -187,6 +202,25 @@ export function runContentQualityChecks(
       code: "images_missing_alt_text",
       severity: "warning",
       message: `${missingAltTextCount} image(s) are missing alt text.`,
+    });
+  }
+
+  // Both numbers present, and the parts exceed the whole. Not an error --
+  // it can be a stated total the contributor never went back and updated,
+  // or a breakdown they double-counted -- so this says what it sees and
+  // decides nothing.
+  const statedTotal = input.totalExpenseNzdCents;
+  const breakdownTotal = input.expenseBreakdownTotalNzdCents;
+  if (
+    typeof statedTotal === "number" &&
+    typeof breakdownTotal === "number" &&
+    breakdownTotal > statedTotal
+  ) {
+    findings.push({
+      code: "expense_breakdown_exceeds_total",
+      severity: "info",
+      message:
+        "The expense breakdown adds up to more than the stated total expenses. A partial breakdown is normal, but the parts exceeding the whole usually means one of the two numbers is out of date.",
     });
   }
 
