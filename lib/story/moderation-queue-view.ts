@@ -210,3 +210,37 @@ export function submitterLabel(row: {
   }
   return name;
 }
+
+/**
+ * What the review page's media list should say about one image.
+ *
+ * Pure so the four cases can be tested without a database or a rendered
+ * page; the review page turns `kind` into colour and an icon.
+ *
+ * `decorative` is deliberately NOT treated as "the contributor said this
+ * image needs no description". It is also the placeholder every uploaded
+ * and PDF-attached image is born with, purely so the
+ * `story_revision_media_alt_text_required` check constraint holds before
+ * anyone has written alt text -- so an undescribed decorative image is
+ * reported as exactly that ("no-description"), never as reassuringly
+ * finished. See app/(moderation)/moderation/stories/[id]/page.tsx's
+ * MediaRow for the fuller reasoning.
+ */
+export type MediaDescriptionKind =
+  "caption" | "alt-text" | "no-description" | "missing-alt-text";
+
+export function mediaDescription(item: {
+  altText: string | null;
+  caption: string | null;
+  decorative: boolean;
+}): { kind: MediaDescriptionKind; text: string } {
+  const caption = item.caption?.trim();
+  if (caption) return { kind: "caption", text: caption };
+
+  const altText = item.altText?.trim();
+  if (altText) return { kind: "alt-text", text: altText };
+
+  return item.decorative
+    ? { kind: "no-description", text: "No alt text — marked decorative" }
+    : { kind: "missing-alt-text", text: "No alt text or caption" };
+}

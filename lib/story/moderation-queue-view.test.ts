@@ -10,6 +10,7 @@ import {
   relativeTime,
   absoluteTime,
   submitterLabel,
+  mediaDescription,
 } from "./moderation-queue-view";
 
 const baseRow = {
@@ -203,5 +204,50 @@ describe("submitterLabel", () => {
         source_kind: "self_submitted",
       }),
     ).toBe("Unknown contributor");
+  });
+});
+
+describe("mediaDescription", () => {
+  const base = { altText: null, caption: null, decorative: false };
+
+  it("prefers the caption, which is the contributor's own words", () => {
+    expect(
+      mediaDescription({
+        ...base,
+        caption: "Lake Hawea at 7am",
+        altText: "A lake",
+      }),
+    ).toEqual({ kind: "caption", text: "Lake Hawea at 7am" });
+  });
+
+  it("falls back to alt text when there is no caption", () => {
+    expect(mediaDescription({ ...base, altText: "A lake at dawn" })).toEqual({
+      kind: "alt-text",
+      text: "A lake at dawn",
+    });
+  });
+
+  it("treats whitespace-only text as absent", () => {
+    expect(
+      mediaDescription({ ...base, caption: "   ", altText: "\n\t" }).kind,
+    ).toBe("missing-alt-text");
+  });
+
+  // The bug this list had: every undescribed image printed the same
+  // "(no caption)". Both undescribed cases are now named for what they are,
+  // and the decorative one is NOT called finished -- decorative is the
+  // placeholder every upload starts with, not a decision.
+  it("names an undescribed decorative image without calling it done", () => {
+    expect(mediaDescription({ ...base, decorative: true })).toEqual({
+      kind: "no-description",
+      text: "No alt text — marked decorative",
+    });
+  });
+
+  it("flags a non-decorative image with no alt text", () => {
+    expect(mediaDescription(base)).toEqual({
+      kind: "missing-alt-text",
+      text: "No alt text or caption",
+    });
   });
 });

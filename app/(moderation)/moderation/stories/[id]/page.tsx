@@ -8,6 +8,7 @@ import {
   getStoryEditorialHistory,
   listReportsForStaff,
   parseModeratorMedia,
+  type ModeratorMediaItem,
 } from "@/lib/story/moderation";
 import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
 import { getPublishedStoryMedia } from "@/lib/story/public-queries";
@@ -25,6 +26,7 @@ import {
   labelFor,
   relativeTime,
   absoluteTime,
+  mediaDescription,
 } from "@/lib/story/moderation-queue-view";
 import { AlertCircleIcon, CheckCircleIcon } from "@/components/icons";
 import { ReviewControls } from "./review-controls";
@@ -40,6 +42,99 @@ export const dynamic = "force-dynamic";
 
 const SECTION_HEADING =
   "font-mono text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground";
+
+/**
+ * States where the image pipeline has finished with a file. Everything else
+ * (uploading/processing/failed) is worth calling out per image; "processed"
+ * repeated down every row is not -- the sidebar's "Images processed" check
+ * already answers that question for the set as a whole.
+ */
+const READY_PROCESSING_STATES = new Set([
+  "processed",
+  "promotion_pending",
+  "promoted",
+]);
+
+/**
+ * One image in the review page's media list.
+ *
+ * The old row printed `caption || altText || "(no caption)"`, which on a
+ * story whose images carry alt text but no captions -- the common case,
+ * since a caption is optional and alt text is not -- rendered a stack of
+ * identical "(no caption)" lines: no way to tell one image from another,
+ * and no sign of the one thing a moderator actually has to check here.
+ *
+ * So each row now leads with its position (matching the gallery directly
+ * above it) plus a Cover marker, then whatever text the image really has:
+ * the caption if there is one, otherwise the alt text labelled as alt text.
+ * An image with neither is the interesting case, and gets said out loud.
+ *
+ * The wording for that case is careful on purpose. `decorative = true` does
+ * NOT reliably mean "the contributor decided this image is decorative": it
+ * is also the placeholder every freshly uploaded and every PDF-attached
+ * image is born with, purely to satisfy the
+ * `story_revision_media_alt_text_required` check constraint before anyone
+ * has written alt text (see 20260806110100_fix_finalize_upload_alt_text_constraint.sql
+ * and lib/story/pdf-page-attachment.ts). So a decorative image with no alt
+ * text is reported as exactly what the data supports -- "No alt text --
+ * marked decorative" -- and never as the reassuring "no description
+ * needed", which would quietly hide undescribed images from the one person
+ * whose job is to catch them. A NON-decorative image with no alt text is a
+ * straight failure and is flagged red; that is the same condition the
+ * readiness metric's `images_missing_alt_text` fires on.
+ *
+ * The wording itself lives in mediaDescription()
+ * (lib/story/moderation-queue-view.ts) so all four cases are unit-tested;
+ * this component only turns the returned `kind` into colour and an icon.
+ */
+function MediaRow({
+  item,
+  position,
+}: {
+  item: ModeratorMediaItem;
+  position: number;
+}) {
+  const described = mediaDescription(item);
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-border-subtle px-3 py-2">
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="font-mono text-xs text-muted-foreground">
+          Image {position}
+        </span>
+        {item.isCover && (
+          <span className="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-[0.14em] text-muted-foreground">
+            Cover
+          </span>
+        )}
+        {described.kind === "caption" ? (
+          <span className="min-w-0">{described.text}</span>
+        ) : described.kind === "alt-text" ? (
+          <span className="min-w-0">
+            {described.text}{" "}
+            <span className="text-xs text-muted-foreground">(alt text)</span>
+          </span>
+        ) : (
+          <span
+            className={`flex items-center gap-1.5 ${
+              described.kind === "missing-alt-text"
+                ? "text-destructive"
+                : "text-muted-foreground"
+            }`}
+          >
+            <AlertCircleIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+            {described.text}
+          </span>
+        )}
+      </span>
+      {!READY_PROCESSING_STATES.has(item.processingState) && (
+        <span className="font-mono text-xs text-muted-foreground">
+          {item.processingState}
+        </span>
+      )}
+    </li>
+  );
+}
 
 /**
  * One fact in the review sidebar. `ok` drives an icon and colour, so a
@@ -179,6 +274,19 @@ export default async function ModerationReviewPage({
   }
 
   const media = parseModeratorMedia(detail.media);
+  // Surfaced on the collapsed <summary> itself: the media panel starts
+  // closed, so undescribed images would otherwise be invisible to a
+  // moderator who never opens it.
+  //
+  // Counts images with NO caption and NO alt text, decorative ones
+  // included, because `decorative` is the placeholder every upload starts
+  // life with rather than a statement about the image (see MediaRow). The
+  // readiness metric's stricter `not decorative` version of this count is
+  // measuring something else -- constraint compliance, not whether a
+  // reader would be told what is in the picture.
+  const undescribedCount = media.filter(
+    (m) => !m.altText?.trim() && !m.caption?.trim(),
+  ).length;
   const openReports = reports.filter(
     (r) => r.status === "open" || r.status === "reviewing",
   );
@@ -355,23 +463,17 @@ export default async function ModerationReviewPage({
                 className={`cursor-pointer select-none px-4 py-3 ${SECTION_HEADING}`}
               >
                 Media ({media.length})
+                {undescribedCount > 0 && (
+                  <span className="ml-2 normal-case tracking-normal text-destructive">
+                    — {undescribedCount} with no description
+                  </span>
+                )}
               </summary>
               <div className="border-t border-border-subtle p-4">
                 <PreviewGallery media={media} />
                 <ul className="mt-3 space-y-2 text-sm">
-                  {media.map((m) => (
-                    <li
-                      key={m.mediaId}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-subtle px-3 py-2"
-                    >
-                      <span>
-                        {m.isCover ? "Cover — " : ""}
-                        {m.caption || m.altText || "(no caption)"}
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {m.processingState}
-                      </span>
-                    </li>
+                  {media.map((m, index) => (
+                    <MediaRow key={m.mediaId} item={m} position={index + 1} />
                   ))}
                 </ul>
               </div>
