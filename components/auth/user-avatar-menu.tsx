@@ -8,19 +8,41 @@ import { controlToneClasses } from "@/components/ui-tone";
 import type { AppRole } from "@/lib/auth/staff-guard";
 import { staffMenuItemsForRole } from "@/lib/auth/staff-menu";
 
-const menuItems = [
+/**
+ * Authoring links: only for people who actually author stories. A staff
+ * member (moderator/editor/admin) reviews other people's stories, so
+ * dropping these keeps their menu to their own role's surfaces plus
+ * Account/Sign out -- see `personalMenuItems` below.
+ */
+const authoringItems = [
   { href: "/my-stories", label: "My Stories" },
   { href: "/stories/new", label: "New Story" },
-  { href: "/account", label: "Account" },
 ];
+
+const accountItem = { href: "/account", label: "Account" };
+
+/**
+ * Which of the always-on items a role gets. Staff roles get Account only;
+ * an ordinary contributor (and anyone whose role we don't know) also gets
+ * the authoring links. Like staffMenuItemsForRole this is PRESENTATION
+ * ONLY -- /my-stories and /stories/new remain reachable and permitted for
+ * staff accounts, they are simply not advertised in their menu.
+ */
+function personalMenuItems(role: AppRole | null) {
+  const isStaff = role === "admin" || role === "editor" || role === "moderator";
+  return isStaff ? [accountItem] : [...authoringItems, accountItem];
+}
 
 /**
  * The single, always-present profile icon: every signed-in header
  * (SiteHeader, ContributorNav, ModerationNav, EditorialNav, ReadinessNav)
  * renders this instead of its own ad hoc sign-out/account links, so the
  * same actions are reachable the same way regardless of which screen is
- * showing. Opens a dropdown with, in order: My Stories, New Story, Account,
- * Sign out -- the avatar itself is the emoji chosen on /account
+ * showing. Opens a dropdown with, in order: the caller's staff surfaces (if
+ * any), then My Stories / New Story for contributors, then Account and Sign
+ * out. Staff roles skip the two authoring links -- a moderator, editor or
+ * admin sees only their own role's surfaces plus Account and Sign out. The
+ * avatar itself is the emoji chosen on /account
  * (lib/avatar.ts's pre-loaded set), falling back to a generic person icon
  * for accounts that haven't picked one yet.
  *
@@ -55,6 +77,7 @@ export function UserAvatarMenu({
   role?: AppRole | null;
 }) {
   const staffItems = staffMenuItemsForRole(role ?? null);
+  const menuItems = personalMenuItems(role ?? null);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const menuId = useId();

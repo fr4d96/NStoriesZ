@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { StaffNav } from "@/components/staff-nav";
 import {
   getCurrentUserAvatarEmoji,
   getCurrentUserRole,
@@ -16,9 +15,9 @@ const moderationNav = [
  * Rendered only inside app/(moderation)/moderation/layout.tsx, after the
  * real moderator/admin role check passes -- same "own nav, no
  * contradictions" reasoning as app/(editor)/editorial/editorial-nav.tsx.
- * The profile icon (UserAvatarMenu) is the same one every other signed-in
- * header renders -- staff dashboards previously had no way to reach My
- * Stories/Account/Sign out at all.
+ * The header markup itself (including the profile icon every signed-in
+ * header renders, and the mobile row order) lives in components/staff-nav.tsx,
+ * shared with the editorial, admin and readiness dashboards.
  */
 export async function ModerationNav() {
   const [avatarEmoji, role] = await Promise.all([
@@ -27,35 +26,12 @@ export async function ModerationNav() {
   ]);
 
   return (
-    <header className="border-b border-border-subtle">
-      {/*
-        The four links plus the avatar are wider than a phone: below `sm`
-        this wraps to a second row (title, then nav) rather than pushing the
-        avatar off-screen, which is what it did before -- 89px of horizontal
-        overflow on a 390px viewport.
-      */}
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-4 sm:flex-nowrap sm:px-6">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          Kakinotes — Moderation
-        </Link>
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end sm:gap-6">
-          <nav
-            aria-label="Moderation"
-            className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:flex-nowrap sm:gap-6"
-          >
-            {moderationNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="hover:underline"
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <UserAvatarMenu emoji={avatarEmoji} role={role} />
-        </div>
-      </div>
-    </header>
+    <StaffNav
+      title="Kakinotes — Moderation"
+      label="Moderation"
+      links={moderationNav}
+      avatarEmoji={avatarEmoji}
+      role={role}
+    />
   );
 }

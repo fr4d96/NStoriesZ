@@ -1,16 +1,26 @@
-import Link from "next/link";
-import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { StaffNav } from "@/components/staff-nav";
 import {
   getCurrentUserAvatarEmoji,
   getCurrentUserRole,
 } from "@/lib/auth/roles";
 
+const readinessNav = [
+  { href: "/readiness", label: "Dashboard" },
+  { href: "/editorial", label: "Editorial" },
+  { href: "/moderation", label: "Moderation" },
+];
+
 /**
  * Rendered only inside app/(readiness)/readiness/layout.tsx, after the real
  * editor/moderator/admin role check passes -- same "own nav, no
  * contradictions" reasoning as editorial-nav.tsx/moderation-nav.tsx. The
- * profile icon (UserAvatarMenu) is the same one every other signed-in
- * header renders.
+ * header markup itself (profile icon included) is
+ * components/staff-nav.tsx, shared across the staff dashboards.
+ *
+ * Note this nav links to BOTH /editorial and /moderation, which a plain
+ * editor or moderator is not allowed on -- unchanged from before, and
+ * harmless: proxy.ts and each layout re-check the role, so the wrong role
+ * gets the same flat 404 as anyone else.
  */
 export async function ReadinessNav() {
   const [avatarEmoji, role] = await Promise.all([
@@ -19,29 +29,12 @@ export async function ReadinessNav() {
   ]);
 
   return (
-    <header className="border-b border-border-subtle">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          Kakinotes — Content Readiness
-        </Link>
-        <div className="flex items-center gap-6">
-          <nav
-            aria-label="Readiness"
-            className="flex items-center gap-6 text-sm"
-          >
-            <Link href="/readiness" className="hover:underline">
-              Dashboard
-            </Link>
-            <Link href="/editorial" className="hover:underline">
-              Editorial
-            </Link>
-            <Link href="/moderation" className="hover:underline">
-              Moderation
-            </Link>
-          </nav>
-          <UserAvatarMenu emoji={avatarEmoji} role={role} />
-        </div>
-      </div>
-    </header>
+    <StaffNav
+      title="Kakinotes — Content Readiness"
+      label="Readiness"
+      links={readinessNav}
+      avatarEmoji={avatarEmoji}
+      role={role}
+    />
   );
 }
