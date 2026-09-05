@@ -969,21 +969,24 @@ export type Database = {
       story_revision_expenses: {
         Row: {
           amount_nzd_cents: number;
-          category_id: string;
+          category_id: string | null;
+          custom_label: string | null;
           id: string;
           note: string | null;
           revision_id: string;
         };
         Insert: {
           amount_nzd_cents: number;
-          category_id: string;
+          category_id?: string | null;
+          custom_label?: string | null;
           id?: string;
           note?: string | null;
           revision_id: string;
         };
         Update: {
           amount_nzd_cents?: number;
-          category_id?: string;
+          category_id?: string | null;
+          custom_label?: string | null;
           id?: string;
           note?: string | null;
           revision_id?: string;

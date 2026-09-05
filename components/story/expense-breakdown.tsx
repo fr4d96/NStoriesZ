@@ -9,71 +9,105 @@ import { CloseIcon } from "@/components/icons";
 /**
  * One row of the optional expense breakdown, as the FORM holds it: amounts
  * are the raw strings the contributor is typing, not numbers. Parsing to
- * cents happens in one place in story-edit-form.tsx (the same
- * `Math.round(Number(x) * 100)` the headline total already uses), so the
- * two can never drift apart.
+ * cents happens through expenseRowsToPayload() below, using the same
+ * `Math.round(Number(x) * 100)` the headline total uses, so the two numbers
+ * on screen can never round differently.
  *
- * `name` travels with the row rather than being looked up from
- * `categories` every time, because a category can be retired (`active =
- * false`) while stories still reference it -- it would be missing from the
- * options list and the row would render nameless.
+ * A row is EITHER a curated category (categoryId set) OR one the contributor
+ * named themselves (categoryId null) -- the same either/or shape
+ * story_revision_tags has used since 20260812110000, and the database
+ * enforces it with a CHECK.
+ *
+ * `name` travels with the row rather than being looked up from `categories`
+ * each render, because a curated category can be retired (`active = false`)
+ * while stories still reference it: it would be missing from the options
+ * list and the row would render nameless.
  */
 export type ExpenseDraftRow = {
-  categoryId: string;
+  /** Null for a row whose category the contributor typed themselves. */
+  categoryId: string | null;
+  /** The curated category's name, or the typed one. Always displayable. */
   name: string;
-  slug: string;
+  slug: string | null;
   amountDollars: string;
   note: string;
 };
 
 /**
- * The slug whose row gets a free-text note field. The categories are
- * deliberately CURATED -- there is no "type your own category", unlike
- * tags -- because an expense only earns its keep if it can be added up
- * across stories, and "car" / "van stuff" / "vehicle" are three
- * unmergeable buckets for one thing. "Other" plus a short note is the
- * pressure valve that keeps the rest of the vocabulary clean.
+ * Five rows, hard cap.
+ *
+ * A breakdown is a summary, not a ledger -- past a handful of lines it stops
+ * being scannable, and the donut beside it caps at six slices for the same
+ * reason. Capping also bounds how much contributor-typed vocabulary can
+ * accumulate now that categories are no longer a closed set.
+ *
+ * set_revision_expenses() re-applies this server-side, truncating rather
+ * than raising (an autosave should not start erroring because a client sent
+ * one row too many) -- so this constant is the courtesy, not the boundary.
+ */
+export const MAX_EXPENSE_ROWS = 5;
+
+/** How long a contributor-typed category name may be. Matches the CHECK. */
+export const EXPENSE_LABEL_MAX_LENGTH = 60;
+
+/**
+ * The curated category whose row gets a free-text note in place of a fixed
+ * description. Contributor-typed rows get one too -- see the row markup.
  */
 const NOTE_CATEGORY_SLUG = "other";
 
+/** A row the contributor named themselves. */
+function isCustomRow(row: ExpenseDraftRow): boolean {
+  return row.categoryId === null;
+}
+
 /**
- * Draft rows -> the payload set_revision_expenses() takes. Lives here, next
- * to the row shape it consumes, and is the ONLY place the form converts an
- * expense row for saving.
+ * Draft rows -> the payload set_revision_expenses() takes. The ONLY place
+ * the form converts an expense row for saving.
  *
- * Three rules, all of which the RPC independently re-applies (Engineering
- * Rules 2/3 -- this is the courtesy, that is the boundary):
+ * Every rule here is re-applied independently by the RPC (Engineering Rules
+ * 2/3 -- this is the courtesy, that is the boundary):
  *
  *  - An EMPTY amount drops the row. `Number("")` is 0, not NaN, so without
  *    this an untouched row would be stored as a confident "$0.00". "I
  *    didn't record it" and "it cost nothing" are different claims, and a
  *    fake zero corrupts every future average across stories.
- *  - A part-typed or nonsense amount ("-", "1e", "abc") drops the row
- *    rather than saving garbage; the next keystroke that makes it a number
- *    brings it straight back.
- *  - A negative is clamped to 0, matching the RPC, so a stray minus sign
- *    cannot make an autosave start erroring mid-typing.
- *
- * The dollars->cents conversion is deliberately the identical
- * `Math.round(Number(x) * 100)` the headline total already uses in
- * story-edit-form.tsx -- one expression, so the two numbers on the same
- * screen can never round differently.
+ *  - A part-typed or nonsense amount ("-", "1e", "abc") drops the row rather
+ *    than saving garbage; the next keystroke that makes it a number brings
+ *    it straight back.
+ *  - A negative is clamped to 0, so a stray minus sign cannot make an
+ *    autosave start erroring mid-typing.
+ *  - A custom row with no label yet is dropped: it has nothing to store, and
+ *    the database CHECK would reject (null, null) anyway.
+ *  - At most MAX_EXPENSE_ROWS rows.
  */
-export function expenseRowsToPayload(
-  rows: ExpenseDraftRow[],
-): Array<{ categoryId: string; amountNzdCents: number; note: string | null }> {
+export function expenseRowsToPayload(rows: ExpenseDraftRow[]): Array<{
+  categoryId: string | null;
+  customLabel: string | null;
+  amountNzdCents: number;
+  note: string | null;
+}> {
   const payload: Array<{
-    categoryId: string;
+    categoryId: string | null;
+    customLabel: string | null;
     amountNzdCents: number;
     note: string | null;
   }> = [];
   for (const row of rows) {
+    if (payload.length >= MAX_EXPENSE_ROWS) break;
     if (row.amountDollars.trim() === "") continue;
     const cents = Math.round(Number(row.amountDollars) * 100);
     if (!Number.isFinite(cents)) continue;
+
+    const label = row.name.trim();
+    if (isCustomRow(row) && label === "") continue;
+
     const note = row.note.trim();
     payload.push({
       categoryId: row.categoryId,
+      customLabel: isCustomRow(row)
+        ? label.slice(0, EXPENSE_LABEL_MAX_LENGTH)
+        : null,
       amountNzdCents: Math.max(0, cents),
       note: note === "" ? null : note.slice(0, EXPENSE_NOTE_MAX_LENGTH),
     });
@@ -87,40 +121,40 @@ export function expenseRowsToPayload(
  *
  * Goes through expenseRowsToPayload() rather than summing the raw strings,
  * so the auto-filled total counts exactly the rows that will actually be
- * saved -- a half-typed or empty amount contributes nothing here for the
- * same reason it stores nothing there.
+ * saved -- a half-typed amount, or a custom row with no name yet,
+ * contributes nothing here for the same reason it stores nothing there.
  *
  * Returns "" for an empty breakdown, which is the input's own empty value:
  * clearing the last row clears the total rather than parking a $0 on the
- * story ("I didn't record it" is not "it cost nothing" -- the rule this
- * whole component is built around).
+ * story.
  */
 export function breakdownTotalDollars(rows: ExpenseDraftRow[]): string {
   const payload = expenseRowsToPayload(rows);
   if (payload.length === 0) return "";
   const cents = payload.reduce((sum, row) => sum + row.amountNzdCents, 0);
-  // Cents -> dollars without a trailing ".00", since the input is a
-  // number field the contributor may keep typing in.
+  // Cents -> dollars without a trailing ".00", since the input is a number
+  // field the contributor may keep typing in.
   return String(cents / 100);
 }
 
 /**
- * Optional per-category breakdown, sitting under the headline "Total
- * expenses (NZD)" input in the Trip step. That input stays the number the
- * story is filed under; this answers the follow-up question ("on what?").
+ * Optional expense breakdown, sitting under the headline "Total expenses
+ * (NZD)" input. That input stays the number the story is filed under; this
+ * answers the follow-up question ("on what?").
  *
- * The two are INDEPENDENT on purpose, in the database as well as here: a
- * partial breakdown ("I know what my flights and my van cost, not my
- * groceries") is the normal case, so nothing forces the categories to add
- * up to the total. Where the categories exceed the stated total, the line
- * below says so plainly and leaves it alone -- it is a real thing a
- * contributor might mean, and moderators get the same observation as an
- * advisory finding (lib/story/content-quality-checks.ts).
+ * Categories are SUGGESTIONS, not a ceiling: a contributor can pick a
+ * curated one or type their own. The curated list still earns its keep --
+ * everyone who picks "Flights" aggregates together, and only the typed tail
+ * is unmergeable across stories.
  *
- * An empty amount box means "I didn't record this", NOT "$0" -- the row is
- * dropped before saving rather than stored as a zero, both here and again
- * inside set_revision_expenses(). A fake zero would quietly drag down
- * every future average across stories.
+ * Every row reads the same way whichever kind it is: a title, then a
+ * sub-title under it. For a curated row those are the category's name and
+ * its fixed description; for a typed one they are both the contributor's own
+ * words. Same shape, so the list does not visibly sort itself into
+ * first-class and second-class rows.
+ *
+ * At most MAX_EXPENSE_ROWS rows, and NOT scrollable -- five rows fit, so
+ * there is nothing to scroll and no clipped content to hunt for.
  */
 export function ExpenseBreakdown({
   categories,
@@ -137,8 +171,10 @@ export function ExpenseBreakdown({
   // Open on arrival if there is already something to see -- a contributor
   // returning to their draft should not have to find their own budget.
   const [open, setOpen] = useState(rows.length > 0);
+  const [customLabel, setCustomLabel] = useState("");
   const panelId = useId();
   const addId = useId();
+  const customId = useId();
 
   const describedCategories = useMemo(
     () => new Map(categories.map((c) => [c.id, c])),
@@ -149,9 +185,11 @@ export function ExpenseBreakdown({
     (c) => !rows.some((r) => r.categoryId === c.id),
   );
 
-  function addRow(categoryId: string) {
+  const atCap = rows.length >= MAX_EXPENSE_ROWS;
+
+  function addCuratedRow(categoryId: string) {
     const category = describedCategories.get(categoryId);
-    if (!category) return;
+    if (!category || atCap) return;
     onChange([
       ...rows,
       {
@@ -162,6 +200,28 @@ export function ExpenseBreakdown({
         note: "",
       },
     ]);
+  }
+
+  function addCustomRow() {
+    const label = customLabel.trim();
+    if (label === "" || atCap) return;
+    // Case-insensitive, so "Van" cannot be added beside "van" -- the RPC
+    // dedupes the same way, and a duplicate would silently vanish on save.
+    const clash = rows.some(
+      (r) => r.name.trim().toLowerCase() === label.toLowerCase(),
+    );
+    if (clash) return;
+    onChange([
+      ...rows,
+      {
+        categoryId: null,
+        name: label.slice(0, EXPENSE_LABEL_MAX_LENGTH),
+        slug: null,
+        amountDollars: "",
+        note: "",
+      },
+    ]);
+    setCustomLabel("");
   }
 
   function updateRow(index: number, patch: Partial<ExpenseDraftRow>) {
@@ -210,65 +270,71 @@ export function ExpenseBreakdown({
       {open && (
         <div id={panelId} className="border-t border-border-subtle p-3">
           <p className="text-xs text-muted-foreground">
-            Only add what you actually recorded. Leaving a category out is fine
-            — it doesn&apos;t have to add up to your total.
+            Only add what you actually recorded. Leaving something out is fine —
+            it doesn&apos;t have to add up to your total. Up to{" "}
+            {MAX_EXPENSE_ROWS}.
           </p>
 
-          {/* Fixed height, scrolled internally, so the panel is the same
-              size at one category as at eleven. Worth the constraint here
-              specifically because the donut sits BESIDE this list from `lg`
-              up: without it, every added row grew the column and shifted
-              the figure down the page mid-edit.
-
-              `tabIndex={0}` is not decorative -- a scroll container that
-              only responds to the mouse strands keyboard users at whatever
-              is clipped (WCAG 2.1.1), and a focusable region needs a name,
-              hence the label. `overscroll-contain` keeps a wheel gesture
-              that reaches the end of this list from carrying on and
-              scrolling the whole editor underneath it. */}
+          {/* No fixed height and no overflow container: the list cannot
+              exceed MAX_EXPENSE_ROWS, so there is never anything clipped to
+              scroll to. */}
           {rows.length > 0 && (
-            <ul
-              tabIndex={0}
-              role="group"
-              aria-label="Expense categories you have added"
-              className="mt-3 h-56 space-y-3 overflow-y-auto overscroll-contain pr-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
+            <ul className="mt-3 space-y-3">
               {rows.map((row, index) => {
-                const category = describedCategories.get(row.categoryId);
+                const category = row.categoryId
+                  ? describedCategories.get(row.categoryId)
+                  : undefined;
+                const custom = isCustomRow(row);
+                const wantsNote = custom || row.slug === NOTE_CATEGORY_SLUG;
                 return (
-                  <li key={row.categoryId}>
+                  <li key={row.categoryId ?? `custom-${index}`}>
                     <div className="flex flex-wrap items-end gap-2">
                       <div className="min-w-0 flex-1">
-                        <label
-                          htmlFor={`${panelId}-amount-${index}`}
-                          className="block text-sm font-medium"
-                        >
-                          {row.name}
-                        </label>
-                        {/* "Other" is the one category whose sub-title the
-                            contributor writes, so it takes the SAME slot as
-                            every other category's description rather than a
-                            separate full-width field below the row -- which
-                            is what made this one row a different shape from
-                            the rest. Styled as the sub-title it replaces
-                            (same size, same muted ink), with a dashed
-                            underline so it still reads as something you can
-                            type in; a borderless input in a list of static
-                            text has no affordance at all. */}
-                        {row.slug === NOTE_CATEGORY_SLUG ? (
+                        {custom ? (
+                          <>
+                            {/* The contributor's own title, in the same slot
+                                a curated category's name occupies. */}
+                            <label
+                              htmlFor={`${panelId}-label-${index}`}
+                              className="sr-only"
+                            >
+                              Category name
+                            </label>
+                            <input
+                              id={`${panelId}-label-${index}`}
+                              type="text"
+                              value={row.name}
+                              maxLength={EXPENSE_LABEL_MAX_LENGTH}
+                              placeholder="What did you spend on?"
+                              onChange={(e) =>
+                                updateRow(index, { name: e.target.value })
+                              }
+                              className="block w-full border-b border-dashed border-border-subtle bg-transparent py-0.5 text-sm font-medium placeholder:font-normal placeholder:text-muted-foreground/70 focus:border-solid focus:border-accent focus:outline-none"
+                            />
+                          </>
+                        ) : (
+                          <label
+                            htmlFor={`${panelId}-amount-${index}`}
+                            className="block text-sm font-medium"
+                          >
+                            {row.name}
+                          </label>
+                        )}
+
+                        {wantsNote ? (
                           <>
                             <label
                               htmlFor={`${panelId}-note-${index}`}
                               className="sr-only"
                             >
-                              What was this other cost?
+                              A short note about this cost
                             </label>
                             <input
                               id={`${panelId}-note-${index}`}
                               type="text"
                               value={row.note}
                               maxLength={EXPENSE_NOTE_MAX_LENGTH}
-                              placeholder="What was it?"
+                              placeholder="Add a short note (optional)"
                               onChange={(e) =>
                                 updateRow(index, { note: e.target.value })
                               }
@@ -291,6 +357,11 @@ export function ExpenseBreakdown({
                         step="0.01"
                         value={row.amountDollars}
                         placeholder="NZD"
+                        aria-label={
+                          custom
+                            ? `Amount for ${row.name.trim() || "this category"}`
+                            : undefined
+                        }
                         onChange={(e) =>
                           updateRow(index, { amountDollars: e.target.value })
                         }
@@ -299,7 +370,7 @@ export function ExpenseBreakdown({
                       <button
                         type="button"
                         onClick={() => removeRow(index)}
-                        aria-label={`Remove ${row.name} from the breakdown`}
+                        aria-label={`Remove ${row.name.trim() || "this category"} from the breakdown`}
                         className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border-subtle hover:bg-surface-muted"
                       >
                         <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -311,29 +382,74 @@ export function ExpenseBreakdown({
             </ul>
           )}
 
-          {unusedCategories.length > 0 && (
-            <div className="mt-3">
-              <label htmlFor={addId} className="block text-sm font-medium">
-                Add a category
-              </label>
-              <select
-                id={addId}
-                // Always snaps back to the placeholder: this select is an
-                // "add" control, not a stored value, so it must never look
-                // like it is holding a selection.
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) addRow(e.target.value);
-                }}
-                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 text-sm sm:w-64 dark:bg-transparent"
-              >
-                <option value="">Choose a category…</option>
-                {unusedCategories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
+          {atCap ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              That&apos;s {MAX_EXPENSE_ROWS} categories — the most a breakdown
+              holds. Remove one to add something else.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {unusedCategories.length > 0 && (
+                <div>
+                  <label htmlFor={addId} className="block text-sm font-medium">
+                    Add a category
+                  </label>
+                  <select
+                    id={addId}
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) addCuratedRow(e.target.value);
+                    }}
+                    className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
+                  >
+                    <option value="">Choose a category…</option>
+                    {unusedCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Typing your own. Deliberately its own labelled control
+                  rather than an "Other…" entry hidden at the bottom of the
+                  select: naming your own cost is a first-class way to use
+                  this, not a fallback for when the list fails you. */}
+              <div>
+                <label htmlFor={customId} className="block text-sm font-medium">
+                  Or name your own
+                </label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id={customId}
+                    type="text"
+                    value={customLabel}
+                    maxLength={EXPENSE_LABEL_MAX_LENGTH}
+                    placeholder="e.g. Phone plan"
+                    onChange={(e) => setCustomLabel(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter adds the row instead of submitting the form
+                      // around it -- this control sits inside the story
+                      // editor, and a stray submit would be a much bigger
+                      // surprise than a new row.
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCustomRow();
+                      }
+                    }}
+                    className="min-w-0 flex-1 rounded-md border border-border-subtle px-3 py-2 text-sm dark:bg-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomRow}
+                    disabled={customLabel.trim() === ""}
+                    className="shrink-0 rounded-md border border-border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

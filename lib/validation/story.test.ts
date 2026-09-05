@@ -11,6 +11,7 @@ import {
   submitRevisionSchema,
   createReportSchema,
   revisionTagsSchema,
+  revisionExpenseSchema,
   MAX_TAGS_PER_REVISION,
   TAG_MAX_LENGTH,
 } from "./story";
@@ -426,5 +427,55 @@ describe("revisionTagsSchema", () => {
       { customLabel: "x".repeat(TAG_MAX_LENGTH + 1) },
     ]);
     expect(result.success).toBe(false);
+  });
+});
+
+describe("revisionExpenseSchema", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+
+  it("accepts a curated category reference", () => {
+    expect(
+      revisionExpenseSchema.safeParse({ categoryId: id, amountNzdCents: 1000 })
+        .success,
+    ).toBe(true);
+  });
+
+  // The case that was broken: a typed row sends categoryId null, and the
+  // schema used to require a uuid -- which rejected the WHOLE array, so the
+  // server action answered "Invalid expenses." and nothing reached the RPC.
+  // The database was fine throughout; only this layer refused.
+  it("accepts a contributor-typed label with no category", () => {
+    const result = revisionExpenseSchema.safeParse({
+      categoryId: null,
+      customLabel: "Campervan repairs",
+      amountNzdCents: 45000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a row that is neither a category nor a label", () => {
+    expect(
+      revisionExpenseSchema.safeParse({
+        categoryId: null,
+        customLabel: null,
+        amountNzdCents: 1000,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an over-long typed label", () => {
+    expect(
+      revisionExpenseSchema.safeParse({
+        customLabel: "x".repeat(61),
+        amountNzdCents: 1000,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a negative amount", () => {
+    expect(
+      revisionExpenseSchema.safeParse({ categoryId: id, amountNzdCents: -1 })
+        .success,
+    ).toBe(false);
   });
 });

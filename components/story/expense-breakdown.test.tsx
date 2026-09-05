@@ -66,7 +66,12 @@ describe("expenseRowsToPayload", () => {
 
   it("keeps a real, explicit zero", () => {
     expect(expenseRowsToPayload([row({ amountDollars: "0" })])).toEqual([
-      { categoryId: categories[0].id, amountNzdCents: 0, note: null },
+      {
+        categoryId: categories[0].id,
+        customLabel: null,
+        amountNzdCents: 0,
+        note: null,
+      },
     ]);
   });
 
@@ -189,19 +194,92 @@ describe("ExpenseBreakdown", () => {
     expect(onChange).toHaveBeenCalledWith([]);
   });
 
-  it("offers a note field only on the Other category", async () => {
+  it("gives a note field to Other and to typed rows, but not to a plain curated one", async () => {
     setup([
+      // A curated row with its own fixed description: no note field.
       row({ amountDollars: "2000" }),
+      // "Other" keeps one, as it always did.
       row({
         categoryId: categories[2].id,
         name: "Other",
         slug: "other",
         amountDollars: "50",
       }),
+      // And a contributor-typed row writes its own sub-title.
+      row({
+        categoryId: null,
+        name: "Phone plan",
+        slug: null,
+        amountDollars: "60",
+      }),
     ]);
-    expect(screen.getAllByLabelText(/what was this other cost/i)).toHaveLength(
-      1,
+    expect(
+      screen.getAllByLabelText(/a short note about this cost/i),
+    ).toHaveLength(2);
+  });
+
+  it("lets a contributor name their own category, title and sub-title", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup([]);
+
+    // The panel starts collapsed when there is nothing in it yet.
+    await user.click(
+      screen.getByRole("button", { name: /break it down by category/i }),
     );
+
+    await user.type(
+      screen.getByLabelText(/or name your own/i),
+      "Campervan repairs",
+    );
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(onChange).toHaveBeenCalledWith([
+      expect.objectContaining({
+        categoryId: null,
+        name: "Campervan repairs",
+        slug: null,
+        amountDollars: "",
+      }),
+    ]);
+  });
+
+  it("refuses a typed category that duplicates one already added, ignoring case", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup([
+      row({ categoryId: null, name: "Van", slug: null, amountDollars: "10" }),
+    ]);
+
+    await user.type(screen.getByLabelText(/or name your own/i), "van");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    // Silently ignored rather than added: the RPC dedupes case-insensitively
+    // too, so a second "van" would vanish on save anyway.
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("stops offering new categories at the cap, and says why", async () => {
+    setup([
+      row({ categoryId: "a", name: "One", amountDollars: "1" }),
+      row({ categoryId: "b", name: "Two", amountDollars: "2" }),
+      row({ categoryId: "c", name: "Three", amountDollars: "3" }),
+      row({ categoryId: "d", name: "Four", amountDollars: "4" }),
+      row({ categoryId: "e", name: "Five", amountDollars: "5" }),
+    ]);
+
+    expect(
+      screen.queryByLabelText(/or name your own/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/^add a category$/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/the most a breakdown holds/i)).toBeInTheDocument();
+  });
+
+  it("never sends more than five rows even if state somehow holds more", () => {
+    const rows = Array.from({ length: 8 }, (_, i) =>
+      row({ categoryId: `id-${i}`, name: `Cat ${i}`, amountDollars: "10" }),
+    );
+    expect(expenseRowsToPayload(rows)).toHaveLength(5);
   });
 
   it("renders a row whose category has been retired from the options list", () => {

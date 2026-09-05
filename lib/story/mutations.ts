@@ -356,8 +356,12 @@ export async function setRevisionTags(
 export async function setRevisionExpenses(
   revisionId: string,
   expectedVersion: number,
+  // Each row is EITHER a curated category reference OR a typed label. The
+  // RPC re-applies that rule (an id wins if both arrive), so this shape is
+  // the courtesy, not the boundary.
   expenses: Array<{
-    categoryId: string;
+    categoryId?: string | null;
+    customLabel?: string | null;
     amountNzdCents: number;
     note?: string | null;
   }>,
@@ -368,7 +372,8 @@ export async function setRevisionExpenses(
     p_revision_id: revisionId,
     p_expected_version: expectedVersion,
     p_expenses: expenses.map((e) => ({
-      category_id: e.categoryId,
+      category_id: e.categoryId ?? null,
+      custom_label: e.categoryId ? null : (e.customLabel ?? null),
       amount_nzd_cents: e.amountNzdCents,
       note: e.note ?? null,
     })),

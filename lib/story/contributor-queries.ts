@@ -197,9 +197,13 @@ export type RevisionTagSelection = {
  * still renders with its real name rather than as a blank row.
  */
 export type RevisionExpenseSelection = {
-  categoryId: string;
-  slug: string;
+  /** Null for a contributor-typed row -- see customLabel. */
+  categoryId: string | null;
+  slug: string | null;
+  /** The curated category's name, or the typed label for a custom row. */
   name: string;
+  /** Set only when categoryId is null (20260903110000). */
+  customLabel: string | null;
   amountNzdCents: number;
   note: string | null;
 };
@@ -256,9 +260,10 @@ export async function getRevisionSelections(
     }> | null) ?? [];
   const expenses =
     (row?.expenses as Array<{
-      categoryId: string;
+      categoryId: string | null;
       slug: string | null;
       name: string | null;
+      customLabel: string | null;
       amountNzdCents: number;
       note: string | null;
     }> | null) ?? [];
@@ -273,12 +278,20 @@ export async function getRevisionSelections(
       // meaningfully re-sent; dropping it is safer than rendering a blank
       // chip the contributor can't identify.
       .filter((t) => t.name.length > 0),
-    expenses: expenses.map((e) => ({
-      categoryId: e.categoryId,
-      slug: e.slug ?? "",
-      name: e.name ?? "",
-      amountNzdCents: e.amountNzdCents,
-      note: e.note,
-    })),
+    expenses: expenses
+      .map((e) => ({
+        categoryId: e.categoryId ?? null,
+        slug: e.slug ?? null,
+        // The RPC already resolves this to the category name or the typed
+        // label; this is only the fallback for a row that is somehow
+        // neither.
+        name: e.name ?? e.customLabel ?? "",
+        customLabel: e.customLabel ?? null,
+        amountNzdCents: e.amountNzdCents,
+        note: e.note,
+      }))
+      // Same reasoning as tags above: a row with no showable name cannot be
+      // rendered or meaningfully re-sent.
+      .filter((e) => e.name.length > 0),
   };
 }

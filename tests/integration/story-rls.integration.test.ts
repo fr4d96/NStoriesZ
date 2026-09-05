@@ -2799,6 +2799,74 @@ describe("story_revision_expenses (migrations 20260902110000-110400)", () => {
     expect(vehicle.note).toBe("Old Legacy");
   });
 
+  it("stores a contributor-typed category, and reads it back as its own name", async () => {
+    const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_expenses: [
+        { custom_label: "Campervan repairs", amount_nzd_cents: 120000 },
+        // Both sent: the id wins, so a client cannot smuggle a label onto a
+        // reference row and trip story_revision_expenses_one_of.
+        {
+          category_id: categoryId,
+          custom_label: "ignored",
+          amount_nzd_cents: 5000,
+        },
+        // Same label in a different case: deduped, not stored twice.
+        { custom_label: "campervan REPAIRS", amount_nzd_cents: 999 },
+      ],
+    });
+    expect(error).toBeNull();
+
+    const { data: selections } = await untypedRpc<
+      Array<{
+        expenses: Array<{
+          categoryId: string | null;
+          slug: string | null;
+          name: string;
+          customLabel: string | null;
+          amountNzdCents: number;
+        }>;
+      }>
+    >(owner.client, "get_revision_selections", { p_revision_id: revisionId });
+    const expenses = selections![0].expenses;
+    expect(expenses).toHaveLength(2);
+
+    // The typed row survives the read. get_revision_selections joins
+    // expense_categories, and an INNER join here would have silently dropped
+    // it -- the breakdown would have looked like it deleted itself on
+    // reload.
+    const typed = expenses.find((e) => e.categoryId === null)!;
+    expect(typed).toBeTruthy();
+    expect(typed.customLabel).toBe("Campervan repairs");
+    expect(typed.name).toBe("Campervan repairs");
+    expect(typed.amountNzdCents).toBe(120000);
+
+    const curated = expenses.find((e) => e.categoryId !== null)!;
+    expect(curated.customLabel).toBeNull();
+    expect(curated.amountNzdCents).toBe(5000);
+  }, 60000);
+
+  it("caps the breakdown at five rows, truncating rather than raising", async () => {
+    const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
+      p_revision_id: revisionId,
+      p_expected_version: await currentVersion(),
+      p_expenses: Array.from({ length: 9 }, (_, i) => ({
+        custom_label: `Made up ${i}`,
+        amount_nzd_cents: (i + 1) * 100,
+      })),
+    });
+    // Truncates rather than raising, matching set_revision_tags()'s own cap:
+    // a background autosave must not start erroring because a client sent
+    // one row too many.
+    expect(error).toBeNull();
+
+    const { data: selections } = await untypedRpc<
+      Array<{ expenses: Array<unknown> }>
+    >(owner.client, "get_revision_selections", { p_revision_id: revisionId });
+    expect(selections![0].expenses).toHaveLength(5);
+  }, 60000);
+
   it("an empty amount is dropped, never stored as a zero", async () => {
     const { error } = await untypedRpc(owner.client, "set_revision_expenses", {
       p_revision_id: revisionId,

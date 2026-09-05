@@ -347,18 +347,51 @@ export const EXPENSE_NOTE_MAX_LENGTH = 120;
  * (story_revision_expenses_one_per_category), so this cap is really just
  * "no more rows than there are categories" with generous headroom -- it
  * exists so an array schema can never be handed something unbounded.
+ *
+ * NOT the product cap. A breakdown holds five rows (MAX_EXPENSE_ROWS in
+ * components/story/expense-breakdown.tsx), enforced in the form and again in
+ * set_revision_expenses(), which TRUNCATES rather than raising so a
+ * background autosave never starts erroring. Rejecting at 6 here would turn
+ * that graceful truncation into a hard save failure.
  */
 export const MAX_EXPENSE_ROWS_PER_REVISION = 40;
 
-export const revisionExpenseSchema = z.object({
-  categoryId: z.uuid(),
-  // Cents, non-negative. An empty amount is not zero: the form drops such a
-  // row before it ever reaches here, and set_revision_expenses() drops it
-  // again server-side, so "I didn't record it" is never stored as "it cost
-  // nothing".
-  amountNzdCents: z.number().int().min(0),
-  note: z.string().trim().max(EXPENSE_NOTE_MAX_LENGTH).nullable().optional(),
-});
+/** Matches story_revision_expenses' own CHECK on custom_label length. */
+export const EXPENSE_LABEL_MAX_LENGTH = 60;
+
+/**
+ * One expense row. EITHER a curated category reference OR a
+ * contributor-typed label (20260903110000) -- the same either/or shape
+ * story_revision_tags has, and the database enforces it with a CHECK.
+ *
+ * `categoryId` was a required uuid until custom labels landed, which
+ * rejected the entire array the moment one typed row appeared: the server
+ * action returned "Invalid expenses." and nothing reached the RPC. The
+ * database was provably correct the whole time -- the RLS suite calls the
+ * RPC directly and passed -- so the break lived only in this layer, and only
+ * an end-to-end check surfaced it.
+ */
+export const revisionExpenseSchema = z
+  .object({
+    categoryId: z.uuid().nullable().optional(),
+    customLabel: z
+      .string()
+      .trim()
+      .min(1)
+      .max(EXPENSE_LABEL_MAX_LENGTH)
+      .nullable()
+      .optional(),
+    // Cents, non-negative. An empty amount is not zero: the form drops such a
+    // row before it ever reaches here, and set_revision_expenses() drops it
+    // again server-side, so "I didn't record it" is never stored as "it cost
+    // nothing".
+    amountNzdCents: z.number().int().min(0),
+    note: z.string().trim().max(EXPENSE_NOTE_MAX_LENGTH).nullable().optional(),
+  })
+  .refine((row) => Boolean(row.categoryId) || Boolean(row.customLabel), {
+    message: "An expense row needs a category or a name.",
+    path: ["categoryId"],
+  });
 
 export const revisionExpensesSchema = z
   .array(revisionExpenseSchema)

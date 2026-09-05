@@ -975,8 +975,14 @@ export function StoryEditForm({
   const donutRows = useMemo(
     () =>
       expenseRowsToPayload(expenseRows).map((row) => ({
+        // A typed row carries its own label; a curated one is looked up by
+        // id. Matching on categoryId alone would collapse every typed row
+        // onto the first one, since they all share a null id.
         label:
-          expenseRows.find((r) => r.categoryId === row.categoryId)?.name ??
+          row.customLabel ??
+          expenseRows.find(
+            (r) => r.categoryId !== null && r.categoryId === row.categoryId,
+          )?.name ??
           "Other",
         cents: row.amountNzdCents,
       })),
