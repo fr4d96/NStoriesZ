@@ -77,12 +77,26 @@ export function resolveSlices(rows: ExpenseSlice[]): {
   };
 }
 
+/**
+ * Three decimal places, and not one more.
+ *
+ * Math.cos/Math.sin are not guaranteed to give bit-identical results across
+ * engines, so Node's render and the browser's produced coordinates that
+ * differed in the 14th decimal ("...982328" vs "...982342"). Identical
+ * geometry, different STRING -- which React reports as a hydration mismatch
+ * on every render of the editor. Rounding makes both sides agree, and at a
+ * 200-unit viewBox a thousandth of a unit is far below a pixel.
+ */
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
 function polar(angleTurns: number, radius: number) {
   // -0.25 turns puts 0 at 12 o'clock rather than 3 o'clock.
   const radians = (angleTurns - 0.25) * 2 * Math.PI;
   return {
-    x: CENTER + radius * Math.cos(radians),
-    y: CENTER + radius * Math.sin(radians),
+    x: round(CENTER + radius * Math.cos(radians)),
+    y: round(CENTER + radius * Math.sin(radians)),
   };
 }
 
