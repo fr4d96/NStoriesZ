@@ -6467,3 +6467,134 @@ the production build.
 - `delete_draft_story()` does not clear `story_takedown_requests`. It cannot currently collide (it
   refuses anything but a never-published draft, and a request requires a published story), but the
   child-table checklist in that function should name it for whoever changes those preconditions.
+
+## 2026-09-06 — The step rail gets its labels back, by not obeying the prose column
+
+### What changed
+
+The New Story / Edit Story timeline shows a text label beside every step again, from `lg` up. It
+had been reduced to numbers plus the current step's name on 2026-09-03, and reading a row of bare
+circles is exactly as bad as it sounds.
+
+That earlier entry ("the timeline stops overflowing") is **superseded in its conclusion, not in its
+diagnosis**. The diagnosis still stands and is why the obvious fix was not used: seven labels want
+~807px, the editor column is `max-w-3xl` (720px usable), and that cap does not grow with the
+viewport — so simply restoring `lg:inline` re-creates the bug where "Review & submit" printed 18px
+outside the rail. What was wrong was the conclusion that the labels therefore had to go.
+
+The actual constraint was never the screen; it was the container. A narrow measure is right for
+reading and for form fields. It is not a rule the progress rail has to obey.
+
+1. **The editor's sticky bar moved out of the `max-w-3xl` column** (`story-edit-form.tsx`). It is
+   now a full-bleed band whose inner container is `max-w-3xl` below `lg` and `max-w-5xl` from `lg`
+   — about **976px** of usable width. Below `lg` the geometry is byte-for-byte the old one, so
+   phones and tablets are untouched. The body content keeps its own `max-w-3xl` wrapper, which is
+   what preserves the `lg:grid-cols-[…]` split on the Expenses step (tuned to 720px, and it would
+   have gone wrong if the whole page had been widened).
+2. **The preview page needed nothing** — it was already `max-w-5xl`, so the same rail widens there
+   for free.
+3. **Three tiers of labelling** (`story-steps.tsx`): none below `sm`, the current step only from
+   `sm`, all seven from `lg`.
+4. **Rail-only wording**, in a `RAIL_LABELS: Record<StoryStepId, string>` local to the rail —
+   "Places & tags" → "Places", "Review & submit" → "Review". This is a layout concession, not story
+   data, so it stays out of `lib/story/steps.ts`. Typed as a total Record so adding a step fails the
+   build rather than silently rendering an unlabelled circle. **Accessible names are unchanged**:
+   `labelFor()` still reads `step.label`, so a screen reader still hears "Step 7 of 7: Review &
+   submit". The `<h2>` and the summary line also still say the full name.
+
+`shrink-0` and the `overflow-x-auto` safety net both stay. They are the reason a future longer
+label or a translation would push `scrollWidth` past `clientWidth` and scroll, instead of
+overflowing its own box the way the original bug did.
+
+### Verified by measurement, not by eye
+
+Live, on `/stories/…/edit?step=expenses`, asserting `ol.scrollWidth > ol.clientWidth`,
+`ol.lastElementChild.getBoundingClientRect().right <= nav.getBoundingClientRect().right`, and
+`documentElement.scrollWidth > clientWidth` at each width:
+
+| viewport | ol scrollWidth | clientWidth | ol overflows | last item right | nav right | inside | page overflows | labels shown |
+| -------- | -------------- | ----------- | ------------ | --------------- | --------- | ------ | -------------- | ------------ |
+| 375      | 343            | 343         | no           | 336             | 359       | yes    | no             | 0 (numbers)  |
+| 640      | 592            | 592         | no           | 428             | 616       | yes    | no             | 1 (current)  |
+| 768      | 720            | 720         | no           | 428             | 744       | yes    | no             | 1 (current)  |
+| 1023     | 720            | 720         | no           | 556             | 872       | yes    | no             | 1 (current)  |
+| 1024     | 976            | 976         | no           | 712             | 1000      | yes    | no             | **7**        |
+| 1280     | 976            | 976         | no           | 840             | 1128      | yes    | no             | **7**        |
+| 1920     | 976            | 976         | no           | 1160            | 1448      | yes    | no             | **7**        |
+
+1023 and 1024 are in there on purpose: 1024 is the `lg` breakpoint and therefore the tightest width
+at which all seven labels ever render. There the rail's content is **688px inside 976px** — 288px
+of slack, versus the 87px deficit the old layout had. The preview page measures identically at 1024
+and 1280 (976/976, last item at 712 and 840).
+
+### Tests
+
+`components/story/story-steps.test.tsx` gained one case asserting every step renders a visible
+label and that the two shortened ones still carry their full accessible name. No existing
+assertion changed — the accessible names did not change, which was the point.
+
+## 2026-09-03 — Contributors name their own expense categories; five-row cap
+
+### Reversing a decision, knowingly
+
+20260902110000 made the expense vocabulary deliberately CLOSED, and argued it at length: an expense
+only earns its keep if it can be added up ACROSS stories, and "car" / "van stuff" / "vehicle" are
+three unmergeable buckets for one thing. That reasoning has not become wrong — free text does
+weaken any future cross-story aggregate. Accepting that cost is a product decision, recorded here
+rather than quietly dropped.
+
+Two things blunt it. The curated rows survive as **suggestions** rather than a ceiling, so anyone
+who picks "Flights" still aggregates with everyone else who picked "Flights"; only the typed tail
+is unmergeable. And the five-row cap bounds how much tail there can be.
+
+### Shape
+
+Copied from 20260812110000, not invented: a row is EITHER an `expense_categories` reference OR a
+contributor-authored `custom_label`, never both and never neither, enforced by
+`story_revision_expenses_one_of`. Exactly what `story_revision_tags` already does. The surrogate
+`id` PK meant nothing had to be rebuilt, unlike the tags migration.
+
+Every row reads the same way whichever kind it is — a title, then a sub-title. For a curated row
+those are the category's name and its fixed description; for a typed one they are both the
+contributor's own words. Same shape, so the list does not sort itself into first- and second-class
+rows.
+
+**Five rows, and no scrolling.** The fixed-height scroll region from earlier today is gone: the
+list cannot exceed five, so there is nothing clipped to scroll to. The cap is enforced in the form
+and again in `set_revision_expenses()`, which TRUNCATES rather than raising — matching
+`set_revision_tags()`'s own cap, because a background autosave must not start erroring over one
+row too many.
+
+### Two real bugs found by testing end to end
+
+**The Zod schema rejected every typed row.** `revisionExpenseSchema.categoryId` was a required
+`z.uuid()`, so a custom row's `null` failed the whole array: `setExpensesAction` answered "Invalid
+expenses." and nothing ever reached the RPC. The database was provably correct throughout — the
+RLS suite calls the RPC directly and passed 88/88 — so the break lived only in the app layer, and
+only a browser round trip surfaced it. **An RPC test cannot catch a broken schema in front of it.**
+
+**A hydration mismatch in the donut**, present since it was built and never noticed because earlier
+checks measured layout, not the console. `Math.cos`/`Math.sin` are not bit-identical across
+engines, so Node's render and the browser's differed in the 14th decimal
+(`...982328` vs `...982342`) — identical geometry, different string, which React reports as a
+mismatch on every render of the editor. Coordinates now round to three decimals; at a 200-unit
+viewBox that is far below a pixel.
+
+`get_revision_selections()` also had to move from an INNER to a LEFT join on `expense_categories`
+(20260903110100). With `category_id` nullable, the inner join would have silently dropped every
+typed row on read: the breakdown would save fine and render empty on reload, with nothing raising.
+`create_next_draft_revision()` gained `custom_label` in its copy for the same
+family of reason — the fourth migration to exist because a child table changed and an enumeration
+site did not.
+
+### Verified
+
+`npm run verify` clean: **763/763**, 0 lint errors. `npm run test:rls` **88/88** (from 86), adding:
+a typed row stored and read back as its own name; an id winning when a client sends both; a
+case-insensitive duplicate deduped; and the five-row cap truncating rather than raising.
+
+Live in the browser: added "Campervan repairs" at $450 as a sixth-then-fifth row, confirmed it in
+the database, reloaded and confirmed it survives with its title and sub-title intact, confirmed
+the cap message replaces the add controls at five, and confirmed the dev overlay's hydration
+warning is gone. Test data removed afterwards; the story is back to its original five rows
+totalling $4,480.
