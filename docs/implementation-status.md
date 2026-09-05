@@ -6332,3 +6332,138 @@ migrations being replayed are the newest definition of everything they touch. Th
 needed here because of the drift; with history clean, `db push` applies new migrations only and
 the hazard does not arise. If drift ever recurs, verify the object-level ordering before reaching
 for `--include-all`.
+
+## 2026-09-03 — A contributor can take their own published story down
+
+### What already existed (and what did not)
+
+`revoke_publication_consent(p_story_id, p_expected_version)` has existed since
+20260805100500: owner-or-admin, deliberately reason-free, sets `consent_revoked_at` /
+`consent_revoked_by`, flips `published` → `archived`, terminalizes the active revision, and writes
+an append-only `story_publication_state_actions` row with `action_type = 'consent_withdrawn'`.
+`list_published_stories` has always filtered `lifecycle_status = 'published' and
+consent_revoked_at is null`, so a withdrawn story leaves public reads by construction.
+
+The gap was never the database. `lib/story/mutations.ts` already exported a typed
+`revokePublicationConsent()` wrapper with **zero callers**: a contributor had no way to reach it,
+and only a moderator could act (`archive_story`, already wired to the review page).
+
+### What was built
+
+- `withdrawPublishedStoryAction` in `app/(contributor)/my-stories/actions.ts`, with
+  `withdrawStorySchema` at the trust boundary and ownership re-derived server-side. The RPC
+  re-checks independently — that is the enforcing boundary, this is the courtesy (Rules 2/3).
+- A **"Take down"** control on published rows in My Stories, distinct from the drafts' "Delete".
+  They are different actions with different consequences and are deliberately not merged: delete
+  applies only to a never-published draft, take-down to a live story.
+- Cache invalidation after the withdrawal commits, so a taken-down story cannot linger in a cached
+  public page (Rule 12). `archiveStoryAction` already invalidated — the note in
+  `public-cache.ts` claiming neither path had a caller is stale and predates the moderation UI.
+- Four RLS cases (suite now **82/82**, from 77): non-owner/non-admin denied; stale version
+  rejected; owner withdraws, the story leaves every public read, and a second attempt raises;
+  admin can withdraw on a contributor's behalf.
+
+The confirm copy states what the action does and does not do: the story stops being public
+immediately, it is not deleted, the contributor cannot restore it themselves, and anyone who
+merely wants to change something should use Edit instead (where the published revision stays live
+through review, Rule 11).
+
+### OPEN: this is direct withdrawal, not request-then-approve
+
+The model chosen for this work was "contributor asks, a moderator actions it". What is built is
+**direct**: the contributor's confirmation takes the story down immediately, with no staff step.
+
+That is what `revoke_publication_consent()` has always done — it grants the owner the right to
+revoke, and no request/approval table exists. Building the request model would mean not calling
+that function from the contributor path at all, plus a new request table and a moderation queue
+type. `docs/content-governance.md` (line ~293) says a contributor can "request withdrawal", which
+reads closer to the approval model than to what the function implements — a pre-existing
+divergence between the doc and the schema, not one introduced here.
+
+Staff do still gate the way back: only the Kakinotes team can republish, which the dialog says
+plainly. Whether instant-takedown-with-staff-restore is the intended shape, or whether the
+approval step should be built, is an open product decision.
+
+### Verified
+
+`npm run verify` clean: 66 test files, **753/753**, 0 lint errors. `npm run test:rls` **82/82**
+against the linked project. Checked live in the browser: the control appears only on the published
+row, the dialog opens with the copy above, Escape dismisses it and the story stays published —
+the confirm was deliberately not pressed, since it would take down real content. At 375px the
+control is present with no page overflow; it is a 32px target, matching the existing
+edit/preview/delete icons in the same row rather than the 44px guideline — a pre-existing pattern
+worth revisiting across all four together, not here.
+
+## 2026-09-03 — Takedown becomes request-then-approve
+
+A contributor now ASKS for their published story to come down, and a moderator decides. Replaces
+the direct withdrawal built earlier the same day.
+
+### The trade-off, stated plainly
+
+Requiring approval means a story stays **publicly visible after its own author has asked for it to
+be removed**. That window is a real cost, not a technicality — it is the reason
+`revoke_publication_consent()` originally let the owner act alone. It should be covered by an
+operational response-time commitment; the contributor-facing copy says review is required rather
+than implying the story is already gone, and the queue orders oldest-first because the oldest
+request is the most overdue.
+
+### The owner path is closed, not hidden
+
+`revoke_publication_consent()` is now **admin-only**. Every RPC here is granted to `authenticated`
+and reachable over PostgREST, so leaving the owner branch in place would have made approval a
+suggestion any hand-crafted request could skip (Rules 2/3). An RLS case asserts the owner is
+refused — that test is the whole point of the change.
+
+Both withdrawal paths share one internal `_apply_consent_withdrawal()`, so an approved request and
+an admin acting directly leave byte-identical state. Two copies of that logic would drift, which is
+the exact failure mode behind three corrective migrations already in this repo.
+
+### What was added
+
+- `story_takedown_requests` (20260903100000) — pending/approved/declined/cancelled, with a partial
+  unique index allowing at most one PENDING row per story, so a decline does not lock a story out
+  of the queue forever. RLS on, zero policies, `revoke all`.
+- `request_story_takedown()` (owner), `cancel_story_takedown_request()` (owner, pending only),
+  `decide_story_takedown()` (moderator/admin), `list_story_takedown_requests()` (queue),
+  `get_my_takedown_request()`, and `list_my_takedown_requests()` (20260903100100 — batch, so My
+  Stories does not reintroduce the N+1 it deliberately removed).
+- The audit trail learns `takedown_requested` / `takedown_declined` / `takedown_cancelled`.
+  Declining requires a note (the contributor reads it); approving does not — they already said what
+  they wanted, and making a moderator write prose to agree adds friction to the outcome that
+  honours consent.
+- `/moderation/takedowns`, gated twice (proxy.ts's `/^\/moderation(\/.*)?$/` and the route group's
+  own layout role check). Each row leads with how many days the story has stayed public since the
+  request.
+- My Stories: "Take down" asks; once pending the control becomes "Cancel the takedown request".
+  No cache invalidation on request — nothing public changed, and pretending otherwise is the one
+  thing this flow must not do. Invalidation happens on APPROVAL, in the moderation action.
+
+### Verified
+
+`npm run verify` clean: 66 test files, **753/753**, 0 lint errors. `npm run test:rls` **86/86**
+(from 82), including: the owner refused direct withdrawal; a request leaving the story public and
+only leaving public reads on approval; requesting twice refused; a non-moderator refused a
+decision; decline requiring a note, keeping the story public, and allowing a re-request; cancel;
+and the queue RPC being moderator-only and returning every field the page renders.
+
+Live in the browser: requested a takedown on a real published story — the control flipped to
+"Cancel the takedown request" and **the story stayed Published**, which is the behaviour under
+test — then cancelled it, restoring the story exactly as found. `/moderation/takedowns` could NOT
+be checked in the browser: the signed-in dev account is a contributor, so `/moderation` correctly
+404s for it. That page's RPC is covered by the queue RLS case instead, and the route renders in
+the production build.
+
+### Open
+
+- **Two orphaned `story_takedown_requests` rows** (both RLS-test fixtures) reference story ids that
+  do not come back from `public.stories`, despite a validated `on delete restrict` FK. Not
+  explained; not reachable from any UI, since `list_story_takedown_requests()` inner-joins
+  `stories`. Worth a look before this ships anywhere real.
+- `scripts/rls-test-cleanup.sql` gained `story_revision_expenses` and `story_takedown_requests`.
+  Both were missing, which is why fixtures had started accumulating — every per-revision or
+  per-story child table with `on delete restrict` has to be listed there, and both were added today
+  without it.
+- `delete_draft_story()` does not clear `story_takedown_requests`. It cannot currently collide (it
+  refuses anything but a never-published draft, and a request requires a published story), but the
+  child-table checklist in that function should name it for whoever changes those preconditions.
