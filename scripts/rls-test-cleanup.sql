@@ -174,6 +174,22 @@ with target_stories as (
 )
 delete from public.story_revision_editor_notes where revision_id in (select id from target_revisions);
 
+-- 20260902110100: story_revision_expenses references story_revisions with
+-- on delete restrict, like every other per-revision child table -- so it
+-- must be cleared before the story_revisions delete below or that delete
+-- raises. Added when the table was, rather than the run after someone
+-- noticed the suite had stopped cleaning up after itself.
+with target_stories as (
+  select id from public.stories
+  where slug like 'rls-test-%'
+     or owner_user_id in (
+       select id from auth.users where email like '%@whv-compass-test.example'
+     )
+), target_revisions as (
+  select id from public.story_revisions where story_id in (select id from target_stories)
+)
+delete from public.story_revision_expenses where revision_id in (select id from target_revisions);
+
 -- Prompt 4: story_media_public_copy_attempts references both
 -- story_publication_attempts and story_revisions/story_media with
 -- on delete restrict — must go first. story_publication_attempts itself
@@ -220,6 +236,16 @@ delete from public.story_revisions where story_id in (
 );
 
 delete from public.story_media where story_id in (
+  select id from public.stories
+  where slug like 'rls-test-%'
+     or owner_user_id in (
+       select id from auth.users where email like '%@whv-compass-test.example'
+     )
+);
+
+-- 20260903100000: story_takedown_requests references stories with
+-- on delete restrict -- same rule, same reason, before the stories delete.
+delete from public.story_takedown_requests where story_id in (
   select id from public.stories
   where slug like 'rls-test-%'
      or owner_user_id in (
