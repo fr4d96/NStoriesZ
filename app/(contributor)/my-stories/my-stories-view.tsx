@@ -5,13 +5,22 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
 import { StoryCoverThumbnail } from "./story-cover-thumbnail";
-import { deleteDraftStoryAction } from "./actions";
+import {
+  deleteDraftStoryAction,
+  requestStoryTakedownAction,
+  cancelStoryTakedownAction,
+} from "./actions";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ALL, FilterRow } from "@/components/story/filter-row";
 import { StartRevisionButton } from "@/components/story/start-revision-button";
 import { destinationNames, regionNames } from "@/lib/story/card-fields";
-import { EditorialPencilIcon, EyeIcon, TrashIcon } from "@/components/icons";
+import {
+  EditorialPencilIcon,
+  EyeIcon,
+  HiddenEyeIcon,
+  TrashIcon,
+} from "@/components/icons";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
 
 // Shared 32px round hit-target for every per-story icon action (Edit,
@@ -120,6 +129,16 @@ function storyStatusFlags(story: MyStoryWithCover) {
   // hiding the button.
   const deletable =
     story.lifecycle_status === "draft" && story.published_revision_id === null;
+  // Withdrawal ("Take down") is the OTHER destructive action, and the
+  // opposite case to deletable above: a story that is live to the public
+  // right now. revoke_publication_consent() only has anything to do on a
+  // published story (it archives one; on anything else it would just set a
+  // terminal consent flag on content nobody can see), and it is terminal --
+  // no function ever grants consent again, so this is deliberately not
+  // offered anywhere the contributor could reach it by accident. The two
+  // can never appear together: deletable requires lifecycle 'draft' and no
+  // published revision, which is exactly what this excludes.
+  const withdrawable = story.lifecycle_status === "published";
   // Nothing is in flight, but there IS something to revise: a published
   // story the contributor wants to correct, or one a moderator sent back
   // asking for changes. Both need a new draft to be created first
@@ -141,6 +160,7 @@ function storyStatusFlags(story: MyStoryWithCover) {
     awaitingApproval,
     editable,
     deletable,
+    withdrawable,
     canStartRevision,
     inReview,
     updateInFlight,
@@ -263,6 +283,134 @@ function DeleteDraftAction({
   );
 }
 
+/** One row of list_my_takedown_requests(), as the page hands it over. */
+export type TakedownRequestRow = {
+  request_id: string;
+  story_id: string;
+  status: string;
+  requested_at: string;
+  decided_at: string | null;
+  decision_note: string | null;
+};
+
+/**
+ * "Take down" — the contributor ASKS for a story that is live right now to
+ * be removed (docs/content-governance.md, "Corrections, withdrawal, and
+ * deletion"). Sits beside DeleteDraftAction above and is deliberately NOT
+ * the same control:
+ *
+ *   - Delete applies to a never-published draft, and destroys it, now.
+ *   - Take down applies to a PUBLISHED story, asks a moderator, and destroys
+ *     nothing; the writing and images stay in the contributor's account.
+ *
+ * The honest part, which the copy leads with rather than buries: the story
+ * STAYS PUBLIC until someone reviews the request. A contributor who has just
+ * asked for their story to come down will reasonably assume it is already
+ * gone, and it is not. Saying so plainly is the difference between a queue
+ * and a broken promise.
+ *
+ * No reason is asked for. Taking your own story down is your call, not one
+ * you owe an explanation for -- the optional note is framed as context for
+ * whoever picks it up, and the RPC accepts null.
+ */
+function TakedownAction({
+  story,
+  title,
+  request,
+  className,
+}: {
+  story: MyStoryWithCover;
+  title: string;
+  request: TakedownRequestRow | null;
+  className?: string;
+}) {
+  const router = useRouter();
+  const { showToast } = useToast();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  const awaitingReview = request?.status === "pending";
+
+  async function handleRequest() {
+    setPending(true);
+    const result = await requestStoryTakedownAction(story.id, story.version);
+    if (result.ok) {
+      showToast(
+        `Asked for "${title}" to be taken down. It stays public until the team reviews it.`,
+      );
+      router.refresh();
+      return;
+    }
+    setPending(false);
+    setConfirmOpen(false);
+    showToast(result.error, "error");
+  }
+
+  async function handleCancel() {
+    if (!request) return;
+    setPending(true);
+    const result = await cancelStoryTakedownAction(request.request_id);
+    if (result.ok) {
+      showToast(`"${title}" stays up — request withdrawn.`);
+      router.refresh();
+      return;
+    }
+    setPending(false);
+    setCancelOpen(false);
+    showToast(result.error, "error");
+  }
+
+  if (awaitingReview) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setCancelOpen(true)}
+          title={`Takedown requested for ${title} — awaiting review. Choose to cancel the request.`}
+          aria-label={`Cancel the takedown request for ${title}`}
+          className={`${ACTION_ICON_CLASS} text-muted-foreground ${className ?? ""}`}
+        >
+          <HiddenEyeIcon className="h-4 w-4" />
+        </button>
+        <ConfirmDialog
+          open={cancelOpen}
+          title="Keep this story up?"
+          description={`You asked for "${title}" to be taken down and nobody has reviewed it yet. Cancelling leaves the story published, exactly as it is now. You can ask again at any time.`}
+          confirmLabel="Cancel the request"
+          pending={pending}
+          onConfirm={handleCancel}
+          onCancel={() => setCancelOpen(false)}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        title={`Take down ${title}`}
+        aria-label={`Take down ${title}`}
+        className={`${ACTION_ICON_CLASS} text-destructive ${className ?? ""}`}
+      >
+        <HiddenEyeIcon className="h-4 w-4" />
+      </button>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Ask for this story to be taken down?"
+        description={`The Kakinotes team reviews the request, and "${title}" stays public until they do. Nothing is deleted either way — your writing and photos stay in your account. If you only want to change something, use Edit instead: your story stays up while the change is reviewed.`}
+        confirmLabel="Ask for takedown"
+        danger
+        pending={pending}
+        onConfirm={handleRequest}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
+  );
+}
+
 function GridIcon() {
   return (
     <svg
@@ -347,7 +495,19 @@ function buildLocationAxes(stories: MyStoryWithCover[]): LocationAxis[] {
   return axes;
 }
 
-export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
+export function MyStoriesView({
+  stories,
+  takedownRequests = [],
+}: {
+  stories: MyStoryWithCover[];
+  takedownRequests?: TakedownRequestRow[];
+}) {
+  // Keyed once here rather than scanned per row: the list pages twelve at a
+  // time and every row asks this question.
+  const takedownByStory = useMemo(
+    () => new Map(takedownRequests.map((r) => [r.story_id, r])),
+    [takedownRequests],
+  );
   const view = useSyncExternalStore(
     subscribeToView,
     getViewSnapshot,
@@ -543,6 +703,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                   awaitingApproval,
                   editable,
                   deletable,
+                  withdrawable,
                   canStartRevision,
                   inReview,
                   updateInFlight,
@@ -609,6 +770,13 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                         {deletable && (
                           <DeleteDraftAction story={story} title={title} />
                         )}
+                        {withdrawable && (
+                          <TakedownAction
+                            story={story}
+                            title={title}
+                            request={takedownByStory.get(story.id) ?? null}
+                          />
+                        )}
                       </div>
                     </div>
                   </li>
@@ -628,6 +796,7 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                   awaitingApproval,
                   editable,
                   deletable,
+                  withdrawable,
                   canStartRevision,
                   inReview,
                   updateInFlight,
@@ -728,6 +897,13 @@ export function MyStoriesView({ stories }: { stories: MyStoryWithCover[] }) {
                           )}
                           {deletable && (
                             <DeleteDraftAction story={story} title={title} />
+                          )}
+                          {withdrawable && (
+                            <TakedownAction
+                              story={story}
+                              title={title}
+                              request={takedownByStory.get(story.id) ?? null}
+                            />
                           )}
                         </div>
                       </div>

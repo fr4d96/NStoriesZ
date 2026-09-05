@@ -403,6 +403,82 @@ export const submitRevisionSchema = z.object({
 
 export type SubmitRevisionInput = z.infer<typeof submitRevisionSchema>;
 
+/**
+ * A contributor withdrawing their OWN published story
+ * (revoke_publication_consent(), backing
+ * app/(contributor)/my-stories/actions.ts#withdrawPublishedStoryAction).
+ *
+ * Deliberately reason-free: docs/content-governance.md "Corrections,
+ * withdrawal, and deletion" treats a contributor taking their own story down
+ * as their decision to make, not one they owe an explanation for — the
+ * asymmetry with archiveStorySchema's REQUIRED reason (a staff takedown, a
+ * user-facing decision about someone else's work) is the governance rule,
+ * not an oversight. The audit table enforces the same split with a check
+ * constraint, so this schema cannot drift from it silently.
+ *
+ * `expectedVersion` is the optimistic-concurrency token the client last saw,
+ * not an authorization input: the RPC compares it against the row's real
+ * version and refuses a stale one. Ownership and publication state are
+ * re-derived server-side by the action (and again, non-bypassably, by the
+ * RPC) — never read from here. `.positive()` for the same reason as every
+ * other schema in this codebase; see lib/validation/moderation.ts's
+ * "Server Action input schemas" header.
+ */
+export const withdrawStorySchema = z.object({
+  storyId: z.uuid(),
+  expectedVersion: z.number().int().positive(),
+});
+
+export type WithdrawStoryInput = z.infer<typeof withdrawStorySchema>;
+
+/**
+ * Asking for a takedown. The note is OPTIONAL on purpose: a contributor is
+ * not required to justify withdrawing their own story (docs/content-
+ * governance.md), and the database agrees -- request_story_takedown() takes
+ * a nullable note. Bounded to the column's own 2000-character ceiling.
+ */
+export const TAKEDOWN_NOTE_MAX_LENGTH = 2000;
+
+export const requestTakedownSchema = z.object({
+  storyId: z.uuid(),
+  expectedVersion: z.number().int().positive(),
+  note: z
+    .string()
+    .trim()
+    .max(TAKEDOWN_NOTE_MAX_LENGTH)
+    .optional()
+    .or(z.literal("")),
+});
+
+export type RequestTakedownInput = z.infer<typeof requestTakedownSchema>;
+
+export const cancelTakedownSchema = z.object({ requestId: z.uuid() });
+
+/**
+ * A moderator's decision. Declining REQUIRES a note -- the contributor reads
+ * it, and "no" without a reason is not an answer. Approving does not: the
+ * contributor already said what they wanted, and making a moderator write
+ * prose to agree adds friction to the outcome that honours consent. The RPC
+ * enforces the same asymmetry, non-bypassably.
+ */
+export const decideTakedownSchema = z
+  .object({
+    requestId: z.uuid(),
+    approve: z.boolean(),
+    note: z
+      .string()
+      .trim()
+      .max(TAKEDOWN_NOTE_MAX_LENGTH)
+      .optional()
+      .or(z.literal("")),
+  })
+  .refine((d) => d.approve || Boolean(d.note && d.note.trim()), {
+    message: "Say why you're declining — the contributor sees this.",
+    path: ["note"],
+  });
+
+export type DecideTakedownInput = z.infer<typeof decideTakedownSchema>;
+
 export const reportCategories = [
   "misinformation",
   "unsafe_employment_advice",

@@ -261,3 +261,20 @@ export function TrashIcon(props: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Take a published story out of public view (contributor withdrawal). The
+ * struck-through eye is deliberately a variation on EyeIcon rather than
+ * anything trash-like: withdrawal hides a story, it never deletes it, and
+ * the two actions sit next to each other in My Stories.
+ */
+export function HiddenEyeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M3 3l18 18" />
+      <path d="M10.2 6.1c.58-.1 1.18-.15 1.8-.15 6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-3.4 4.2" />
+      <path d="M6.4 8.3A17.6 17.6 0 0 0 2.5 12.45S6 18.95 12 18.95c1.6 0 3-.47 4.2-1.14" />
+      <path d="M10.05 10.5a2.75 2.75 0 0 0 3.9 3.87" />
+    </svg>
+  );
+}

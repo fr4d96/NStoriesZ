@@ -386,6 +386,47 @@ export async function archiveStory(params: {
 }
 
 /**
+ * supabase/migrations/20260903100000_story_takedown_requests.sql --
+ * moderator/admin only. Oldest first, because the story has been publicly
+ * visible since requested_at against its author's stated wish; the oldest
+ * request is the most overdue, not the least.
+ */
+export async function listStoryTakedownRequests(params?: {
+  limit?: number;
+  offset?: number;
+}) {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_story_takedown_requests", {
+    p_limit: params?.limit,
+    p_offset: params?.offset,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Approve or decline a contributor's takedown request. Approving routes
+ * through the same _apply_consent_withdrawal() an admin's direct revoke
+ * uses, so the two cannot leave different state. Declining requires a note
+ * -- the contributor reads it -- and the RPC enforces that independently.
+ */
+export async function decideStoryTakedown(params: {
+  requestId: string;
+  approve: boolean;
+  note?: string;
+}) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("decide_story_takedown", {
+    p_request_id: params.requestId,
+    p_approve: params.approve,
+    p_note: params.note,
+  });
+  if (error) throw error;
+}
+
+/**
  * supabase/migrations/20260805100600_reassign_editorial_story.sql --
  * editor/admin only, editorial_import stories only. See that migration's
  * header comment for the exact claim/hand-off authorization rule.

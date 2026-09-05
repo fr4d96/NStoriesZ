@@ -1248,6 +1248,50 @@ export type Database = {
           },
         ];
       };
+      story_takedown_requests: {
+        Row: {
+          contributor_note: string | null;
+          decided_at: string | null;
+          decided_by: string | null;
+          decision_note: string | null;
+          id: string;
+          requested_at: string;
+          requested_by: string | null;
+          status: string;
+          story_id: string;
+        };
+        Insert: {
+          contributor_note?: string | null;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          decision_note?: string | null;
+          id?: string;
+          requested_at?: string;
+          requested_by?: string | null;
+          status?: string;
+          story_id: string;
+        };
+        Update: {
+          contributor_note?: string | null;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          decision_note?: string | null;
+          id?: string;
+          requested_at?: string;
+          requested_by?: string | null;
+          status?: string;
+          story_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "story_takedown_requests_story_id_fkey";
+            columns: ["story_id"];
+            isOneToOne: false;
+            referencedRelation: "stories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       tags: {
         Row: {
           active: boolean;
@@ -1328,6 +1372,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      _apply_consent_withdrawal: {
+        Args: { p_actor: string; p_story_id: string };
+        Returns: undefined;
+      };
       _authorize_revision_edit: {
         Args: { p_revision_id: string };
         Returns: string;
@@ -1457,6 +1505,10 @@ export type Database = {
         Args: { p_media_id: string };
         Returns: undefined;
       };
+      cancel_story_takedown_request: {
+        Args: { p_request_id: string };
+        Returns: undefined;
+      };
       create_editorial_import_draft: {
         Args: {
           p_assigned_editor_id?: string;
@@ -1512,6 +1564,10 @@ export type Database = {
         };
       };
       current_terms_version: { Args: never; Returns: string };
+      decide_story_takedown: {
+        Args: { p_approve: boolean; p_note?: string; p_request_id: string };
+        Returns: undefined;
+      };
       decline_editorial_publication: {
         Args: { p_note: string; p_story_id: string };
         Returns: undefined;
@@ -1645,6 +1701,16 @@ export type Database = {
           trip_year: number;
           version: number;
           visibility: Database["public"]["Enums"]["story_visibility"];
+        }[];
+      };
+      get_my_takedown_request: {
+        Args: { p_story_id: string };
+        Returns: {
+          decided_at: string;
+          decision_note: string;
+          request_id: string;
+          requested_at: string;
+          status: string;
         }[];
       };
       get_operational_metrics: {
@@ -1959,6 +2025,17 @@ export type Database = {
           visibility: Database["public"]["Enums"]["story_visibility"];
         }[];
       };
+      list_my_takedown_requests: {
+        Args: never;
+        Returns: {
+          decided_at: string;
+          decision_note: string;
+          request_id: string;
+          requested_at: string;
+          status: string;
+          story_id: string;
+        }[];
+      };
       list_public_contributors: {
         Args: {
           p_cursor_display_name?: string;
@@ -2036,6 +2113,20 @@ export type Database = {
           isOneToOne: false;
           isSetofReturn: true;
         };
+      };
+      list_story_takedown_requests: {
+        Args: { p_limit?: number; p_offset?: number };
+        Returns: {
+          contributor_note: string;
+          request_id: string;
+          requested_at: string;
+          requester_display_name: string;
+          story_id: string;
+          story_slug: string;
+          story_title: string;
+          story_version: number;
+          total_count: number;
+        }[];
       };
       list_user_accounts: {
         Args: {
@@ -2154,6 +2245,14 @@ export type Database = {
       request_editorial_changes: {
         Args: { p_note: string; p_story_id: string };
         Returns: undefined;
+      };
+      request_story_takedown: {
+        Args: {
+          p_expected_version: number;
+          p_note?: string;
+          p_story_id: string;
+        };
+        Returns: string;
       };
       resolve_report: {
         Args: {

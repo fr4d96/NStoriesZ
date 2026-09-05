@@ -1713,6 +1713,361 @@ describe("archive requires a reason (migration 20260805100500)", () => {
   }, 30000);
 });
 
+/**
+ * The contributor's own withdrawal path (docs/content-governance.md,
+ * "Corrections, withdrawal, and deletion"), reachable from My Stories as of
+ * 2026-09-05. archive_story() above is the staff counterpart and had four
+ * cases here already; revoke_publication_consent() had none, despite being
+ * the one of the two a non-staff user can call.
+ *
+ * Deliberately NOT asserted here: the content of the
+ * story_publication_state_actions row each successful call writes. That
+ * table has no RLS policies and no grants at all by design ("every access is
+ * a SECURITY DEFINER function", per its own migration), and no function
+ * reads it — so no client this suite can build, owner or admin, is able to
+ * see it. What IS asserted is the invariant that actually matters and is
+ * reachable: nobody can read or tamper with it directly (see "audit rows are
+ * immutable" below), and the table's own
+ * story_publication_state_actions_archived_requires_reason check constraint
+ * means a withdrawal writing an 'archived'-with-no-reason row would abort
+ * the whole transaction rather than succeed. Verifying the row's
+ * action_type/reason directly would need a new reader RPC — new public API
+ * surface with no product caller, which is the exact thing this work exists
+ * to stop creating; it was confirmed out-of-band against the linked project
+ * instead.
+ */
+describe("revoke_publication_consent: the contributor's own withdrawal (migration 20260805100500)", () => {
+  /** list_my_stories() sees archived stories; get_my_story_with_draft is not needed. */
+  async function ownerStoryRow(storyId: string) {
+    const { data, error } = await owner.client.rpc("list_my_stories");
+    expect(error).toBeNull();
+    const row = data?.find((story) => story.id === storyId);
+    expect(row).toBeTruthy();
+    return row!;
+  }
+
+  it("nobody but the owner or an admin can withdraw a published story", async () => {
+    const story = await publishOwnerStory({
+      title: slug("withdraw-authz"),
+    });
+    const version = (await ownerStoryRow(story.storyId)).version;
+
+    // A signed-in stranger, an editor, and even a MODERATOR are all denied:
+    // the staff takedown path is archive_story() (reason required), not this
+    // one. Only owner-or-admin, exactly as the function says.
+    for (const [label, client] of [
+      ["another contributor", other.client],
+      ["an editor", editor.client],
+      ["a moderator", moderator.client],
+      ["anon", anon],
+    ] as const) {
+      const { error } = await untypedRpc(client, "revoke_publication_consent", {
+        p_story_id: story.storyId,
+        p_expected_version: version,
+      });
+      expect(error, `${label} should not be able to withdraw`).not.toBeNull();
+    }
+
+    // ...and the story is still public afterwards, i.e. the denials really
+    // were denials and not silent partial writes.
+    const { data: stillPublic } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(stillPublic?.length).toBe(1);
+  }, 60000);
+
+  it("the owner can no longer withdraw directly -- they must request", async () => {
+    // 20260903100000 narrowed revoke_publication_consent() to admin-only.
+    // This is the test that proves the approval step is not merely hidden in
+    // the UI: a hand-crafted PostgREST call as the story's own owner is
+    // refused, which is the only version of "requires approval" that means
+    // anything.
+    const story = await publishOwnerStory({
+      title: slug("withdraw-owner-closed"),
+    });
+    const version = (await ownerStoryRow(story.storyId)).version;
+
+    const { error } = await untypedRpc(
+      owner.client,
+      "revoke_publication_consent",
+      { p_story_id: story.storyId, p_expected_version: version },
+    );
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/only an admin/i);
+
+    const { data: stillPublic } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(stillPublic?.length).toBe(1);
+  }, 60000);
+
+  it("rejects a stale expected version when requesting", async () => {
+    const story = await publishOwnerStory({ title: slug("takedown-stale") });
+    const version = (await ownerStoryRow(story.storyId)).version;
+
+    const { error } = await untypedRpc(owner.client, "request_story_takedown", {
+      p_story_id: story.storyId,
+      p_expected_version: version + 999,
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/stale version/i);
+
+    const { data: stillPublic } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(stillPublic?.length).toBe(1);
+  }, 60000);
+
+  it("a request leaves the story PUBLIC until a moderator approves, then it leaves every public read", async () => {
+    const marker = slug("takedown-flow");
+    const story = await publishOwnerStory({
+      title: `RLS Test Takedown ${marker} Searchable`,
+    });
+
+    const { data: listedBefore } = await anon.rpc("list_published_stories", {
+      p_search: `RLS Test Takedown ${marker} Searchable`,
+      p_limit: 50,
+    });
+    expect(listedBefore?.map((row) => row.story_id)).toContain(story.storyId);
+
+    // 1. The contributor asks.
+    const version = (await ownerStoryRow(story.storyId)).version;
+    const { data: requestId, error: requestError } = await untypedRpc(
+      owner.client,
+      "request_story_takedown",
+      {
+        p_story_id: story.storyId,
+        p_expected_version: version,
+        p_note: "Please take this down.",
+      },
+    );
+    expect(requestError).toBeNull();
+    expect(requestId).toBeTruthy();
+
+    // THE COST OF THIS MODEL, asserted rather than assumed: the story is
+    // still public after its own author asked for it to come down.
+    const { data: stillListed } = await anon.rpc("list_published_stories", {
+      p_search: `RLS Test Takedown ${marker} Searchable`,
+      p_limit: 50,
+    });
+    expect(stillListed?.map((row) => row.story_id)).toContain(story.storyId);
+    expect((await ownerStoryRow(story.storyId)).lifecycle_status).toBe(
+      "published",
+    );
+
+    // 2. Asking twice while one is pending is refused.
+    const nextVersion = (await ownerStoryRow(story.storyId)).version;
+    const { error: dupeError } = await untypedRpc(
+      owner.client,
+      "request_story_takedown",
+      { p_story_id: story.storyId, p_expected_version: nextVersion },
+    );
+    expect(dupeError).not.toBeNull();
+    expect(dupeError!.message).toMatch(/already awaiting review/i);
+
+    // 3. A non-moderator cannot decide it.
+    const { error: strangerError } = await untypedRpc(
+      other.client,
+      "decide_story_takedown",
+      { p_request_id: requestId, p_approve: true },
+    );
+    expect(strangerError).not.toBeNull();
+    expect(strangerError!.message).toMatch(/only a moderator or admin/i);
+
+    // 4. The moderator approves -- and only now does it leave public reads.
+    const { error: decideError } = await untypedRpc(
+      moderator.client,
+      "decide_story_takedown",
+      { p_request_id: requestId, p_approve: true },
+    );
+    expect(decideError).toBeNull();
+
+    const { data: listedAfter } = await anon.rpc("list_published_stories", {
+      p_search: `RLS Test Takedown ${marker} Searchable`,
+      p_limit: 50,
+    });
+    expect(listedAfter?.map((row) => row.story_id)).not.toContain(
+      story.storyId,
+    );
+
+    const { data: detailAfter } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(detailAfter?.length ?? 0).toBe(0);
+
+    // Retained, not deleted -- per content-governance.
+    const after = await ownerStoryRow(story.storyId);
+    expect(after.lifecycle_status).toBe("archived");
+    expect(after.archived_at).toBeTruthy();
+
+    // 5. Deciding the same request twice raises.
+    const { error: secondDecide } = await untypedRpc(
+      moderator.client,
+      "decide_story_takedown",
+      { p_request_id: requestId, p_approve: true },
+    );
+    expect(secondDecide).not.toBeNull();
+    expect(secondDecide!.message).toMatch(/already been decided/i);
+  }, 120000);
+
+  it("declining requires a note, keeps the story public, and can be re-requested", async () => {
+    const story = await publishOwnerStory({ title: slug("takedown-decline") });
+    const version = (await ownerStoryRow(story.storyId)).version;
+    const { data: requestId } = await untypedRpc(
+      owner.client,
+      "request_story_takedown",
+      { p_story_id: story.storyId, p_expected_version: version },
+    );
+
+    // A decline with no note is refused: "no" without a reason is not an
+    // answer to someone asking for their own writing to come down.
+    const { error: noNote } = await untypedRpc(
+      moderator.client,
+      "decide_story_takedown",
+      { p_request_id: requestId, p_approve: false },
+    );
+    expect(noNote).not.toBeNull();
+    expect(noNote!.message).toMatch(/note is required/i);
+
+    const { error: declined } = await untypedRpc(
+      moderator.client,
+      "decide_story_takedown",
+      {
+        p_request_id: requestId,
+        p_approve: false,
+        p_note: "Still under review for a report.",
+      },
+    );
+    expect(declined).toBeNull();
+
+    // Declining changes nothing a reader sees.
+    const { data: stillPublic } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(stillPublic?.length).toBe(1);
+
+    // And a decline must not lock the story out of the queue forever --
+    // people ask again.
+    const afterVersion = (await ownerStoryRow(story.storyId)).version;
+    const { error: reRequest } = await untypedRpc(
+      owner.client,
+      "request_story_takedown",
+      { p_story_id: story.storyId, p_expected_version: afterVersion },
+    );
+    expect(reRequest).toBeNull();
+  }, 90000);
+
+  it("the queue is moderator-only, and lists the pending request with what a decision needs", async () => {
+    // The moderation page renders from this RPC, and the browser could not
+    // exercise it (the signed-in dev account is a contributor, so /moderation
+    // correctly 404s) -- so it is proven here instead.
+    const story = await publishOwnerStory({ title: slug("takedown-queue") });
+    const version = (await ownerStoryRow(story.storyId)).version;
+    const { data: requestId } = await untypedRpc(
+      owner.client,
+      "request_story_takedown",
+      {
+        p_story_id: story.storyId,
+        p_expected_version: version,
+        p_note: "Context for the moderator.",
+      },
+    );
+
+    for (const [label, client] of [
+      ["another contributor", other.client],
+      ["an editor", editor.client],
+    ] as const) {
+      const { error } = await untypedRpc(
+        client,
+        "list_story_takedown_requests",
+        {},
+      );
+      expect(error, `${label} must not read the takedown queue`).not.toBeNull();
+    }
+
+    const { data: queue, error: queueError } = await untypedRpc(
+      moderator.client,
+      "list_story_takedown_requests",
+      { p_limit: 50 },
+    );
+    expect(queueError).toBeNull();
+    const row = (queue as Array<Record<string, unknown>>).find(
+      (r) => r.request_id === requestId,
+    );
+    expect(row).toBeTruthy();
+    // Everything the queue row renders, so a missing join shows up here
+    // rather than as a blank cell in the UI.
+    expect(row!.story_id).toBe(story.storyId);
+    expect(row!.story_slug).toBe(story.slug);
+    expect(row!.story_title).toBeTruthy();
+    expect(row!.contributor_note).toBe("Context for the moderator.");
+    expect(row!.requested_at).toBeTruthy();
+
+    // Cleared so it does not sit in the queue for the next run.
+    await untypedRpc(owner.client, "cancel_story_takedown_request", {
+      p_request_id: requestId,
+    });
+  }, 90000);
+
+  it("the owner can cancel their own pending request, and a stranger cannot", async () => {
+    const story = await publishOwnerStory({ title: slug("takedown-cancel") });
+    const version = (await ownerStoryRow(story.storyId)).version;
+    const { data: requestId } = await untypedRpc(
+      owner.client,
+      "request_story_takedown",
+      { p_story_id: story.storyId, p_expected_version: version },
+    );
+
+    const { error: strangerError } = await untypedRpc(
+      other.client,
+      "cancel_story_takedown_request",
+      { p_request_id: requestId },
+    );
+    expect(strangerError).not.toBeNull();
+
+    const { error: cancelled } = await untypedRpc(
+      owner.client,
+      "cancel_story_takedown_request",
+      { p_request_id: requestId },
+    );
+    expect(cancelled).toBeNull();
+
+    // Cancelled, so the moderator queue no longer offers it.
+    const { error: decideError } = await untypedRpc(
+      moderator.client,
+      "decide_story_takedown",
+      { p_request_id: requestId, p_approve: true },
+    );
+    expect(decideError).not.toBeNull();
+    expect(decideError!.message).toMatch(/already been decided/i);
+
+    const { data: stillPublic } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(stillPublic?.length).toBe(1);
+  }, 90000);
+
+  it("an admin can withdraw on a contributor's behalf", async () => {
+    const story = await publishOwnerStory({ title: slug("withdraw-admin") });
+    const version = (await ownerStoryRow(story.storyId)).version;
+
+    const { error } = await untypedRpc(
+      admin.client,
+      "revoke_publication_consent",
+      { p_story_id: story.storyId, p_expected_version: version },
+    );
+    expect(error).toBeNull();
+
+    const { data: detailAfter } = await anon.rpc("get_published_story", {
+      p_slug: story.slug,
+    });
+    expect(detailAfter?.length ?? 0).toBe(0);
+    expect((await ownerStoryRow(story.storyId)).lifecycle_status).toBe(
+      "archived",
+    );
+  }, 60000);
+});
+
 describe("moderator cannot reassign editorial stories; editor claim/hand-off rules (migration 20260805100600)", () => {
   it("a moderator is rejected outright", async () => {
     const { data: contributor } = await editor.client
@@ -1979,6 +2334,28 @@ describe("audit rows are immutable (story_report_notes, story_publication_state_
       .delete()
       .eq("id", "11111111-1111-4111-8111-111111111111");
     expect(deleteError).not.toBeNull();
+  });
+
+  it("story_publication_state_actions cannot be READ directly either, by anyone", async () => {
+    // The table has zero grants and zero policies on purpose (see its
+    // migration). Asserted for the owner and an admin specifically, because
+    // those two CAN call revoke_publication_consent() and so are the
+    // plausible "surely they can see their own audit row" case -- they
+    // cannot, and nothing in the app tries to.
+    for (const [label, client] of [
+      ["the story owner", owner.client],
+      ["an admin", admin.client],
+      ["anon", anon],
+    ] as const) {
+      const { error } = await (
+        client.from("story_publication_state_actions" as never) as unknown as {
+          select: (columns: string) => Promise<{
+            error: { message: string; code?: string } | null;
+          }>;
+        }
+      ).select("id");
+      expect(error, `${label} should not be able to read it`).not.toBeNull();
+    }
   });
 
   it("editorial_actions cannot be updated or deleted directly", async () => {

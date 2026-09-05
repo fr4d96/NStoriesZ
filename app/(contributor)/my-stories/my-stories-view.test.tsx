@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MyStoriesView } from "./my-stories-view";
+import { ToastProvider } from "@/components/ui/toast";
 import { mintPreviewUrlAction } from "@/app/(contributor)/stories/[id]/media-actions";
 import type { MyStoryWithCover } from "@/lib/story/contributor-queries";
 
@@ -18,6 +19,8 @@ vi.mock("@/app/(contributor)/stories/[id]/media-actions", () => ({
 // to transitively pull in a real server module.
 vi.mock("./actions", () => ({
   deleteDraftStoryAction: vi.fn(async () => ({ ok: true }) as const),
+  requestStoryTakedownAction: vi.fn(async () => ({ ok: true }) as const),
+  cancelStoryTakedownAction: vi.fn(async () => ({ ok: true }) as const),
 }));
 
 const push = vi.fn();
@@ -271,6 +274,120 @@ describe("MyStoriesView", () => {
       "11111111-1111-4111-8111-111111111111",
       1,
     );
+  });
+
+  describe("taking a published story down", () => {
+    const published = makeStory({
+      id: "44444444-4444-4444-8444-444444444444",
+      title: "Already published",
+      lifecycle_status: "published",
+      published_revision_id: "55555555-5555-4555-8555-555555555555",
+      current_draft_revision_id: null,
+      draftRevisionStatus: null,
+      version: 7,
+    });
+
+    it("offers Take down only on a published story, never on a draft", () => {
+      render(<MyStoriesView stories={[makeStory(), published]} />);
+
+      const takeDowns = screen.getAllByRole("button", {
+        name: /^Take down/,
+      });
+      expect(takeDowns).toHaveLength(1);
+      expect(takeDowns[0]).toHaveAccessibleName("Take down Already published");
+
+      // ...and the two destructive actions are never offered on the same
+      // story: Delete belongs to the never-published draft, Take down to the
+      // published one.
+      expect(
+        screen.getByRole("button", { name: /^Delete/ }),
+      ).toHaveAccessibleName("Delete Picking apples in Hawke's Bay");
+    });
+
+    it("says what a takedown actually does before doing it, and can be backed out of", async () => {
+      const { requestStoryTakedownAction } = await import("./actions");
+      vi.mocked(requestStoryTakedownAction).mockClear();
+      const user = userEvent.setup();
+      render(<MyStoriesView stories={[published]} />);
+
+      await user.click(
+        screen.getByRole("button", { name: "Take down Already published" }),
+      );
+
+      expect(requestStoryTakedownAction).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole("heading", {
+          name: "Ask for this story to be taken down?",
+        }),
+      ).toBeInTheDocument();
+      // The two things a contributor cannot work out from the button, and
+      // the first one matters most: asking does NOT take the story down.
+      // Someone who has just asked will otherwise assume it is already gone.
+      expect(
+        screen.getByText(/stays public until they do/i),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Nothing is deleted/i)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(
+        screen.queryByRole("heading", {
+          name: "Ask for this story to be taken down?",
+        }),
+      ).not.toBeInTheDocument();
+      expect(requestStoryTakedownAction).not.toHaveBeenCalled();
+    });
+
+    it("passes the story's own version through as the concurrency token", async () => {
+      const { requestStoryTakedownAction } = await import("./actions");
+      vi.mocked(requestStoryTakedownAction).mockClear();
+      const user = userEvent.setup();
+      render(<MyStoriesView stories={[published]} />);
+
+      await user.click(
+        screen.getByRole("button", { name: "Take down Already published" }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Ask for takedown" }),
+      );
+
+      await waitFor(() =>
+        expect(requestStoryTakedownAction).toHaveBeenCalledWith(
+          "44444444-4444-4444-8444-444444444444",
+          7,
+        ),
+      );
+    });
+
+    it("shows the reason a takedown was refused instead of failing silently", async () => {
+      const { requestStoryTakedownAction } = await import("./actions");
+      vi.mocked(requestStoryTakedownAction).mockResolvedValueOnce({
+        ok: false,
+        error: "This story has already been taken down.",
+      });
+      const user = userEvent.setup();
+      render(
+        <ToastProvider>
+          <MyStoriesView stories={[published]} />
+        </ToastProvider>,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "Take down Already published" }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Ask for takedown" }),
+      );
+
+      expect(
+        await screen.findByText("This story has already been taken down."),
+      ).toBeInTheDocument();
+      // The dialog closes rather than sitting there looking busy forever.
+      expect(
+        screen.queryByRole("heading", {
+          name: "Ask for this story to be taken down?",
+        }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   describe("location filtering", () => {

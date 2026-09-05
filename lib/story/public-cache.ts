@@ -34,13 +34,24 @@ import { revalidatePath } from "next/cache";
 // contributor-initiated withdrawal vs. a staff action, and each caller
 // knows its own routing/paths better than the shared function should).
 //
-// Neither archiveStory() nor revokePublicationConsent() has a real UI
-// caller yet (grepped, confirmed at the time this was written) -- Prompt 6
-// (moderation workspace) is what will add the actual Server Actions for
-// publish/archive, and any future contributor-facing withdrawal UI is what
-// will call revokePublicationConsent(). Each of those new Server Actions
-// must call the matching helper below immediately after its mutation
-// succeeds:
+// Both callers now exist, and both invalidate (2026-09-05):
+//
+//   - archiveStory()             -> app/(moderation)/moderation/stories/[id]/
+//                                   actions.ts#archiveStoryAction, which
+//                                   re-derives the slug via
+//                                   getStoryForModerator() and falls back to
+//                                   the listings-only helper when it can't.
+//   - revokePublicationConsent() -> app/(contributor)/my-stories/
+//                                   actions.ts#withdrawPublishedStoryAction,
+//                                   which re-derives the slug from the
+//                                   owner-scoped list_my_stories().
+//
+// Both wrap the call so a revalidatePath() failure is logged, never
+// propagated: the mutation has already committed by then, and a cache hiccup
+// must not be reported to the user as a failed archive/takedown.
+//
+// Any FUTURE Server Action that changes public visibility must do the same,
+// calling the matching helper below immediately after its mutation succeeds:
 //
 //   - finalize_story_publication() succeeds -> invalidateStoryPublicCache(slug)
 //   - archiveStory() succeeds               -> invalidateStoryPublicCache(slug)

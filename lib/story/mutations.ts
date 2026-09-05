@@ -241,6 +241,52 @@ export async function revokePublicationConsent(
   if (error) throw error;
 }
 
+/**
+ * The contributor's takedown REQUEST. Since 20260903100000 a contributor no
+ * longer withdraws their own story directly -- they ask, and a moderator
+ * decides -- so this is the call My Stories makes. The story stays published
+ * until that decision.
+ */
+export async function requestStoryTakedown(
+  storyId: string,
+  expectedVersion: number,
+  note?: string | null,
+): Promise<string> {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("request_story_takedown", {
+    p_story_id: storyId,
+    p_expected_version: expectedVersion,
+    // The generated RPC type takes `string | undefined`, not null.
+    p_note: note ?? undefined,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Owner cancels their own still-pending request. */
+export async function cancelStoryTakedownRequest(requestId: string) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("cancel_story_takedown_request", {
+    p_request_id: requestId,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Every takedown request on the caller's own stories, one row per story --
+ * batch, so My Stories does not go back to a call per row (see the
+ * migration's own note).
+ */
+export async function listMyTakedownRequests() {
+  await requireUser();
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_my_takedown_requests");
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function setRevisionLocations(
   revisionId: string,
   expectedVersion: number,
