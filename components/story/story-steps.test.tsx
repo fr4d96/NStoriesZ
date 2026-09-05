@@ -26,6 +26,23 @@ describe("StoryStepProgress", () => {
     ).toHaveAccessibleName(/current step, done/);
   });
 
+  // The rail shows a visible label on every step (from `lg`; jsdom has no
+  // breakpoints, so this only asserts the text is rendered). Two are
+  // shortened to buy the width -- the accessible name below still carries
+  // the full step name, which is the thing that must not shrink.
+  it("labels every step, shortening the two long ones on screen only", () => {
+    render(<StoryStepProgress currentStep="title" doneSteps={[]} />);
+    expect(
+      screen.getByRole("button", { name: /Step 6 of 7: Places & tags/ }),
+    ).toHaveTextContent("Places");
+    expect(
+      screen.getByRole("button", { name: /Step 7 of 7: Review & submit/ }),
+    ).toHaveTextContent("Review");
+    expect(
+      screen.getByRole("button", { name: /Step 2 of 7: Your story/ }),
+    ).toHaveTextContent("Your story");
+  });
+
   it("says which incomplete steps are still required", () => {
     render(<StoryStepProgress currentStep="title" doneSteps={[]} />);
     // Required (per the preview page's missingRequirements gate).

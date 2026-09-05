@@ -1021,355 +1021,372 @@ export function StoryEditForm({
     stepIndex < STORY_STEPS.length - 2 ? STORY_STEPS[stepIndex + 1] : null;
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-16 sm:px-6">
+    <>
       {/* Sticky, so the progress bar, the save state and Preview stay put
           while a long step (the story body, the photo grid) scrolls under
           them. `top-76px` is the site header's own min-height
           (components/site-header.tsx), which is sticky at top-0; z-30 keeps
-          this under that header's z-40 rather than fighting it. */}
-      <div className="sticky top-[76px] z-30 -mx-4 border-b border-border-subtle bg-background/95 px-4 backdrop-blur sm:-mx-6 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-3">
-          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">
-            {isNewStory ? "New Story" : "Edit Story"}
-          </h1>
-          <div className="flex items-center gap-3 text-sm">
-            <SaveStatus saving={saving} lastSavedAt={lastSavedAt} />
-            <Link
-              href={`/stories/${storyId}/preview`}
-              className="journiq-button bg-accent text-sm text-accent-foreground"
-            >
-              Preview
-            </Link>
+          this under that header's z-40 rather than fighting it.
+
+          It sits OUTSIDE the max-w-3xl column on purpose, rather than
+          inside it bleeding out with -mx-4. A narrow measure is right for
+          reading and for form fields; it is not a rule the progress rail
+          has to obey, and obeying it is what left the rail with 720px for
+          seven labels that wanted 807 -- unfittable at any viewport,
+          because the cap does not grow. Widening to max-w-5xl from `lg`
+          gives the rail ~976px and the labels came back
+          (components/story/story-steps.tsx). Below `lg` this lands at
+          exactly the old geometry: max-w-3xl, same px-4/sm:px-6, a bar the
+          full width of the column. */}
+      <div className="sticky top-[76px] z-30 border-b border-border-subtle bg-background/95 backdrop-blur">
+        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-3">
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl">
+              {isNewStory ? "New Story" : "Edit Story"}
+            </h1>
+            <div className="flex items-center gap-3 text-sm">
+              <SaveStatus saving={saving} lastSavedAt={lastSavedAt} />
+              <Link
+                href={`/stories/${storyId}/preview`}
+                className="journiq-button bg-accent text-sm text-accent-foreground"
+              >
+                Preview
+              </Link>
+            </div>
           </div>
-        </div>
-        <div className="py-3">
-          <StoryStepProgress
-            currentStep={step}
-            doneSteps={doneSteps}
-            onSelect={goToStep}
-            // "Review & submit" is a different route, reachable only by the
-            // button at the end of step 5. Clicking its circle here used to
-            // set an in-page step with no section to render -- a blank
-            // screen. Locking it also makes the flow explicit: you leave
-            // the editor deliberately, not by mis-clicking a dot.
-            lockedSteps={REVIEW_STEP_LOCK}
-          />
+          <div className="py-3">
+            <StoryStepProgress
+              currentStep={step}
+              doneSteps={doneSteps}
+              onSelect={goToStep}
+              // "Review & submit" is a different route, reachable only by
+              // the button at the end of step 5. Clicking its circle here
+              // used to set an in-page step with no section to render -- a
+              // blank screen. Locking it also makes the flow explicit: you
+              // leave the editor deliberately, not by mis-clicking a dot.
+              lockedSteps={REVIEW_STEP_LOCK}
+            />
+          </div>
         </div>
       </div>
 
-      {conflict && (
-        <div
-          role="alert"
-          className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
-        >
-          This draft changed elsewhere (perhaps in another tab). Your edits on
-          this page are still here, but saving is paused —{" "}
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="underline underline-offset-2"
+      <div className="mx-auto max-w-3xl px-4 pb-16 sm:px-6">
+        {conflict && (
+          <div
+            role="alert"
+            className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
           >
-            reload to continue
-          </button>
-          .
-        </div>
-      )}
-      {saveError && !conflict && (
-        <p role="alert" className="mt-4 text-sm text-destructive">
-          {saveError}
-        </p>
-      )}
+            This draft changed elsewhere (perhaps in another tab). Your edits on
+            this page are still here, but saving is paused —{" "}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="underline underline-offset-2"
+            >
+              reload to continue
+            </button>
+            .
+          </div>
+        )}
+        {saveError && !conflict && (
+          <p role="alert" className="mt-4 text-sm text-destructive">
+            {saveError}
+          </p>
+        )}
 
-      {/* One heading for the whole timeline rather than one per step: it is
+        {/* One heading for the whole timeline rather than one per step: it is
           the thing focus moves to on every step change, so it has to say
           which step you just landed on. tabIndex -1 makes it focusable
           without putting it in the tab order. */}
-      <h2
-        ref={stepHeadingRef}
-        tabIndex={-1}
-        className="mt-6 text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
-      >
-        {STORY_STEPS[stepIndex].label}
-      </h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {STORY_STEPS[stepIndex].hint}
-      </p>
+        <h2
+          ref={stepHeadingRef}
+          tabIndex={-1}
+          className="mt-6 text-2xl font-semibold tracking-tight outline-none sm:text-3xl"
+        >
+          {STORY_STEPS[stepIndex].label}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {STORY_STEPS[stepIndex].hint}
+        </p>
 
-      <div className="mt-6">
-        <StepSection id="title" activeStep={step}>
-          <div>
-            <label htmlFor="edit-title" className="block text-sm font-medium">
-              Title
-              <RequiredMark />
-            </label>
-            <input
-              id="edit-title"
-              type="text"
-              value={title}
-              maxLength={200}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                scheduleSave({ title: e.target.value });
-              }}
-              className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="edit-excerpt" className="block text-sm font-medium">
-              Sub-Title
-            </label>
-            <textarea
-              id="edit-excerpt"
-              value={excerpt}
-              maxLength={500}
-              rows={2}
-              onChange={(e) => {
-                setExcerpt(e.target.value);
-                scheduleSave({ excerpt: e.target.value });
-              }}
-              className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Optional. One or two lines that say what the story is about.
-            </p>
-          </div>
-        </StepSection>
-
-        <StepSection id="story" activeStep={step}>
-          {showContentImport && (
-            <ContentImportPanel
-              onApply={applyImportedContent}
-              disabled={applyingImport}
-            />
-          )}
-          <div>
-            <span className="block text-sm font-medium">
-              Story
-              <RequiredMark />
-            </span>
-            <div className="mt-1">
-              <StoryContentEditor
-                ref={richTextEditorRef}
-                initialContent={initialContentJson}
-                onChange={(blocks) => {
-                  setContent(blocks);
-                  scheduleSave({ content: blocks });
+        <div className="mt-6">
+          <StepSection id="title" activeStep={step}>
+            <div>
+              <label htmlFor="edit-title" className="block text-sm font-medium">
+                Title
+                <RequiredMark />
+              </label>
+              <input
+                id="edit-title"
+                type="text"
+                value={title}
+                maxLength={200}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  scheduleSave({ title: e.target.value });
                 }}
-                // The editor's slash-menu "Photo" entry and toolbar image
-                // button live on THIS step, but the image panel they point
-                // at is on the next one -- so the request has to move the
-                // timeline first, then focus, or it would scroll to a
-                // section that is still `hidden`.
-                onRequestImages={() => {
-                  goToStep("photos");
-                  requestAnimationFrame(focusImagesPanel);
-                }}
+                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
               />
             </div>
-          </div>
-        </StepSection>
 
-        <StepSection id="photos" activeStep={step}>
-          <div
-            id={IMAGES_PANEL_ID}
-            tabIndex={-1}
-            className="scroll-mt-[12rem] outline-none"
-          >
-            {/* No "Images (N)" heading here any more: the step is already
+            <div>
+              <label
+                htmlFor="edit-excerpt"
+                className="block text-sm font-medium"
+              >
+                Sub-Title
+              </label>
+              <textarea
+                id="edit-excerpt"
+                value={excerpt}
+                maxLength={500}
+                rows={2}
+                onChange={(e) => {
+                  setExcerpt(e.target.value);
+                  scheduleSave({ excerpt: e.target.value });
+                }}
+                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Optional. One or two lines that say what the story is about.
+              </p>
+            </div>
+          </StepSection>
+
+          <StepSection id="story" activeStep={step}>
+            {showContentImport && (
+              <ContentImportPanel
+                onApply={applyImportedContent}
+                disabled={applyingImport}
+              />
+            )}
+            <div>
+              <span className="block text-sm font-medium">
+                Story
+                <RequiredMark />
+              </span>
+              <div className="mt-1">
+                <StoryContentEditor
+                  ref={richTextEditorRef}
+                  initialContent={initialContentJson}
+                  onChange={(blocks) => {
+                    setContent(blocks);
+                    scheduleSave({ content: blocks });
+                  }}
+                  // The editor's slash-menu "Photo" entry and toolbar image
+                  // button live on THIS step, but the image panel they point
+                  // at is on the next one -- so the request has to move the
+                  // timeline first, then focus, or it would scroll to a
+                  // section that is still `hidden`.
+                  onRequestImages={() => {
+                    goToStep("photos");
+                    requestAnimationFrame(focusImagesPanel);
+                  }}
+                />
+              </div>
+            </div>
+          </StepSection>
+
+          <StepSection id="photos" activeStep={step}>
+            <div
+              id={IMAGES_PANEL_ID}
+              tabIndex={-1}
+              className="scroll-mt-[12rem] outline-none"
+            >
+              {/* No "Images (N)" heading here any more: the step is already
                 titled "Photos", and the panel below opens with its own
                 "N photos · N in your story" summary, so this was the third
                 count on one screen. */}
-            <p className="text-sm text-muted-foreground">
-              Add photos here. &ldquo;Add to story&rdquo; drops one into your
-              text and takes you back to it.
-            </p>
-            <div className="mt-3">
-              <ImageUploadManager
-                storyId={storyId}
-                revisionId={revisionId}
-                initialMedia={initialMedia}
-                versionRef={versionRef}
-                queue={queue}
-                onVersionBumped={bumpVersion}
-                inlineMediaIds={inlineMediaIds}
-                onMediaDetached={handleMediaDetached}
-                // Placing a photo moves the timeline to the story step and
-                // shows it landing there. Before this, "Add to story"
-                // inserted the embed into an editor that was on a hidden
-                // step, so the contributor got no feedback at all and had
-                // to walk back a step to find out whether it had worked.
-                //
-                // The step switch has to happen FIRST and the insert on the
-                // next frame: CodeMirror cannot measure or scroll a
-                // document inside a `display: none` section, so inserting
-                // before the section is painted puts the embed in at the
-                // right place but leaves the view scrolled somewhere else.
-                onInsertIntoEditor={(mediaId, width) => {
-                  goToStep("story");
-                  requestAnimationFrame(() => {
-                    richTextEditorRef.current?.insertMedia(mediaId, width);
-                    // insertMedia focuses the editor, and focusing an
-                    // element the page is not scrolled to can move the
-                    // page. The step effect above already asked for the
-                    // top; this re-asserts it AFTER the insert, so the
-                    // contributor always lands looking at the editor with
-                    // their new photo in it rather than somewhere down the
-                    // page. Instant for the same reason as above.
-                    requestAnimationFrame(() =>
-                      window.scrollTo({ top: 0, behavior: "instant" }),
-                    );
-                  });
-                }}
-              />
+              <p className="text-sm text-muted-foreground">
+                Add photos here. &ldquo;Add to story&rdquo; drops one into your
+                text and takes you back to it.
+              </p>
+              <div className="mt-3">
+                <ImageUploadManager
+                  storyId={storyId}
+                  revisionId={revisionId}
+                  initialMedia={initialMedia}
+                  versionRef={versionRef}
+                  queue={queue}
+                  onVersionBumped={bumpVersion}
+                  inlineMediaIds={inlineMediaIds}
+                  onMediaDetached={handleMediaDetached}
+                  // Placing a photo moves the timeline to the story step and
+                  // shows it landing there. Before this, "Add to story"
+                  // inserted the embed into an editor that was on a hidden
+                  // step, so the contributor got no feedback at all and had
+                  // to walk back a step to find out whether it had worked.
+                  //
+                  // The step switch has to happen FIRST and the insert on the
+                  // next frame: CodeMirror cannot measure or scroll a
+                  // document inside a `display: none` section, so inserting
+                  // before the section is painted puts the embed in at the
+                  // right place but leaves the view scrolled somewhere else.
+                  onInsertIntoEditor={(mediaId, width) => {
+                    goToStep("story");
+                    requestAnimationFrame(() => {
+                      richTextEditorRef.current?.insertMedia(mediaId, width);
+                      // insertMedia focuses the editor, and focusing an
+                      // element the page is not scrolled to can move the
+                      // page. The step effect above already asked for the
+                      // top; this re-asserts it AFTER the insert, so the
+                      // contributor always lands looking at the editor with
+                      // their new photo in it rather than somewhere down the
+                      // page. Instant for the same reason as above.
+                      requestAnimationFrame(() =>
+                        window.scrollTo({ top: 0, behavior: "instant" }),
+                      );
+                    });
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        </StepSection>
+          </StepSection>
 
-        <StepSection id="trip" activeStep={step}>
-          {/* Presentation only -- every handler below is the same
+          <StepSection id="trip" activeStep={step}>
+            {/* Presentation only -- every handler below is the same
               setState-then-scheduleSave pair the two bare inputs used to
               carry inline, so the debounce window, the "fields" queue slot,
               and the exact string handed to scheduleSave are all unchanged. */}
-          <TripDateField
-            mode={dateMode}
-            startDate={tripStartDate}
-            endDate={tripEndDate}
-            year={tripYear}
-            onModeChange={(next) => {
-              setDateMode(next);
-              scheduleSave({ dateMode: next });
-            }}
-            onStartDateChange={(value) => {
-              setTripStartDate(value);
-              scheduleSave({ tripStartDate: value });
-            }}
-            onEndDateChange={(value) => {
-              setTripEndDate(value);
-              scheduleSave({ tripEndDate: value });
-            }}
-            onYearChange={(value) => {
-              setTripYear(value);
-              scheduleSave({ tripYear: value });
-            }}
-          />
-
-          <div>
-            <label
-              htmlFor="edit-travel-style"
-              className="block text-sm font-medium"
-            >
-              Travel style
-            </label>
-            <select
-              id="edit-travel-style"
-              value={travelStyleMode === "other" ? "other" : travelStyle}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === "other") {
-                  // Switching mode alone doesn't save -- nothing changes on
-                  // the server until real text is typed below, so toggling
-                  // to "Other" and back to a preset without typing anything
-                  // is a no-op, not a save of an empty string.
-                  setTravelStyleMode("other");
-                  return;
-                }
-                setTravelStyleMode("preset");
-                setTravelStyle(value);
-                scheduleSave({ travelStyle: value });
+            <TripDateField
+              mode={dateMode}
+              startDate={tripStartDate}
+              endDate={tripEndDate}
+              year={tripYear}
+              onModeChange={(next) => {
+                setDateMode(next);
+                scheduleSave({ dateMode: next });
               }}
-              className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-            >
-              <option value="">Not specified</option>
-              {travelStyles.map((style) => (
-                <option key={style} value={style}>
-                  {formatCamelCaseLabel(style)}
-                </option>
-              ))}
-              <option value="other">Other (type your own)</option>
-            </select>
-            {travelStyleMode === "other" && (
-              <input
-                type="text"
-                value={travelStyle}
-                maxLength={50}
-                placeholder="Describe your travel style"
-                onChange={(e) => {
-                  setTravelStyle(e.target.value);
-                  scheduleSave({ travelStyle: e.target.value });
-                }}
-                className="mt-2 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-                aria-label="Other travel style (type your own)"
-              />
-            )}
-          </div>
-        </StepSection>
+              onStartDateChange={(value) => {
+                setTripStartDate(value);
+                scheduleSave({ tripStartDate: value });
+              }}
+              onEndDateChange={(value) => {
+                setTripEndDate(value);
+                scheduleSave({ tripEndDate: value });
+              }}
+              onYearChange={(value) => {
+                setTripYear(value);
+                scheduleSave({ tripYear: value });
+              }}
+            />
 
-        {/* Expenses is its own step, not a panel inside Trip. It carries two
+            <div>
+              <label
+                htmlFor="edit-travel-style"
+                className="block text-sm font-medium"
+              >
+                Travel style
+              </label>
+              <select
+                id="edit-travel-style"
+                value={travelStyleMode === "other" ? "other" : travelStyle}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === "other") {
+                    // Switching mode alone doesn't save -- nothing changes on
+                    // the server until real text is typed below, so toggling
+                    // to "Other" and back to a preset without typing anything
+                    // is a no-op, not a save of an empty string.
+                    setTravelStyleMode("other");
+                    return;
+                  }
+                  setTravelStyleMode("preset");
+                  setTravelStyle(value);
+                  scheduleSave({ travelStyle: value });
+                }}
+                className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+              >
+                <option value="">Not specified</option>
+                {travelStyles.map((style) => (
+                  <option key={style} value={style}>
+                    {formatCamelCaseLabel(style)}
+                  </option>
+                ))}
+                <option value="other">Other (type your own)</option>
+              </select>
+              {travelStyleMode === "other" && (
+                <input
+                  type="text"
+                  value={travelStyle}
+                  maxLength={50}
+                  placeholder="Describe your travel style"
+                  onChange={(e) => {
+                    setTravelStyle(e.target.value);
+                    scheduleSave({ travelStyle: e.target.value });
+                  }}
+                  className="mt-2 w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+                  aria-label="Other travel style (type your own)"
+                />
+              )}
+            </div>
+          </StepSection>
+
+          {/* Expenses is its own step, not a panel inside Trip. It carries two
             inputs, a derived per-month line, a repeating category list and a
             figure -- more than the Trip step could hold without burying the
             dates above it. Steps are freely clickable and this one is
             optional, so promoting it costs a contributor who does not care
             about money exactly one click past it. */}
-        <StepSection id="expenses" activeStep={step}>
-          {/* Inputs left, figure right, from `lg` only. The editor column is
+          <StepSection id="expenses" activeStep={step}>
+            {/* Inputs left, figure right, from `lg` only. The editor column is
               max-w-3xl, so a two-column split any earlier squeezes the
               amount fields to the point of wrapping; below that the figure
               simply follows the list it describes (Engineering Rule 18). */}
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
-            <div className="min-w-0">
-              <label
-                htmlFor="edit-expense"
-                className="block text-sm font-medium"
-              >
-                Total expenses (NZD)
-              </label>
-              <input
-                id="edit-expense"
-                type="number"
-                min={0}
-                step="0.01"
-                value={expenseDollars}
-                onChange={(e) => {
-                  // Typing here claims the number: the breakdown stops
-                  // overwriting it until "Use the breakdown total" below
-                  // hands it back.
-                  setExpenseTotalMode("manual");
-                  setExpenseDollars(e.target.value);
-                  scheduleSave({ expenseDollars: e.target.value });
-                }}
-                className="mt-1 w-40 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-              />
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,17rem)]">
+              <div className="min-w-0">
+                <label
+                  htmlFor="edit-expense"
+                  className="block text-sm font-medium"
+                >
+                  Total expenses (NZD)
+                </label>
+                <input
+                  id="edit-expense"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={expenseDollars}
+                  onChange={(e) => {
+                    // Typing here claims the number: the breakdown stops
+                    // overwriting it until "Use the breakdown total" below
+                    // hands it back.
+                    setExpenseTotalMode("manual");
+                    setExpenseDollars(e.target.value);
+                    scheduleSave({ expenseDollars: e.target.value });
+                  }}
+                  className="mt-1 w-40 rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+                />
 
-              {expenseTotalMode === "auto" && donutRows.length > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Adding up your breakdown. Type your own figure here if the
-                  breakdown doesn&apos;t cover everything.
-                </p>
-              )}
-
-              {/* Only offered when it would actually change something -- a
-                  manual total that already equals the breakdown needs no
-                  button, and neither does an empty breakdown. */}
-              {expenseTotalMode === "manual" &&
-                donutRows.length > 0 &&
-                breakdownTotalDollars(expenseRows) !== expenseDollars && (
-                  <button
-                    type="button"
-                    onClick={resyncExpenseTotal}
-                    className="mt-2 block text-xs underline underline-offset-2 hover:no-underline"
-                  >
-                    Use the breakdown total (
-                    {formatNzdCents(
-                      Math.round(
-                        Number(breakdownTotalDollars(expenseRows) || 0) * 100,
-                      ),
-                    )}
-                    )
-                  </button>
+                {expenseTotalMode === "auto" && donutRows.length > 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Adding up your breakdown. Type your own figure here if the
+                    breakdown doesn&apos;t cover everything.
+                  </p>
                 )}
 
-              {/* Derived, never stored: the same total divided by the trip
+                {/* Only offered when it would actually change something -- a
+                  manual total that already equals the breakdown needs no
+                  button, and neither does an empty breakdown. */}
+                {expenseTotalMode === "manual" &&
+                  donutRows.length > 0 &&
+                  breakdownTotalDollars(expenseRows) !== expenseDollars && (
+                    <button
+                      type="button"
+                      onClick={resyncExpenseTotal}
+                      className="mt-2 block text-xs underline underline-offset-2 hover:no-underline"
+                    >
+                      Use the breakdown total (
+                      {formatNzdCents(
+                        Math.round(
+                          Number(breakdownTotalDollars(expenseRows) || 0) * 100,
+                        ),
+                      )}
+                      )
+                    </button>
+                  )}
+
+                {/* Derived, never stored: the same total divided by the trip
                   length recorded on the previous step. $10k over three
                   months and $10k over twelve are different stories and the
                   raw total cannot tell them apart. Silent unless it has both
@@ -1377,121 +1394,121 @@ export function StoryEditForm({
                   trip too short for "per month" to describe anything real
                   all render nothing rather than a confident-looking
                   extrapolation (lib/story/expense-per-month.ts). */}
-              {perMonth.kind === "ok" && (
-                <p className="mt-2 text-sm text-muted-foreground">
-                  That&apos;s about{" "}
-                  <strong className="font-medium">
-                    {formatNzdCents(perMonth.perMonthCents)}
-                  </strong>{" "}
-                  a month across {formatMonths(perMonth.months)} months.
-                </p>
-              )}
+                {perMonth.kind === "ok" && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    That&apos;s about{" "}
+                    <strong className="font-medium">
+                      {formatNzdCents(perMonth.perMonthCents)}
+                    </strong>{" "}
+                    a month across {formatMonths(perMonth.months)} months.
+                  </p>
+                )}
 
-              {/* The per-category breakdown stays subordinate to the total
+                {/* The per-category breakdown stays subordinate to the total
                   above: that number is what the story is filed under (and
                   what /stories' cost-band filter reads), and this answers
                   the follow-up question rather than replacing it. Nothing
                   ties the two together -- see expense-breakdown.tsx. */}
-              <ExpenseBreakdown
-                categories={expenseCategories}
-                rows={expenseRows}
-                totalExpenseDollars={expenseDollars}
-                onChange={changeExpenses}
-              />
-            </div>
+                <ExpenseBreakdown
+                  categories={expenseCategories}
+                  rows={expenseRows}
+                  totalExpenseDollars={expenseDollars}
+                  onChange={changeExpenses}
+                />
+              </div>
 
-            {/* Reads the same rows the list writes, so it can never disagree
+              {/* Reads the same rows the list writes, so it can never disagree
                 with the numbers beside it. Purely derived -- no state, no
                 save. */}
-            <div className="min-w-0 lg:pt-7">
-              <ExpenseDonut rows={donutRows} />
+              <div className="min-w-0 lg:pt-7">
+                <ExpenseDonut rows={donutRows} />
+              </div>
             </div>
-          </div>
-        </StepSection>
+          </StepSection>
 
-        <StepSection id="places" activeStep={step}>
-          <fieldset>
-            <legend className="text-sm font-medium">
-              Locations
-              <RequiredMark />
-            </legend>
-            <div className="mt-1">
-              <LocationSearch
-                regions={regions}
-                destinations={destinations}
-                onMatch={handleLocationMatch}
-              />
-              {locationSearchNotice && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {locationSearchNotice}
-                </p>
-              )}
-            </div>
-            <div className="mt-2 space-y-2">
-              {locations.map((loc, i) => (
-                <div key={i} className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={loc.regionId}
-                    onChange={(e) =>
-                      updateLocation(i, {
-                        regionId: e.target.value,
-                        destinationId: null,
-                      })
-                    }
-                    className="rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
-                  >
-                    {regions.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => removeLocation(i)}
-                    className="text-sm text-destructive underline underline-offset-2"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </fieldset>
+          <StepSection id="places" activeStep={step}>
+            <fieldset>
+              <legend className="text-sm font-medium">
+                Locations
+                <RequiredMark />
+              </legend>
+              <div className="mt-1">
+                <LocationSearch
+                  regions={regions}
+                  destinations={destinations}
+                  onMatch={handleLocationMatch}
+                />
+                {locationSearchNotice && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {locationSearchNotice}
+                  </p>
+                )}
+              </div>
+              <div className="mt-2 space-y-2">
+                {locations.map((loc, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={loc.regionId}
+                      onChange={(e) =>
+                        updateLocation(i, {
+                          regionId: e.target.value,
+                          destinationId: null,
+                        })
+                      }
+                      className="rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
+                    >
+                      {regions.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => removeLocation(i)}
+                      className="text-sm text-destructive underline underline-offset-2"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
 
-          <TagEditor
-            selected={selectedTags}
-            suggestions={tags}
-            onChange={changeTags}
-          />
+            <TagEditor
+              selected={selectedTags}
+              suggestions={tags}
+              onChange={changeTags}
+            />
 
-          <details className="rounded-md border border-border-subtle">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-medium select-none">
-              Note to editors{" "}
-              <span className="font-normal text-muted-foreground">
-                (optional, private, never published)
-              </span>
-            </summary>
-            <div className="border-t border-border-subtle p-3">
-              <label htmlFor="edit-note" className="sr-only">
-                Note to editors
-              </label>
-              <textarea
-                id="edit-note"
-                value={contributorNote}
-                maxLength={2000}
-                rows={3}
-                onChange={(e) => {
-                  setContributorNote(e.target.value);
-                  scheduleSave({ contributorNote: e.target.value });
-                }}
-                className="w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
-              />
-            </div>
-          </details>
-        </StepSection>
-      </div>
+            <details className="rounded-md border border-border-subtle">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium select-none">
+                Note to editors{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional, private, never published)
+                </span>
+              </summary>
+              <div className="border-t border-border-subtle p-3">
+                <label htmlFor="edit-note" className="sr-only">
+                  Note to editors
+                </label>
+                <textarea
+                  id="edit-note"
+                  value={contributorNote}
+                  maxLength={2000}
+                  rows={3}
+                  onChange={(e) => {
+                    setContributorNote(e.target.value);
+                    scheduleSave({ contributorNote: e.target.value });
+                  }}
+                  className="w-full rounded-md border border-border-subtle px-3 py-2 dark:bg-transparent"
+                />
+              </div>
+            </details>
+          </StepSection>
+        </div>
 
-      {/* Says what is still missing, and takes you straight to it. Shown on
+        {/* Says what is still missing, and takes you straight to it. Shown on
           the last editing step, where "Review & submit" is the next thing
           the contributor will reach for -- telling them there and then
           beats letting them arrive at step 6 and be turned away, which is
@@ -1501,89 +1518,90 @@ export function StoryEditForm({
           role="status", not "alert": this is the standing state of the
           draft, not an event. It would be wrong to interrupt a screen
           reader with it on arrival. */}
-      {isLastEditingStep && !canReview && (
-        <div
-          id={MISSING_REQUIREMENTS_ID}
-          role="status"
-          className="mt-8 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
-        >
-          <p className="font-medium">
-            Add {missingRequirements.map((r) => r.label).join(", ")} before you
-            can submit.
-          </p>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {missingRequirements.map((requirement) => (
-              <li key={requirement.label}>
-                <button
-                  type="button"
-                  onClick={() => goToStep(requirement.step)}
-                  className="rounded-md border border-amber-400 px-2.5 py-1 text-xs font-medium underline-offset-2 hover:underline dark:border-amber-700"
-                >
-                  Add {requirement.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        {isLastEditingStep && !canReview && (
+          <div
+            id={MISSING_REQUIREMENTS_ID}
+            role="status"
+            className="mt-8 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+          >
+            <p className="font-medium">
+              Add {missingRequirements.map((r) => r.label).join(", ")} before
+              you can submit.
+            </p>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {missingRequirements.map((requirement) => (
+                <li key={requirement.label}>
+                  <button
+                    type="button"
+                    onClick={() => goToStep(requirement.step)}
+                    className="rounded-md border border-amber-400 px-2.5 py-1 text-xs font-medium underline-offset-2 hover:underline dark:border-amber-700"
+                  >
+                    Add {requirement.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-      {/* Back / Next. On the last editing step, "Next" is a real link to
+        {/* Back / Next. On the last editing step, "Next" is a real link to
           the preview route -- step 6 of the same timeline, and the only
           place submission is authorized (see story-steps.tsx). */}
-      <div className="mt-10 flex items-center justify-between gap-3 border-t border-border-subtle pt-6">
-        {previousStep ? (
-          <button
-            type="button"
-            onClick={() => goToStep(previousStep.id)}
-            className="rounded-md border border-border-subtle px-4 py-2 text-sm font-medium"
-          >
-            ← {previousStep.label}
-          </button>
-        ) : (
-          <Link
-            href="/my-stories"
-            className="rounded-md border border-border-subtle px-4 py-2 text-sm font-medium"
-          >
-            ← My Stories
-          </Link>
-        )}
-
-        {isLastEditingStep ? (
-          canReview ? (
-            <Link
-              href={`/stories/${storyId}/preview`}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
+        <div className="mt-10 flex items-center justify-between gap-3 border-t border-border-subtle pt-6">
+          {previousStep ? (
+            <button
+              type="button"
+              onClick={() => goToStep(previousStep.id)}
+              className="rounded-md border border-border-subtle px-4 py-2 text-sm font-medium"
             >
-              Review &amp; submit →
-            </Link>
+              ← {previousStep.label}
+            </button>
           ) : (
-            // A real disabled <button>, not a styled-down <Link>: a link is
-            // followable by keyboard and by middle-click whatever it looks
-            // like, so styling alone would let exactly the people it is
-            // meant to help walk into a page that refuses them. It keeps
-            // its place in the tab order so the reason is reachable, and
-            // aria-describedby points at the list of what is missing.
-            <button
-              type="button"
-              disabled
-              aria-describedby={MISSING_REQUIREMENTS_ID}
-              className="cursor-not-allowed rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground opacity-45"
+            <Link
+              href="/my-stories"
+              className="rounded-md border border-border-subtle px-4 py-2 text-sm font-medium"
             >
-              Review &amp; submit →
-            </button>
-          )
-        ) : (
-          nextStep && (
-            <button
-              type="button"
-              onClick={() => goToStep(nextStep.id)}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
-            >
-              Next: {nextStep.label} →
-            </button>
-          )
-        )}
+              ← My Stories
+            </Link>
+          )}
+
+          {isLastEditingStep ? (
+            canReview ? (
+              <Link
+                href={`/stories/${storyId}/preview`}
+                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
+              >
+                Review &amp; submit →
+              </Link>
+            ) : (
+              // A real disabled <button>, not a styled-down <Link>: a link is
+              // followable by keyboard and by middle-click whatever it looks
+              // like, so styling alone would let exactly the people it is
+              // meant to help walk into a page that refuses them. It keeps
+              // its place in the tab order so the reason is reachable, and
+              // aria-describedby points at the list of what is missing.
+              <button
+                type="button"
+                disabled
+                aria-describedby={MISSING_REQUIREMENTS_ID}
+                className="cursor-not-allowed rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground opacity-45"
+              >
+                Review &amp; submit →
+              </button>
+            )
+          ) : (
+            nextStep && (
+              <button
+                type="button"
+                onClick={() => goToStep(nextStep.id)}
+                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground"
+              >
+                Next: {nextStep.label} →
+              </button>
+            )
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

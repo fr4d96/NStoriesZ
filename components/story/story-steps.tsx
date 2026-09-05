@@ -13,6 +13,27 @@ import {
 // "STORY_STEPS.find is not a function" bug one import hop further away.
 // Server Components import the data straight from "@/lib/story/steps".
 
+/**
+ * Rail-only wording. Deliberately NOT in lib/story/steps.ts: this is a
+ * layout concession, not story data -- the headings, the summary line and
+ * every accessible name below still say the full `step.label`. Two entries
+ * differ from it ("Places & tags" -> "Places", "Review & submit" ->
+ * "Review"), and those two words are what bought the room to label all
+ * seven steps at once; the rest are the same string.
+ *
+ * Typed as a total Record so adding a step to STORY_STEPS fails the build
+ * here instead of silently rendering an unlabelled circle.
+ */
+const RAIL_LABELS: Record<StoryStepId, string> = {
+  title: "Title",
+  story: "Your story",
+  photos: "Photos",
+  trip: "Trip",
+  expenses: "Expenses",
+  places: "Places",
+  review: "Review",
+};
+
 export type StoryStepProgressProps = {
   currentStep: StoryStepId;
   /** Steps whose content is filled in. Drives the tick marks. */
@@ -106,26 +127,36 @@ export function StoryStepProgress({
         >
           {isDone ? "✓" : index + 1}
         </span>
-        {/* The CURRENT step's label only, not all seven.
-            All seven never fitted: the rail needs ~807px and the editor
-            column is max-w-3xl (720px usable), and because that cap does not
-            grow with the viewport there is no width at which they would.
-            The old `lg:inline` did not reveal that -- it just let each
-            `whitespace-nowrap` label overflow its own shrunken box, which is
-            how "Review & submit" ended up printed 18px outside the
-            container.
-            Nothing is actually lost: the summary line above already names
-            the current step in full, and the circles carry the two things
-            the rail is for -- how far along you are, and which steps are
-            done. */}
-        {isCurrent && (
-          <span
-            aria-hidden="true"
-            className="hidden text-xs font-medium whitespace-nowrap text-foreground sm:inline"
-          >
-            {STORY_STEPS[index].label}
-          </span>
-        )}
+        {/* Three tiers, by how much room the rail actually has:
+              < sm   no labels -- the summary line above is the label.
+              sm-lg  the current step only.
+              lg+    all seven.
+            The earlier version stopped at "current step only" because all
+            seven wanted ~807px inside the editor's max-w-3xl column (720px
+            usable), and that cap does not grow with the viewport, so there
+            was no screen size at which they fitted. The fix was not to
+            squeeze the labels but to stop making the rail obey the prose
+            measure: the editor's sticky bar now widens to max-w-5xl from
+            `lg` (see story-edit-form.tsx) and the preview page was already
+            max-w-5xl, which is ~976px of usable width -- room for all seven
+            with the short wording above.
+            Note what is NOT here: no `min-w-0`. Each <li> stays `shrink-0`,
+            so a label that ever did run out of room would push the <ol>'s
+            scrollWidth past its clientWidth and hit the overflow safety net
+            below, rather than overflowing its own box the way
+            "Review & submit" did when it printed 18px outside the rail. */}
+        <span
+          aria-hidden="true"
+          className={`hidden text-xs font-medium whitespace-nowrap ${
+            isCurrent
+              ? "text-foreground sm:inline"
+              : isDone
+                ? "text-foreground/70 lg:inline"
+                : "text-muted-foreground lg:inline"
+          }`}
+        >
+          {RAIL_LABELS[id]}
+        </span>
       </>
     );
   }
@@ -144,7 +175,8 @@ export function StoryStepProgress({
       </p>
 
       {/* `overflow-x-auto` is the safety net, not the plan: the rail is
-          tuned below to fit the editor's max-w-3xl column, and this stops a
+          tuned below to fit its container at every breakpoint, and this
+          stops a
           future longer label (or a translation) from spilling outside the
           container the way "Review & submit" did -- it ran 18px past the
           right edge because `min-w-0` let each item shrink while its label
