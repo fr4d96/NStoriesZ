@@ -33,7 +33,6 @@ export default async function StoriesPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await new Promise((r) => setTimeout(r, 6000)); // TEMP-LOADING-PROBE
   const rawParams = await searchParams;
   const filters = parseStorySearchParams(rawParams);
 

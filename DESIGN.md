@@ -477,6 +477,35 @@ deleted; never reintroduce a reveal whose resting state is invisible.
 A `.nf-progress` reading hairline under the sticky header is driven by `animation-timeline:
 scroll(root block)` — same rule, no listener.
 
+## Loading — the focus pull, held
+
+Loading states are the same idea at rest: a placeholder is a soft, out-of-focus stand-in for the
+block about to arrive, and an accent-tinted sheen crosses it the way a lens hunts for focus.
+**Never a spinner on a route.** A spinner says "wait"; a shaped skeleton says "here is what is
+coming", which is the honest message when the layout is already known and only the data is missing.
+(`components/ui/spinner.tsx` stays — it is for a single image still being processed, where the
+shape genuinely is unknown.)
+
+**The Nested Fallback Rule.** A `loading.tsx` belongs INSIDE its route group, never at the root
+segment. A Suspense fallback replaces everything below its own boundary, so a root-level one swaps
+out the group's layout too and the header, nav and footer vanish on every navigation. Root
+`app/loading.tsx` is a last resort for cross-group navigation only, and draws a `min-h-[76px]`
+placeholder bar because in that case there really is no header on screen.
+
+**The Delay Rule.** Every fallback is held invisible behind a 140ms delay (`.nf-loading`). A
+prefetched route lands in well under 100ms, and a skeleton that flashes for 60ms and is yanked away
+is worse than no skeleton. The hidden phase comes from the `from` keyframe via
+`animation-fill-mode: both`, never a base `opacity: 0` — so if animations never run the resting
+state is visible, per the rule above against reveals that are invisible at rest.
+
+**Skeletons mirror the component they stand in for**, down to the frame, aspect ratio and padding
+(`StoryCardSkeleton` against `StoryCard`). A skeleton whose shape does not match is a second layout,
+and the swap becomes a jump. If the real component's frame changes, change its skeleton with it.
+
+`.nf-route-progress` is an indeterminate hairline at the top of each fallback. It sits in normal
+flow, **not** `position: fixed` — `PageTransition` animates `transform`, which makes it a containing
+block for fixed descendants, so a fixed bar anchors to that wrapper instead of the viewport.
+
 ## Signature components
 
 - **Primary button** (`.night-button-primary`): pill, `1px solid var(--accent)` outline at rest,

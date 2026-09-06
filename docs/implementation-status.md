@@ -6867,3 +6867,131 @@ of the four that will not tell you when you forget, because the mechanism
 that would complain is switched off three lines above.
 
 `npm run verify` clean, 787/787.
+
+## 2026-09-07 — Route changes stop blanking the window
+
+User report: "I do not like the 'Loading...' when going from 1 page to another."
+
+The word was the symptom. The cause was **where the file sat**.
+
+`app/loading.tsx` was the app's only loading state, and it lived at the ROOT
+segment — above every route group. A Suspense fallback replaces everything
+below its own boundary, so when it rendered, React swapped out
+`(public)/layout.tsx` along with the page: SiteHeader, the nav, and
+SiteFooter all disappeared, and the entire window became one centred line of
+text until the next page resolved. Every navigation in the app tore the
+chrome down and rebuilt it.
+
+### The fix is placement, not styling
+
+Twelve `loading.tsx` files now sit INSIDE their route groups, nested under
+each group's own layout. The chrome never unmounts; only `<main>` is
+replaced. Root `app/loading.tsx` survives as a genuine last resort — it is
+reached only when a navigation crosses INTO a different group (whose layout
+must be built from scratch) or lands on a group-less route like `/index` —
+and because there really is no header on screen in those cases, it now draws
+a placeholder bar at `min-h-[76px]` instead of collapsing the page.
+
+### The second half: a fallback that appears instantly is its own jank
+
+A prefetched route often lands in well under 100ms. Painting a skeleton for
+60ms and yanking it away is worse than painting nothing, and that flash was
+most of what made the old state feel bad. `.nf-loading` holds every fallback
+at `opacity: 0` behind a **140ms delay**, so a fast navigation shows no
+loading state at all.
+
+Deliberately no base `opacity` declaration — the hidden phase comes from the
+`from` keyframe via `animation-fill-mode: both`. If animations never run at
+all, the resting state is _visible_, which is what DESIGN.md's rule against
+reintroducing an invisible-at-rest reveal requires. Under
+`prefers-reduced-motion` the global override collapses the duration but not
+the delay, so reduced-motion visitors keep the no-flash behaviour and simply
+get an appearance instead of a fade.
+
+### Grammar
+
+Same focus pull as the rest of the app: a placeholder is a soft, out-of-focus
+stand-in for the block about to arrive, and an accent-tinted sheen crosses it
+the way a lens hunts for focus. Not a spinner — a spinner says "wait", a
+shaped skeleton says "here is what is coming", which is the honest message
+when the layout is already known and only the data is missing. `nf-skeleton`
+tints with `color-mix` against `--foreground`, so it is correct in both
+renditions with no `dark:` variant. The sweep delay is set on the CARD and
+inherited, so one card's bars move as a single object while its neighbours
+are offset.
+
+`.nf-route-progress` is an indeterminate hairline at the top of every
+fallback. It is in normal flow, NOT `position: fixed`: every ancestor
+`PageTransition` animates `transform`, which makes it a containing block for
+fixed descendants, so a fixed bar would silently anchor to that div instead
+of the viewport. In flow it lands directly under the sticky header, which is
+where it wants to be — the router scrolls to top on navigation.
+
+### Shapes match the pages they stand in for
+
+`StoryCardSkeleton` mirrors `StoryCard`'s real measurements (rounded-xl
+frame, 4:3 cover, `p-4` body, tag row, title, three-line excerpt,
+attribution chip) so the swap moves nothing. Same for the /stories filter
+grid, the story reader's alternating prose/image rhythm, the contributor
+directory and profile, and /costs' two band figures plus two ruled lists.
+The four staff dashboards share one `StaffDashboardSkeleton` rather than four
+near-identical files.
+
+Known and accepted: the `(contributor)`, `(editor)`, `(moderation)`,
+`(admin)` and `(readiness)` layouts all await a session/role check, which is
+uncached runtime data, so per Next's `loading.js` docs the navigation blocks
+on the layout before their fallback can paint. Those fallbacks therefore
+cover the page's own queries, not the auth check. Moving the check out of the
+layout would mean giving up the layout-level guard — not a trade worth making
+for a loading state.
+
+### Verified
+
+Live in the browser at both themes and both viewports, with a temporary 6s
+delay injected into `/stories` to hold the fallback open:
+
+- The header stayed on screen through the whole transition — the actual fix.
+- Dark and light both render the sheen correctly; light's deepened teal
+  accent reads as a soft wash, not mud.
+- `.nf-route-progress` measured at 2px tall, full width, sitting 8px under
+  the header's bottom edge, with a live `nf-route-progress 1.15s` animation
+  and a full-strength `#006f68` gradient in light mode.
+- Mobile 375px: `document.scrollWidth === innerWidth === 375`, no horizontal
+  overflow, filter controls stack to one column.
+- A prefetched navigation to `/contributors` painted **no** loading state at
+  all, which is the 140ms delay working as designed.
+
+`npm run verify` clean, 787/787 — `components/ui/skeleton.test.tsx` adds six
+to the previous 781, including a structural test that asserts all twelve
+group-level `loading.tsx` files exist. Nothing rendered can catch that
+regressing, because the bug was file placement, not markup.
+
+## 2026-09-03 — /moderation/takedowns opened by a human for the first time
+
+Shipped proven only by RLS tests, because the signed-in dev account was a
+contributor and `/moderation` correctly 404s for one. Reviewed here on a real
+moderator session, against a real pending request.
+
+**It had no horizontal padding at all.** The page wrapped its content in
+`space-y-4` and nothing else, where `/moderation/reports` and the stories
+queue both use `mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16`. Measured
+before the fix: the `<h1>` ran 0 → 680 in a 680px viewport — heading and
+request cards flush against both edges. After: 24 → 771 in 795, and 16px in
+from the edge at 375px.
+
+Nothing caught this. `npm run verify` passed throughout, the RLS suite passed
+throughout, and the page's own logic was correct — it was only ever wrong to
+look at, on a page nobody could look at.
+
+Also changed: the story link opens in a new tab (`target="_blank"` plus
+`rel="noopener noreferrer"` and an sr-only "opens in a new tab"). A moderator
+opens the story to decide; navigating away lost the queue and anything typed
+into the decline note.
+
+What was already right, and is worth keeping: the queue explains its own
+ordering ("oldest first, because that is the one that has been public longest
+against its author's wishes"), the decline note is labelled "Required to
+decline" before you try, and the two actions are worded as what they do
+rather than approve/reject.
+
+`npm run verify` clean, 787/787.

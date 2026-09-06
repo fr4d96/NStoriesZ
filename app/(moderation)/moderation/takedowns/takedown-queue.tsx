@@ -91,11 +91,17 @@ function TakedownRow({ request }: { request: TakedownRequest }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-medium">
           {request.story_slug ? (
+            // New tab on purpose: a moderator opens the story to decide,
+            // and navigating away would lose the queue and whatever they had
+            // typed into the decline note below.
             <Link
               href={`/stories/${request.story_slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="underline underline-offset-2 hover:no-underline"
             >
               {request.story_title ?? "Untitled story"}
+              <span className="sr-only"> (opens in a new tab)</span>
             </Link>
           ) : (
             (request.story_title ?? "Untitled story")

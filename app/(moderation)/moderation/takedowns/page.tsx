@@ -15,7 +15,11 @@ export default async function TakedownsPage() {
   const requests = (await listStoryTakedownRequests()) as TakedownRequest[];
 
   return (
-    <div className="space-y-4">
+    // Same page wrapper as /moderation/reports and the stories queue. Without
+    // it this page had NO horizontal padding at all: the heading and the
+    // request cards ran flush to both viewport edges, which is what a
+    // moderator saw the first time anyone opened it.
+    <div className="mx-auto max-w-7xl space-y-4 px-4 py-12 sm:px-6 sm:py-16">
       <div>
         <h1 className="text-2xl font-semibold">Takedown requests</h1>
         <p className="mt-1 text-sm text-muted-foreground">
