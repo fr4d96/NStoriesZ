@@ -1426,7 +1426,15 @@ export function StoryEditForm({
               {/* Reads the same rows the list writes, so it can never disagree
                 with the numbers beside it. Purely derived -- no state, no
                 save. */}
-              <div className="min-w-0 lg:pt-7">
+              {/* Centred in the row from `lg`, where the two columns exist.
+                  It used to be top-aligned with a pt-7 nudge to line up
+                  with the first input's label; that only looked right when
+                  the list happened to be about the figure's height, and
+                  since the breakdown was capped at five rows the list is
+                  usually shorter, leaving the ring stranded at the top of a
+                  tall empty column. `self-center` tracks whatever height
+                  the list actually is instead of guessing at one. */}
+              <div className="min-w-0 lg:self-center">
                 <ExpenseDonut rows={donutRows} />
               </div>
             </div>

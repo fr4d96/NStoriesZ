@@ -6754,3 +6754,20 @@ A test asserts both layouts render the same text, since layout is
 presentation and must not change what a reader or a screen reader gets.
 
 `npm run verify` clean, **775/775** (3 new).
+
+## 2026-09-03 — The editor's donut centres in its column
+
+At `lg` the Expenses step is two columns: inputs left, ring right. The ring
+column was top-aligned with a `lg:pt-7` nudge to line up with the first
+input's label. That only looked right when the list happened to be about the
+figure's height — and since the breakdown was capped at five rows the list is
+usually shorter, leaving the ring stranded at the top of a tall column.
+
+`lg:self-center` instead of `lg:pt-7`: it tracks whatever height the list
+actually is rather than guessing at one.
+
+Verified in the browser: `align-self: center`, with **137px above and 137px
+below** — measured, not eyeballed. At 375px `align-self` resolves to `auto`,
+so the single-column layout is untouched and there is no page overflow.
+
+`npm run verify` clean, 775/775.
