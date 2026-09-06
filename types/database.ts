@@ -1760,6 +1760,7 @@ export type Database = {
           content_json: Json;
           contributor_slug: string;
           excerpt: string;
+          expenses: Json;
           published_at: string;
           regions: Json;
           slug: string;

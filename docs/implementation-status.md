@@ -6598,3 +6598,67 @@ the database, reloaded and confirmed it survives with its title and sub-title in
 the cap message replaces the add controls at five, and confirmed the dev overlay's hydration
 warning is gone. Test data removed afterwards; the story is back to its original five rows
 totalling $4,480.
+
+## 2026-09-03 — Readers can finally see what a trip cost
+
+The expense breakdown has been enterable since 20260902110100 and, until now,
+**no reader could see any of it**. The public story page showed one line —
+"Traveller-reported cost: NZ$X" — and nothing else.
+
+### The public read
+
+`20260903120000_get_published_story_expenses.sql` adds an `expenses jsonb`
+column to `get_published_story()`. DROP + CREATE rather than replace, because
+adding an OUT column changes the return type (same as 20260902110400).
+
+The trust boundary does not move. The breakdown is read from `r.id`, which is
+`v_story.published_revision_id` — already checked `approved`, already checked
+for a valid publication consent, inside a function that already returns
+nothing for an unpublished, non-public or consent-revoked story. A draft edit
+to someone's budget cannot surface here (Rules 10–12) because **no code path
+reads a draft revision**, not because a filter says so.
+
+LEFT join and `coalesce(ec.name, e.custom_label)`, matching how
+work_types/tags already handle custom labels — an inner join would silently
+drop every contributor-typed row.
+
+### The component
+
+`components/story/public-expenses.tsx`, a **Server Component**: nothing here
+is interactive. It reuses `expensePerMonth()` and `ExpenseDonut` unchanged —
+the payoff for having built both without React state or a Supabase import.
+The public page grew no second implementation that could disagree with the
+editor's.
+
+Engineering Rule 17 is the frame, not a footnote. Money is the part of a
+story a reader is most likely to mistake for advice: a number reads as "this
+is the budget" in a way prose does not. So the heading says whose money it
+was, the per-month line says what it is derived from, and a closing line says
+plainly that this is one person's record and not an estimate.
+
+Behaviour worth keeping:
+
+- A story with no total and no breakdown renders **nothing** — not an empty
+  section announcing an absence. Most stories will never have this.
+- A note is folded into its category's label ("Other — Van repairs"), which
+  keeps it beside the figure it explains and needed no change to the donut
+  the editor also uses.
+- Per-month stays silent without a date range, and on a trip under 28 days.
+
+### Verified
+
+`npm run verify` clean: 67 test files, **772/772**, 0 lint errors. 9 new
+component tests.
+
+Live against the linked project, on the published story `opotiki-trip-2f2754f0`
+(total recorded, trip 2026-07-28 → 2026-07-30): the section renders
+"$777.00 reported for the whole trip", the per-month line is **correctly
+suppressed** for a 3-day trip, no donut is drawn with no breakdown, and the
+not-advice line is present.
+
+**Not seen live: the breakdown on a public page.** No published story has one
+yet — the feature is new and only drafts have used it — and a published
+revision's child rows are immutable (`_protect_revision_child_immutability`),
+so one cannot be fabricated to test with. That path is covered by component
+tests only, and should be eyeballed the first time a story with a breakdown
+is actually published.

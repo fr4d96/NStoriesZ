@@ -18,6 +18,10 @@ import { StoryCard } from "@/components/story/story-card";
 import { AttributionChip } from "@/components/story/attribution-chip";
 import { PersonalExperienceLabel } from "@/components/story/personal-experience-label";
 import { ReportStoryForm } from "@/components/story/report-story-form";
+import {
+  PublicExpenses,
+  type PublicExpense,
+} from "@/components/story/public-expenses";
 
 export const revalidate = 60;
 
@@ -236,12 +240,12 @@ export default async function StoryDetailPage({
         </div>
       ) : null}
 
-      {story.total_expense_nzd_cents != null ? (
-        <p className="mt-8 text-sm text-foreground/60">
-          Traveller-reported cost: NZ$
-          {(story.total_expense_nzd_cents / 100).toLocaleString()}
-        </p>
-      ) : null}
+      <PublicExpenses
+        totalCents={story.total_expense_nzd_cents}
+        tripStartDate={story.trip_start_date}
+        tripEndDate={story.trip_end_date}
+        expenses={(story.expenses as unknown as PublicExpense[] | null) ?? []}
+      />
 
       <div className="mt-10 border-t border-border-subtle pt-6">
         <ReportStoryForm storyId={story.story_id} />
