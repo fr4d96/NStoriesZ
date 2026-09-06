@@ -3,14 +3,101 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-02 (My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
+Last updated: 2026-09-07 (contributors can download their own story as a PDF; earlier:
+My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
 story; earlier: the custom-label copy bug that broke editing a published story;
 earlier: contributor edits to published stories, and the tag-input dropdown fix;
 earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-02 (latest) — My Stories is paged.**
+**2026-09-07 (latest) — A contributor can download their own story as a PDF.**
+
+New route `GET /stories/:id/export`
+(`app/(contributor)/stories/[id]/export/route.ts`), reachable from a "Download a copy" link on
+the private preview page and a download icon on every row in My Stories. **No migration, no schema
+change, no database write** — this is a read path over what `get_story_preview()` already returns.
+
+Why this and not a zip of Markdown + images: asked for as a PDF. The published-shaped, formatted
+version of a story only exists inside Kakinotes, and that is the thing worth being able to keep.
+
+**Authorization is two independent checks, and the second one is narrower than the preview page's.**
+`get_story_preview()` is the same private, path-free RPC the preview page uses — it re-derives the
+caller server-side and RAISES for anyone unrelated to the story, caught as a flat 404. On top of
+that, the route accepts only `owner` and `linked_contributor`. `assigned_editor` and `admin` can
+legitimately preview a draft in the review UI, but this endpoint mints a **file that leaves the
+platform**, and downloading someone else's unpublished story is not what the feature is for. Every
+failure — signed out, wrong person, no such story — returns the identical flat 404. Images are
+fetched server-side by media id, each re-authorized on its own via
+`authorize_story_media_preview()` before `downloadMediaPreviewBytes()` reads it; no storage path
+ever reaches the browser (Rules 12/13).
+
+`lib/story/story-pdf.ts` is the renderer and is deliberately **pure**: it takes fully-resolved
+text, labels and image bytes and returns a Buffer. No Supabase client, no authorization, so the
+whole layout is unit-testable without a database and there is no second place a "who may read
+this" decision could drift from the route's.
+
+Things worth knowing before touching it:
+
+- **It embeds Liberation Sans (from pdfjs-dist, SIL OFL 1.1) rather than using a built-in PDF
+  font, and that is not a style preference.** The PDF base-14 fonts are WinAnsi-encoded, which has
+  no macron vowels — so Helvetica cannot render `Manawatū`, `Whakatāne` or `Whangārei`, three
+  regions in this product's own seed data (20260812120000). Coverage was checked with fontkit
+  before choosing. No font file is committed; the four faces already ship inside pdfjs-dist.
+- **`sanitizeForFont()` asks the real font which code points it has** and substitutes `?` for the
+  rest, rather than carrying a hand-written list of Unicode ranges that could drift from the .ttf.
+  Practical limit: **CJK and emoji are not covered** — a contributor whose display name is in a
+  non-Latin script gets `???` rather than silent blank boxes. Shipping a font with that coverage
+  costs 10–20 MB on every deployment of this route; if it becomes a real complaint, that is the
+  fix, and it is a one-line change here.
+- **`buildStoryPdf` names a real .ttf in the `PDFDocument` constructor on purpose.** Left to
+  default, pdfkit initialises with Helvetica and reads
+  `node_modules/pdfkit/js/data/Helvetica.afm` off disk. That read is invisible to @vercel/nft —
+  the same blind spot next.config.ts already documents for libheif's `.wasm`, which works locally
+  and 500s in production. There is a regression test that instruments `fs.readFileSync` and asserts
+  **zero** `.afm` reads.
+- **next.config.ts gained an `outputFileTracingIncludes` entry for `/stories/*/export`** (the four
+  .ttf files plus sharp's libvips). Verified after building, as that file's own comment demands —
+  a key that matches nothing fails silently: all four fonts appear in
+  `.next/server/app/(contributor)/stories/[id]/export/route.js.nft.json`.
+- **The footer zeroes `page.margins.bottom` while it draws.** The footer sits below `page.maxY()`,
+  and pdfkit's `text()` calls `addPage()` when the cursor is past that — from inside the
+  `pageAdded` handler, which recursed until the stack blew. The first symptom was not a stack
+  overflow but `Cannot read properties of undefined (reading 'metrics')` thrown from font
+  embedding, because the re-entrant page was created while the first font was still being built.
+  Cost most of the debugging time on this task; every standalone repro drew its footer higher up
+  the page and passed.
+- Markdown is parsed with remark (`unified` + `remark-parse` + `remark-gfm`) and walked directly.
+  Headings, paragraphs, bold/italic/strikethrough, links, bullet/numbered/nested lists, task
+  lists, blockquotes, tables, rules, code blocks and `![[mediaId]]` embeds are all rendered. Task
+  checkboxes are **drawn as vectors** — Liberation Sans has no U+2610/U+2611.
+- An inline image's stored embed width maps to a _fraction_ of the PDF text column
+  (against the public page's 1024px `max-w-5xl` container), so a half-width photo on screen stays
+  a half-width photo on paper. Photos never placed in the text appear under "More photos".
+- The PDF carries the Rule 17 "personal experience, not advice" label at the top and a colophon
+  naming **what this copy is** — `exportStatusLabel()` never says "Published" for a draft update to
+  a published story, which is exactly the distinction Rule 11 exists to protect.
+- The "exported on" date and the filename use **UTC**, so a download on a NZ morning can be stamped
+  with the previous day. Deterministic and unambiguous; change it only if someone actually
+  complains.
+
+Dependencies (Rule 20): `pdfkit` **moved from devDependencies to dependencies** — it was already
+here, used only by fixture-generation scripts, and is now production code. `fontkit` (already
+present transitively, now explicit) for the glyph-coverage check, `unified` + `remark-parse`
+(already present transitively via react-markdown, now explicit) because this module imports them
+directly, and `@types/pdfkit` / `@types/fontkit` as devDependencies. `pdfkit` and `fontkit` were
+added to `serverExternalPackages` as insurance: pdfkit locates its own AFM data via `__dirname`,
+and both ship a browser build alongside the Node one.
+
+Tests: `lib/story/story-pdf.test.ts` (23) renders real PDFs and reads them back with pdfjs — macron
+round-trip, every block type, unsafe-href stripping, inline vs gallery placement, alt-text
+fallback, pagination, empty body, and the `.afm` guard. `lib/story/story-export.test.ts` (8) covers
+the status/trip/travel-style labels and the RFC 5987 Content-Disposition.
+`e2e/story-export.spec.ts` (5, **passing live against the linked project**) proves an owner gets a
+real readable PDF and that another contributor, unrelated staff, and a signed-out caller all do
+not. `npm run verify` clean: 818 tests.
+
+**2026-09-02 — My Stories is paged.**
 
 12 stories per page (`STORIES_PER_PAGE` in `app/(contributor)/my-stories/my-stories-view.tsx`). 12
 divides evenly by both grid widths — 2 columns on a phone, 3 from `sm` — so a page never ends in a

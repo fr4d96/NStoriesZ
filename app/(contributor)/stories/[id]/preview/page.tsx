@@ -14,6 +14,7 @@ import { ContributorReviewPanel } from "@/components/story/contributor-review-pa
 import { WhatsPublicSummary } from "@/components/story/whats-public-summary";
 import { StickyVisible } from "@/components/sticky-visible";
 import { StoryStepProgress } from "@/components/story/story-steps";
+import { DownloadIcon } from "@/components/icons";
 import { StartRevisionButton } from "@/components/story/start-revision-button";
 import {
   EDITING_STORY_STEPS,
@@ -201,12 +202,26 @@ export default async function StoryPreviewPage({
         ) : (
           <span />
         )}
-        <Link
-          href="/my-stories"
-          className="text-foreground/70 underline underline-offset-2"
-        >
-          Back to My Stories
-        </Link>
+        <div className="flex items-center gap-4">
+          {/*
+            A plain <a>, not next/link: /stories/:id/export is a Route Handler
+            that answers with Content-Disposition: attachment, and Link would
+            try to client-side navigate rather than let the browser download.
+          */}
+          <a
+            href={`/stories/${preview.storyId}/export`}
+            className="inline-flex items-center gap-1.5 text-foreground/70 underline underline-offset-2"
+          >
+            <DownloadIcon className="h-4 w-4" aria-hidden />
+            Download a copy
+          </a>
+          <Link
+            href="/my-stories"
+            className="text-foreground/70 underline underline-offset-2"
+          >
+            Back to My Stories
+          </Link>
+        </div>
       </div>
 
       {canStartRevision && (

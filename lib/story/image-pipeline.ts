@@ -555,3 +555,39 @@ export async function mintMediaPreviewSignedUrl(
   }
   return data.signedUrl;
 }
+
+/**
+ * Byte-returning sibling of mintMediaPreviewSignedUrl(): looks up a media
+ * item's private staging path and returns the processed derivative itself,
+ * plus the intrinsic dimensions a layout engine needs.
+ *
+ * Exists because the PDF export (app/(contributor)/stories/[id]/export) has
+ * to embed the image, not link to it. Minting a signed URL and re-fetching it
+ * over HTTP from our own server would be a pointless round trip through the
+ * public internet for bytes this process can read directly.
+ *
+ * Same contract as mintMediaPreviewSignedUrl(): the caller MUST already have
+ * authorized the request via authorize_story_media_preview() on their own
+ * regular (RLS-respecting) client. This function performs no authorization of
+ * its own, and — like every export in this module — never accepts a
+ * caller-supplied storage path, only a media id the database resolves.
+ */
+export async function downloadMediaPreviewBytes(
+  mediaId: string,
+): Promise<{ bytes: Buffer; width: number; height: number }> {
+  const admin = createAdminClient();
+  const { data: path, error: pathError } = await admin.rpc(
+    "get_media_private_path_for_preview",
+    { p_media_id: mediaId },
+  );
+  if (pathError || !path) {
+    throw new Error(`No processed derivative available for media ${mediaId}`);
+  }
+
+  const bytes = await downloadObject(PRIVATE_BUCKET, path);
+  const metadata = await sharp(bytes).metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error(`Could not read dimensions for media ${mediaId}`);
+  }
+  return { bytes, width: metadata.width, height: metadata.height };
+}

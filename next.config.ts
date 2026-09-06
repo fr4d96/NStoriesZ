@@ -86,12 +86,25 @@ const nextConfig: NextConfig = {
   // files that no static `require`/`import` points at. Confirmed by reading
   // the built .nft.json trace files (see outputFileTracingIncludes below,
   // which is where both are actually rescued).
+  //
+  // `pdfkit` and its `fontkit` dependency (lib/story/story-pdf.ts) are here
+  // for a narrower reason than the four above: pdfkit locates its built-in
+  // AFM font metrics at runtime with `fs.readFileSync(__dirname + "/data/
+  // ...")`, and both packages ship a browser build alongside the Node one.
+  // Left to a bundler, `__dirname` is rewritten and the export-condition
+  // choice is the bundler's rather than Node's. The export route never asks
+  // pdfkit for a built-in font (lib/story/story-pdf.ts names a real .ttf in
+  // the PDFDocument constructor precisely so it cannot), so this is
+  // insurance against a future caller reintroducing that path, not a fix for
+  // a bug seen today.
   serverExternalPackages: [
     "@napi-rs/canvas",
     "pdfjs-dist",
     "sharp",
     "heic-decode",
     "libheif-js",
+    "pdfkit",
+    "fontkit",
   ],
   // Native/binary files that no static import points at, so @vercel/nft
   // never traces them and Vercel never deploys them. Both entries below were
@@ -128,6 +141,18 @@ const nextConfig: NextConfig = {
     "/my-stories": ["./node_modules/@img/sharp-libvips-*/lib/*"],
     "/stories/*/edit": ["./node_modules/@img/sharp-libvips-*/lib/*"],
     "/stories/*/preview": ["./node_modules/@img/sharp-libvips-*/lib/*"],
+    // The contributor PDF export needs libvips (it reads each photo's
+    // dimensions through sharp, via lib/story/image-pipeline.ts) AND the
+    // four Liberation Sans faces lib/story/story-pdf.ts embeds. Those .ttf
+    // files live inside pdfjs-dist and are opened by PATH at runtime, not by
+    // any static import, so @vercel/nft cannot see them — exactly the same
+    // blind spot as libheif's .wasm below. Without this the route deploys
+    // with no fonts and every download 500s in production while working
+    // locally.
+    "/stories/*/export": [
+      "./node_modules/@img/sharp-libvips-*/lib/*",
+      "./node_modules/pdfjs-dist/standard_fonts/LiberationSans-*.ttf",
+    ],
     "/stories/new/pdf-attach": ["./node_modules/@img/sharp-libvips-*/lib/*"],
     "/editorial/*/edit": ["./node_modules/@img/sharp-libvips-*/lib/*"],
     "/editorial/new/pdf-attach": ["./node_modules/@img/sharp-libvips-*/lib/*"],
