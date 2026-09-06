@@ -68,6 +68,7 @@ const staticRoutes = [
   "/stories",
   "/contributors",
   "/about",
+  "/costs",
   "/privacy",
   "/terms",
   "/community-guidelines",

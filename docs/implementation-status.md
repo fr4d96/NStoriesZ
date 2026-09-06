@@ -6662,3 +6662,67 @@ revision's child rows are immutable (`_protect_revision_child_immutability`),
 so one cannot be fabricated to test with. That path is covered by component
 tests only, and should be eyeballed the first time a story with a breakdown
 is actually published.
+
+## 2026-09-03 — The aggregate page: what it actually cost, across stories
+
+`/costs`, backed by `get_expense_aggregates()`
+(`20260903130000_expense_aggregates.sql`). This is the reason the expense data
+was collected at all.
+
+### It reports the past; it does not predict
+
+`docs/product-spec.md` lists budgeting tools and anything reading as
+personalised financial advice under MVP non-goals, and Rule 17 makes every
+story a personal account. A page of money figures is the easiest place on this
+site to cross that line by accident, so:
+
+- It takes **no input from the reader** and computes nothing about them.
+- Every figure is introduced by how many real people it came from.
+- The framing paragraph comes **before** any number — a reader who sees a
+  figure first has already formed an expectation by the time they reach the
+  caveat.
+
+"Half of the 40 people who recorded a cost spent between X and Y" is a fact
+about those people. "You will need X" is advice. That distinction is the whole
+reason this page is allowed to exist.
+
+### Minimum sample of five, per bucket
+
+Two reasons, both real, and the reason buckets are withheld rather than shown
+as zero (which would read as "nobody spent anything here"):
+
+- A median of two stories is not a median, it is two numbers with a line drawn
+  between them, and printing it as a statistic misrepresents how much is known.
+- With one or two contributors in a bucket, publishing its median publishes an
+  individual's spending against a region or category, re-identifiable by anyone
+  who can see which stories are in it. **The floor is a privacy control as much
+  as a statistical one.**
+
+Median with p25–p75 rather than a mean: trip costs are long-tailed, and one
+person who bought a van distorts a mean badly at these sample sizes.
+
+### Visibility
+
+The same predicate as `list_published_stories()`, copied verbatim rather than
+loosened: public visibility, published lifecycle, an `approved` published
+revision, a granted consent for that revision, `consent_revoked_at` null. An
+aggregate is exactly where a quietly wider WHERE clause leaks withdrawn or
+unapproved content without any individual story visibly appearing (Rules 10–12).
+
+The 28-day floor and the 30.436875-day month are identical to
+`lib/story/expense-per-month.ts`, so a per-month figure here and one on a story
+page cannot disagree.
+
+### Verified
+
+`npm run verify` clean: 67 test files, **772/772**, 0 lint errors; `/costs`
+builds as static with 1h ISR. Added to `app/sitemap.ts`.
+
+Live against the linked project: overall reports **5 stories, median $777.00,
+p25–p75 $444.00–$999.00** — and per-month, by-region and by-category are all
+correctly **withheld**, because none reaches five stories yet. The empty state
+says why rather than hiding the section. No horizontal overflow at 375px.
+
+That the interesting cuts are empty today is the design working, not a gap:
+they populate as stories accumulate. The by-category cut additionally needs
+published stories that have breakdowns, of which there are currently none.

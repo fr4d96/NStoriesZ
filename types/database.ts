@@ -1643,6 +1643,15 @@ export type Database = {
           work_types_selected: boolean;
         }[];
       };
+      get_expense_aggregates: {
+        Args: never;
+        Returns: {
+          by_category: Json;
+          by_region: Json;
+          overall: Json;
+          per_month: Json;
+        }[];
+      };
       get_media_private_path_for_preview: {
         Args: { p_media_id: string };
         Returns: string;
