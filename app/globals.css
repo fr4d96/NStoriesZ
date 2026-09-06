@@ -1088,3 +1088,148 @@ body {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
+
+/* ============================================================
+ * Loading — the focus pull, held
+ *
+ * What this replaces: a single `app/loading.tsx` at the ROOT segment that
+ * rendered the bare word "Loading…". Because it sat above every route
+ * group, React swapped out the group layout with it — header, nav and
+ * footer all disappeared on every navigation and the whole window went
+ * blank until the next page resolved. The fallbacks now live inside each
+ * group instead, so the chrome never leaves and only <main> is replaced.
+ *
+ * The grammar is the same focus pull the rest of this file uses: a
+ * placeholder is a soft, out-of-focus stand-in for the block about to
+ * arrive, and a sheen crosses it the way a lens hunts for focus.
+ * Deliberately NOT a spinner — a spinner says "wait", a shaped skeleton
+ * says "here is what is coming", which is the honest message when the
+ * layout is already known and only the data is missing.
+ * ============================================================ */
+
+/*
+ * The delay is the point, not a detail.
+ *
+ * A prefetched route usually lands in well under 100ms. Painting a
+ * skeleton for 60ms and yanking it away is worse than painting nothing —
+ * that flash is most of what made "Loading…" feel bad. Starting at
+ * opacity 0 behind a 140ms delay means a fast navigation shows no loading
+ * state at all, and only a genuinely slow one fades one in.
+ *
+ * Survives prefers-reduced-motion on purpose: the global override at the
+ * end of this file collapses animation-duration but NOT animation-delay,
+ * so a reduced-motion visitor still gets the no-flash behaviour — the
+ * skeleton simply appears at 140ms instead of fading in over 220ms.
+ */
+.nf-loading {
+  animation: nf-loading-in 220ms var(--nf-ease-out) 140ms both;
+}
+@keyframes nf-loading-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * One placeholder block. Size, aspect and radius come from Tailwind
+ * utilities at the call site; everything else lives here so every
+ * skeleton in the app stays in step if the treatment changes.
+ *
+ * The tint is color-mix against --foreground rather than a literal grey,
+ * so it reads correctly in both renditions without a dark: variant: 7% of
+ * near-black on the warm light ground, 7% of off-white on the near-black
+ * one.
+ */
+.nf-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+/*
+ * The sheen. Parked off-frame at translateX(-100%), so when the global
+ * reduced-motion override stops the animation the skeleton falls back to
+ * a plain, still, perfectly legible muted block rather than a gradient
+ * frozen mid-sweep.
+ *
+ * ease-in-out, not the app's --nf-ease-out: this is the one piece of
+ * motion here that repeats forever, and an exponential ease-out loop
+ * reads as a twitch. A symmetric curve reads as breathing.
+ */
+.nf-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 15%, transparent) 45%,
+    color-mix(in srgb, var(--foreground) 9%, transparent) 58%,
+    transparent
+  );
+  animation: nf-skeleton-sweep 1.55s ease-in-out infinite;
+  animation-delay: var(--nf-sweep-delay, 0ms);
+}
+@keyframes nf-skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * Stagger for repeated cards/rows. The delay is set on the CARD and
+ * inherited by every placeholder inside it, so one card's bars sweep
+ * together as a single object while the cards around it are offset —
+ * a page filling in, rather than a dozen identical metronomes.
+ */
+.nf-skeleton-group:nth-child(3n + 2) {
+  --nf-sweep-delay: 130ms;
+}
+.nf-skeleton-group:nth-child(3n) {
+  --nf-sweep-delay: 260ms;
+}
+
+/*
+ * Indeterminate route-progress hairline, rendered as the first thing in
+ * every loading fallback.
+ *
+ * Static flow position, not fixed/sticky, on purpose. Every ancestor
+ * PageTransition animates `transform`, which makes it a containing block
+ * for fixed descendants — a `position: fixed; top: 0` bar in here would
+ * silently anchor to that div instead of the viewport. Sitting in normal
+ * flow at the top of <main> puts it directly under the sticky header,
+ * which is where it wants to be anyway: the router scrolls to top on
+ * navigation, so it is always in view when it matters.
+ */
+.nf-route-progress {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.nf-route-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent) 50%,
+    transparent
+  );
+  animation: nf-route-progress 1.15s ease-in-out infinite;
+}
+@keyframes nf-route-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}

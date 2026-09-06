@@ -42,6 +42,25 @@
 -- mutation, not for this already-guarded, dev-only teardown script, so
 -- triggers are disabled for the session around the deletes below and
 -- restored immediately after.
+--
+-- READ THIS BEFORE ADDING A CHILD TABLE. `replica` also disables FOREIGN KEY
+-- enforcement, which is what makes the ordering below possible -- and it
+-- means a child table missing from this script does NOT raise. The stories
+-- delete simply succeeds and leaves the child rows ORPHANED, pointing at ids
+-- that no longer exist, against a constraint that is validated and enabled
+-- and was never consulted.
+--
+-- That is not hypothetical: story_revision_expenses (20260902110100) and
+-- story_takedown_requests (20260903100000) were both added without touching
+-- this file, and the second one left 9 orphaned rows across several runs
+-- before anyone noticed. Nothing errored, because the one mechanism that
+-- would have complained is switched off three lines from here.
+--
+-- So this script is a fourth enumeration site for per-story/per-revision
+-- child tables, alongside create_next_draft_revision() (copies them),
+-- delete_draft_story() (deletes them) and the migration that creates them.
+-- Adding a table means editing all of them in the same change -- and this
+-- is the only one of the four that will not tell you when you forget.
 set session_replication_role = replica;
 
 -- Prompt 6 Stage 1: story_report_notes references story_reports with

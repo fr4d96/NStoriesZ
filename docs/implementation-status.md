@@ -6830,3 +6830,40 @@ Northland + a typed place and **survived a reload**; "Ohakune" then labelled
 correctly as the clicked name. Confirmed in the database as
 `destination_id: null` with the label set, so the mutual-exclusion constraint
 holds. Test rows removed afterwards.
+
+## 2026-09-03 — The "unexplained" orphaned rows, explained
+
+Twice written off in this file as an unexplained anomaly; it is not one.
+
+`scripts/rls-test-cleanup.sql` sets **`session_replication_role = replica`**
+before its deletes, so fixtures can be torn down in any order. That also
+disables FOREIGN KEY enforcement — which is precisely how rows end up
+orphaned against a constraint that is validated, enabled, and has four live
+triggers. The constraint was real. It was never consulted.
+
+So when `story_takedown_requests` was added (20260903100000) without touching
+the cleanup script, the stories delete did not raise. It succeeded and left
+the takedown rows pointing at ids that no longer existed. Nine of them
+accumulated across several runs, and nothing anywhere errored.
+
+Confirmed rather than guessed: the FK is `ON DELETE RESTRICT`, `convalidated`
+is true, 4 FK triggers, none disabled; the connection is `postgres`, owns the
+table, and `relforcerowsecurity` is false, so RLS was not hiding the parents
+either. Every orphan was created between 21:02 and 21:08 during RLS runs.
+
+### Cleaned up
+
+The 9 orphans are deleted. One row remains — the one whose story is still
+live — which is the correct survivor. Scoped by `not exists (... stories
+...)` so only genuine orphans could match.
+
+### And guarded
+
+The cleanup script now carries the warning at the point of the hazard: it is
+a **fourth enumeration site** for per-story/per-revision child tables,
+alongside `create_next_draft_revision()` (copies them), `delete_draft_story()`
+(deletes them), and the migration that creates them — and it is the only one
+of the four that will not tell you when you forget, because the mechanism
+that would complain is switched off three lines above.
+
+`npm run verify` clean, 787/787.
