@@ -77,6 +77,8 @@ export type StoryEditFormProps = {
   initialLocations: Array<{
     regionId: string;
     destinationId: string | null;
+    /** A typed place, for somewhere not in `destinations` (20260903140000). */
+    customDestinationLabel: string | null;
     sortOrder: number;
   }>;
   initialTags: RevisionTagSelection[];
@@ -924,7 +926,9 @@ export function StoryEditForm({
     const isDuplicate = locations.some(
       (l) =>
         l.regionId === match.regionId &&
-        l.destinationId === match.destinationId,
+        l.destinationId === match.destinationId &&
+        (l.customDestinationLabel ?? null) ===
+          (match.customDestinationLabel ?? null),
     );
     if (isDuplicate) {
       setLocationSearchNotice(`"${label}" is already in the list below.`);
@@ -936,6 +940,7 @@ export function StoryEditForm({
       {
         regionId: match.regionId,
         destinationId: match.destinationId,
+        customDestinationLabel: match.customDestinationLabel,
         sortOrder: locations.length,
       },
     ];
@@ -1462,10 +1467,17 @@ export function StoryEditForm({
                 {locations.map((loc, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-2">
                     <select
+                      aria-label="Region"
                       value={loc.regionId}
                       onChange={(e) =>
                         updateLocation(i, {
                           regionId: e.target.value,
+                          // Changing region invalidates a looked-up
+                          // destination (it belongs to the old region, and
+                          // a trigger enforces that), but NOT a typed one:
+                          // a place name the contributor wrote is still
+                          // theirs, and re-typing it would be a silly tax
+                          // for fixing the region above it.
                           destinationId: null,
                         })
                       }
@@ -1477,6 +1489,36 @@ export function StoryEditForm({
                         </option>
                       ))}
                     </select>
+                    {/* The town/place. Free text on purpose: `destinations`
+                        holds a sample of New Zealand's towns, not a list of
+                        them, so a picker here would keep failing the people
+                        who worked somewhere small -- which is most of them.
+                        Disabled when the search already matched a real
+                        destination row, since that row is the better record
+                        and the two are mutually exclusive in the database. */}
+                    <input
+                      type="text"
+                      aria-label="Town or place (optional)"
+                      value={
+                        loc.destinationId
+                          ? (destinations.find(
+                              (d) => d.id === loc.destinationId,
+                            )?.name ?? "")
+                          : (loc.customDestinationLabel ?? "")
+                      }
+                      disabled={Boolean(loc.destinationId)}
+                      maxLength={120}
+                      placeholder="Town or place (optional)"
+                      onChange={(e) =>
+                        updateLocation(i, {
+                          customDestinationLabel:
+                            e.target.value.trim() === ""
+                              ? null
+                              : e.target.value,
+                        })
+                      }
+                      className="min-w-0 flex-1 rounded-md border border-border-subtle px-2 py-1.5 text-sm disabled:opacity-60 dark:bg-transparent"
+                    />
                     <button
                       type="button"
                       onClick={() => removeLocation(i)}

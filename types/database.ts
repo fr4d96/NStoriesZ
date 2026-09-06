@@ -1010,6 +1010,7 @@ export type Database = {
       };
       story_revision_locations: {
         Row: {
+          custom_destination_label: string | null;
           destination_id: string | null;
           id: string;
           region_id: string;
@@ -1017,6 +1018,7 @@ export type Database = {
           sort_order: number;
         };
         Insert: {
+          custom_destination_label?: string | null;
           destination_id?: string | null;
           id?: string;
           region_id: string;
@@ -1024,6 +1026,7 @@ export type Database = {
           sort_order?: number;
         };
         Update: {
+          custom_destination_label?: string | null;
           destination_id?: string | null;
           id?: string;
           region_id?: string;

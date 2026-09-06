@@ -6771,3 +6771,62 @@ below** — measured, not eyeballed. At 375px `align-self` resolves to `auto`,
 so the single-column layout is untouched and there is no page overflow.
 
 `npm run verify` clean, 775/775.
+
+## 2026-09-03 — A contributor can name a place we never seeded
+
+`regions` holds all 16 New Zealand regions — a genuinely closed set, and what
+every public filter, the browse page and `/costs`' by-region cut key off.
+`destinations` holds **34 rows**, which is a sample of the country's towns,
+not a list of them.
+
+The evidence was already in the data: **10 of the 13** location rows recorded
+so far had no destination at all, because the place the contributor actually
+worked was not on offer. The place search found it, matched the region, and
+then threw the town name away.
+
+`story_revision_locations.custom_destination_label` (20260903140000) fixes
+that. Region stays a lookup; only the destination becomes typeable, so every
+regional aggregate stays mergeable. Not a strict "exactly one of" check —
+destination_id has always been nullable and a region-only row is valid and
+common — only that a row cannot carry both.
+
+### Two ways it fills in
+
+- **The map found the place, we just never seeded it.** The search now keeps
+  the name it returned instead of discarding it. This is the 10-of-13 case,
+  and it needed no new UI at all.
+- **The place is not on the map, or the search failed.** The manual row —
+  previously a region dropdown and nothing else — gains a free-text place
+  field. Free text on purpose: a picker over 34 rows keeps failing the people
+  who worked somewhere small, which is most of them.
+
+The label prefers the name that was CLICKED over the address object's
+locality fields. Real behaviour: picking "Kaikohe" returns an address whose
+most specific locality is "Kaikohe-Hokianga Community" — accurate, unhelpful,
+and not what anyone typed. Matching still uses the structured address fields;
+only the label comes from the pick.
+
+Changing the region clears a looked-up destination (it belongs to the old
+region, and a trigger enforces that) but deliberately keeps a typed one — a
+place name the contributor wrote is still theirs.
+
+### Five enumeration sites, and one that fails quietly
+
+`set_revision_locations`, `get_revision_selections`, `get_published_story`,
+`list_published_stories` and `create_next_draft_revision` all had to learn
+about the column. All five were verified aware against the live database
+after pushing.
+
+Worth naming: unlike the tag and expense cases, a miss in
+`create_next_draft_revision` would **not** have raised. A row with neither a
+`destination_id` nor a label is a valid region-only location, so the copy
+would have silently dropped the typed place the moment a contributor edited a
+published story.
+
+### Verified
+
+`npm run verify` clean, **781/781** (6 new). Live: searching "Kaikohe" saved
+Northland + a typed place and **survived a reload**; "Ohakune" then labelled
+correctly as the clicked name. Confirmed in the database as
+`destination_id: null` with the label set, so the mutual-exclusion constraint
+holds. Test rows removed afterwards.

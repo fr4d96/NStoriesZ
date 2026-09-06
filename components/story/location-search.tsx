@@ -54,11 +54,25 @@ async function searchNominatim(
   return res.json();
 }
 
-function matchLocation(
+export function matchLocation(
   address: NominatimAddress | undefined,
   regions: ActiveRegion[],
   destinations: ActiveDestination[],
-): { regionId: string; destinationId: string | null } | null {
+  /**
+   * The first segment of the result's display_name -- i.e. the name of the
+   * thing the contributor actually clicked. Preferred over the address
+   * object's locality fields for LABELLING, because those can be broader
+   * than the pick: choosing "Kaikohe" returns an address whose most
+   * specific locality field is "Kaikohe-Hokianga Community", which is
+   * accurate, unhelpful, and not what anyone typed. Matching still uses the
+   * address fields, which are the structured, reliable half.
+   */
+  primaryName?: string,
+): {
+  regionId: string;
+  destinationId: string | null;
+  customDestinationLabel: string | null;
+} | null {
   const localityName =
     address?.city ?? address?.town ?? address?.village ?? address?.suburb;
   const regionName = address?.state ?? address?.county;
@@ -76,12 +90,22 @@ function matchLocation(
   return {
     regionId: matchedRegion.id,
     destinationId: matchedDestination?.id ?? null,
+    // The map FOUND the place -- it just is not one of the 34 seeded
+    // `destinations` rows. Keeping the name it returned is the difference
+    // between recording "Northland" and recording "Kaikohe, Northland".
+    // Before this, that name was thrown away and 10 of the 13 location rows
+    // in the database ended up region-only as a result.
+    customDestinationLabel: matchedDestination
+      ? null
+      : (primaryName ?? localityName ?? null),
   };
 }
 
 export type LocationMatch = {
   regionId: string;
   destinationId: string | null;
+  /** The map's own name for a place that is not a `destinations` row. */
+  customDestinationLabel: string | null;
   label: string;
 };
 
@@ -159,7 +183,12 @@ export function LocationSearch({
     const label = result.display_name.trim();
     setQuery(label);
     setOpen(false);
-    const match = matchLocation(result.address, regions, destinations);
+    const match = matchLocation(
+      result.address,
+      regions,
+      destinations,
+      label.split(",")[0]?.trim() || undefined,
+    );
     onMatch(match ? { ...match, label } : null, label);
   }
 

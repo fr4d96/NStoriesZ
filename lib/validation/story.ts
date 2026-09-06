@@ -285,6 +285,20 @@ export type CreateDraftInput = z.infer<typeof createDraftSchema>;
 export const revisionLocationSchema = z.object({
   regionId: z.uuid(),
   destinationId: z.uuid().nullable().optional(),
+  /**
+   * A place the contributor typed, for somewhere not in `destinations`
+   * (20260903140000). Mutually exclusive with destinationId, and BOTH being
+   * absent stays valid -- that is a region-only location, which is the most
+   * common shape in the data today. `destinations` holds a sample of New
+   * Zealand's towns, not a list of them.
+   */
+  customDestinationLabel: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .nullable()
+    .optional(),
   sortOrder: z.number().int().min(0).optional(),
 });
 

@@ -293,6 +293,7 @@ export async function setRevisionLocations(
   locations: Array<{
     regionId: string;
     destinationId?: string | null;
+    customDestinationLabel?: string | null;
     sortOrder?: number;
   }>,
 ) {
@@ -304,6 +305,11 @@ export async function setRevisionLocations(
     p_locations: locations.map((l) => ({
       region_id: l.regionId,
       destination_id: l.destinationId ?? null,
+      // A looked-up destination wins; the RPC re-applies the same
+      // precedence, so this is the courtesy, not the boundary.
+      custom_destination_label: l.destinationId
+        ? null
+        : (l.customDestinationLabel ?? null),
       sort_order: l.sortOrder ?? 0,
     })),
   });

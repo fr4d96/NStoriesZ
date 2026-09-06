@@ -212,6 +212,8 @@ export type RevisionSelections = {
   locations: Array<{
     regionId: string;
     destinationId: string | null;
+    /** Set only when destinationId is null (20260903140000). */
+    customDestinationLabel: string | null;
     sortOrder: number;
   }>;
   tags: RevisionTagSelection[];
@@ -250,6 +252,7 @@ export async function getRevisionSelections(
     (row?.locations as Array<{
       regionId: string;
       destinationId: string | null;
+      customDestinationLabel: string | null;
       sortOrder: number;
     }> | null) ?? [];
   const tags =
