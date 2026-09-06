@@ -119,3 +119,40 @@ describe("ExpenseDonut", () => {
     );
   });
 });
+
+describe("ExpenseDonut layout", () => {
+  const rows = [
+    { label: "Flights", cents: 90_000 },
+    { label: "Rent", cents: 30_000 },
+  ];
+
+  it("stacks by default, so the editor's usage is unchanged", () => {
+    const { container } = render(<ExpenseDonut rows={rows} />);
+    const figure = container.querySelector("figure")!;
+    expect(figure.className).not.toMatch(/sm:flex/);
+    // The editor's ring size.
+    expect(container.querySelector("svg")!.className.baseVal).toMatch(
+      /max-w-56/,
+    );
+  });
+
+  it("puts the ring beside its legend, and smaller, when asked", () => {
+    const { container } = render(<ExpenseDonut rows={rows} layout="beside" />);
+    const figure = container.querySelector("figure")!;
+    expect(figure.className).toMatch(/sm:flex/);
+    expect(container.querySelector("svg")!.className.baseVal).toMatch(
+      /max-w-40/,
+    );
+    // Below `sm` both variants stack: 375px has room for one column.
+    expect(figure.className).toMatch(/sm:gap-6/);
+  });
+
+  it("says the same thing in both layouts", () => {
+    // Layout is presentation only -- it must not change what a reader or a
+    // screen reader gets.
+    const stacked = render(<ExpenseDonut rows={rows} />).container.textContent;
+    const beside = render(<ExpenseDonut rows={rows} layout="beside" />)
+      .container.textContent;
+    expect(beside).toBe(stacked);
+  });
+});

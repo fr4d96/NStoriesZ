@@ -6726,3 +6726,31 @@ says why rather than hiding the section. No horizontal overflow at 375px.
 That the interesting cuts are empty today is the design working, not a gap:
 they populate as stories accumulate. The by-category cut additionally needs
 published stories that have breakdowns, of which there are currently none.
+
+## 2026-09-03 — The public donut sits beside its legend, not above it
+
+On the public story page the ring was stacked above its legend inside a
+384px box, which read as one tall oversized block. In the editor the same
+figure looks right, because the page already puts it in a narrow right-hand
+column beside the amount inputs — the side-by-side reading came from the
+page, not from the component.
+
+`ExpenseDonut` gains a `layout` prop: `"stacked"` (the default, so every
+existing call site is untouched) and `"beside"`, used only by
+`public-expenses.tsx`. In `beside` the ring takes a fixed narrow column and
+the legend runs alongside; below `sm` both variants stack, because 375px has
+room for one column and no more. The ring goes from 224px to **160px**.
+
+Verified in the browser rather than assumed, because the risk here is
+specific: Tailwind only emits classes it has seen, and `max-w-40` silently
+missing would have rendered the ring FULL WIDTH — worse than the problem
+being fixed. Probing the live stylesheet: `display: flex`, computed
+`max-width: 160px`, and the legend's left edge past the ring's right edge.
+
+The editor was re-checked live and is byte-identical: `figure` class `m-0`
+with no flex, `display: block`, ring still 224px.
+
+A test asserts both layouts render the same text, since layout is
+presentation and must not change what a reader or a screen reader gets.
+
+`npm run verify` clean, **775/775** (3 new).

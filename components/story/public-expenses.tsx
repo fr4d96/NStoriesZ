@@ -103,9 +103,13 @@ export function PublicExpenses({
         </p>
       )}
 
+      {/* `beside`, not the editor's stacked default: there is no list of
+          inputs here for the ring to sit next to, so stacking made the
+          figure read as one tall oversized block. The ring keeps a narrow
+          fixed column and its legend runs alongside. */}
       {slices.length > 0 && (
-        <div className="mt-6 sm:max-w-sm">
-          <ExpenseDonut rows={slices} />
+        <div className="mt-6">
+          <ExpenseDonut rows={slices} layout="beside" />
         </div>
       )}
 

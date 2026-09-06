@@ -123,7 +123,29 @@ function formatShare(share: number): string {
   return `${Math.round(percent)}%`;
 }
 
-export function ExpenseDonut({ rows }: { rows: ExpenseSlice[] }) {
+/**
+ * How the ring and its legend sit relative to each other.
+ *
+ * "stacked" is the editor's arrangement: the ring above its legend, in a
+ * narrow right-hand column that already sits beside the amount inputs, so
+ * the side-by-side reading comes from the page rather than from here.
+ *
+ * "beside" is for surfaces with no list of their own to sit next to -- the
+ * public story page -- where stacking made the figure read as one tall,
+ * oversized block. Here the ring takes a fixed narrow column and the legend
+ * runs alongside it. Below `sm` both variants stack, because 375px has room
+ * for one column and no more.
+ */
+export type ExpenseDonutLayout = "stacked" | "beside";
+
+export function ExpenseDonut({
+  rows,
+  layout = "stacked",
+}: {
+  rows: ExpenseSlice[];
+  layout?: ExpenseDonutLayout;
+}) {
+  const beside = layout === "beside";
   const { slices, totalCents } = resolveSlices(rows);
 
   if (slices.length === 0) {
@@ -149,11 +171,13 @@ export function ExpenseDonut({ rows }: { rows: ExpenseSlice[] }) {
   }, []);
 
   return (
-    <figure className="m-0">
-      <div className="relative">
+    <figure
+      className={`m-0 ${beside ? "sm:flex sm:items-center sm:gap-6" : ""}`}
+    >
+      <div className={`relative ${beside ? "sm:w-40 sm:shrink-0" : ""}`}>
         <svg
           viewBox={`0 0 ${BOX} ${BOX}`}
-          className="mx-auto block h-auto w-full max-w-56"
+          className={`mx-auto block h-auto w-full ${beside ? "max-w-40" : "max-w-56"}`}
           role="presentation"
           aria-hidden="true"
         >
@@ -197,7 +221,9 @@ export function ExpenseDonut({ rows }: { rows: ExpenseSlice[] }) {
       {/* Always present for >= 2 slices, and it is what makes the figure
           readable without colour: the swatch is beside the name, never
           instead of it. */}
-      <figcaption className="mt-3">
+      <figcaption
+        className={`mt-3 ${beside ? "sm:mt-0 sm:min-w-0 sm:flex-1" : ""}`}
+      >
         <ul className="space-y-1.5">
           {drawn.map((slice) => (
             <li
