@@ -280,11 +280,14 @@ export function HiddenEyeIcon(props: IconProps) {
 }
 
 /**
- * Download a copy — an arrow coming down into a tray. Used for the
- * contributor's own PDF export of a story
- * (app/(contributor)/stories/[id]/export). Deliberately not a page/document
- * glyph: what matters is the ACT of taking a copy away, not the file format,
- * and JournalIcon already stands for "a story" elsewhere in the same row.
+ * Download a copy — an arrow coming down into a tray. Used beside the
+ * "Download a copy" link on a contributor's private preview page, which is
+ * the only entry point to their own PDF export
+ * (app/(contributor)/stories/[id]/export).
+ *
+ * Deliberately not a page/document glyph: what matters is the ACT of taking a
+ * copy away, not the file format, and JournalIcon already stands for "a
+ * story" elsewhere in the app.
  */
 export function DownloadIcon(props: IconProps) {
   return (

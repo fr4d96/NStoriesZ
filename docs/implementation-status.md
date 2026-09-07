@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-07 (PDF export renders Chinese and emoji; earlier the same day:
+Last updated: 2026-09-07 (PDF download moved to the preview page only; earlier the same day:
+PDF export renders Chinese and emoji; earlier:
 contributors can download their own story as a PDF; earlier:
 My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
 story; earlier: the custom-label copy bug that broke editing a published story;
@@ -12,7 +13,23 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-07 (latest) — The PDF export renders Chinese and emoji.**
+**2026-09-07 (latest) — The PDF download lives only on the preview page.**
+
+Removed `DownloadPdfAction` and its two call sites (grid and list views) from
+`app/(contributor)/my-stories/my-stories-view.tsx`, along with the now-unused `DownloadIcon`
+import. The "Download a copy" link on the private preview page is now the sole entry point to
+`/stories/:id/export`.
+
+Product decision, not a technical one: the My Stories row already carries Edit, Preview, Download,
+Delete and (on a published story) Take down, and downloading is a rarer action than any of them.
+The route, its authorization and its tests are untouched — this only removes a second doorway to
+the same endpoint. `DownloadIcon` stays in `components/icons.tsx`; the preview page still uses it,
+and its doc comment was corrected since it referenced a row that no longer has one.
+
+No test changed: `my-stories-view.test.tsx` never asserted on the download control, and
+`e2e/story-export.spec.ts` only ever checked the preview page's link.
+
+**2026-09-07 — The PDF export renders Chinese and emoji.**
 
 Font fallback in `lib/story/story-pdf.ts`. Follow-up to the export entry below, which shipped
 with Latin-only coverage and turned everything else into `?`.
@@ -86,7 +103,8 @@ test cannot make honestly, since the fonts resolve from `process.cwd()`. `npm ru
 
 New route `GET /stories/:id/export`
 (`app/(contributor)/stories/[id]/export/route.ts`), reachable from a "Download a copy" link on
-the private preview page and a download icon on every row in My Stories. **No migration, no schema
+the private preview page — the only entry point (see the 2026-09-07 note above; it was briefly
+also an icon on every My Stories row, removed on request). **No migration, no schema
 change, no database write** — this is a read path over what `get_story_preview()` already returns.
 
 Why this and not a zip of Markdown + images: asked for as a PDF. The published-shaped, formatted
