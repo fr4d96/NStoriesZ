@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-07 (PDF download moved to the preview page only; earlier the same day:
+Last updated: 2026-09-07 (preview page's "Back to My Stories" link removed; earlier the same day:
+PDF download moved to the preview page only; earlier:
 PDF export renders Chinese and emoji; earlier:
 contributors can download their own story as a PDF; earlier:
 My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
@@ -13,7 +14,22 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-07 (latest) — The PDF download lives only on the preview page.**
+**2026-09-07 (latest) — The preview page's "Back to My Stories" link is gone.**
+
+Removed from the header row of `app/(contributor)/stories/[id]/preview/page.tsx`, leaving
+"← Back to editing" on the left and "Download a copy" on the right. The wrapper `<div>` that held
+the two right-hand links went with it.
+
+**The route out survives, but it is one tap deeper on a phone** — checked at 375px rather than
+assumed: ContributorNav's inline My Stories link collapses into the avatar menu at that width, so
+it is in the DOM but not on screen. On desktop it stays visible in the header. "← Back to editing"
+is unaffected, and is the link a contributor mid-draft actually reaches for. Flagging it because
+"there is still a way back" is true on desktop and only nearly true on mobile.
+
+A side benefit at 375px: the row used to carry three links and now carries two, so it no longer
+crowds.
+
+**2026-09-07 — The PDF download lives only on the preview page.**
 
 Removed `DownloadPdfAction` and its two call sites (grid and list views) from
 `app/(contributor)/my-stories/my-stories-view.tsx`, along with the now-unused `DownloadIcon`

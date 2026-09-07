@@ -202,26 +202,26 @@ export default async function StoryPreviewPage({
         ) : (
           <span />
         )}
-        <div className="flex items-center gap-4">
-          {/*
-            A plain <a>, not next/link: /stories/:id/export is a Route Handler
-            that answers with Content-Disposition: attachment, and Link would
-            try to client-side navigate rather than let the browser download.
-          */}
-          <a
-            href={`/stories/${preview.storyId}/export`}
-            className="inline-flex items-center gap-1.5 text-foreground/70 underline underline-offset-2"
-          >
-            <DownloadIcon className="h-4 w-4" aria-hidden />
-            Download a copy
-          </a>
-          <Link
-            href="/my-stories"
-            className="text-foreground/70 underline underline-offset-2"
-          >
-            Back to My Stories
-          </Link>
-        </div>
+        {/*
+          A plain <a>, not next/link: /stories/:id/export is a Route Handler
+          that answers with Content-Disposition: attachment, and Link would
+          try to client-side navigate rather than let the browser download.
+
+          The only control on this side of the row. A "Back to My Stories"
+          link sat here until 2026-09-07. The route out survives in the
+          header, though it costs a tap on a phone: checked at 375px, where
+          ContributorNav's inline My Stories link collapses into the avatar
+          menu (components/auth/user-avatar-menu.tsx) rather than staying on
+          screen. "← Back to editing" beside this is unaffected, and is the
+          link a contributor mid-draft actually reaches for.
+        */}
+        <a
+          href={`/stories/${preview.storyId}/export`}
+          className="inline-flex items-center gap-1.5 text-foreground/70 underline underline-offset-2"
+        >
+          <DownloadIcon className="h-4 w-4" aria-hidden />
+          Download a copy
+        </a>
       </div>
 
       {canStartRevision && (
