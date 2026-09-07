@@ -9,7 +9,7 @@ import { imageBlockMediaIds, storyContentText } from "@/lib/validation/story";
 import { normalizeStoryContentJson } from "@/lib/story/legacy-content";
 import { PreviewContentBody } from "@/components/story/preview-content-body";
 import { PreviewGallery } from "@/components/story/preview-gallery";
-import { SubmitConsentPanel } from "@/components/story/submit-consent-panel";
+import { PublishChoicePanel } from "@/components/story/publish-choice-panel";
 import { ContributorReviewPanel } from "@/components/story/contributor-review-panel";
 import { WhatsPublicSummary } from "@/components/story/whats-public-summary";
 import { StickyVisible } from "@/components/sticky-visible";
@@ -21,6 +21,8 @@ import {
   missingStoryRequirements,
   type StoryStepId,
 } from "@/lib/story/steps";
+import { isPrivateStory } from "@/lib/story/story-visibility";
+import { canExportStory } from "@/lib/story/story-export";
 
 // Never statically generated or cached — this can show unpublished,
 // draft-only content, so every request must re-authorize against the live
@@ -81,6 +83,7 @@ export default async function StoryPreviewPage({
       preview.viewerRelationship === "linked_contributor") &&
     preview.revisionStatus === "draft" &&
     (preview.lifecycleStatus === "draft" ||
+      isPrivateStory(preview.lifecycleStatus) ||
       preview.lifecycleStatus === "published");
 
   // Mirrors _revision_is_editable() (supabase/migrations/20260803090250_story_internal_helpers.sql):
@@ -94,7 +97,20 @@ export default async function StoryPreviewPage({
   const canEdit =
     preview.revisionStatus === "draft" &&
     (preview.lifecycleStatus === "draft" ||
+      isPrivateStory(preview.lifecycleStatus) ||
       preview.lifecycleStatus === "published");
+
+  // "Download a copy" is for a story that has actually been somewhere --
+  // submitted, published, sent back, or deliberately kept private. A plain
+  // draft nobody has done anything with yet is work in progress, and the
+  // contributor has the editor open on it anyway. canExportStory() is
+  // shared with the export Route Handler, which refuses the same cases with
+  // a 404 -- this only decides whether to draw the link (Engineering Rule 2:
+  // the route is the boundary, not this).
+  const canDownloadCopy = canExportStory(
+    preview.lifecycleStatus,
+    preview.revisionStatus,
+  );
 
   // Nothing in flight, and this is the contributor's own published (or
   // sent-back) story: offer to START a new draft. get_story_preview()
@@ -118,8 +134,9 @@ export default async function StoryPreviewPage({
   // content) and before the contributor has written anything yet. Location
   // and tags have no such save-time enforcement at all -- set_locations/
   // set_tags accept an empty selection, by design, since a contributor adds
-  // them incrementally. This is deliberately a UI-only gate (SubmitConsentPanel
-  // stays hidden, the RPC itself is untouched) rather than a new DB
+  // them incrementally. This is deliberately a UI-only gate (the submit
+  // form inside PublishChoicePanel stays hidden, the RPC itself is
+  // untouched) rather than a new DB
   // constraint: `submit_revision_with_consent()` is exercised by
   // tests/integration/story-rls.integration.test.ts's `publishOwnerStory()`
   // helper across dozens of fixtures that never call set_revision_locations/
@@ -135,15 +152,27 @@ export default async function StoryPreviewPage({
   // unchanged -- still computed server-side, from this request's own fresh
   // getStoryPreview()/getRevisionSelections() reads, and still only a UI
   // gate on top of submit_revision_with_consent()'s authoritative check.
-  const missingRequirements = canSubmitOwnConsent
-    ? missingStoryRequirements({
-        title: preview.title,
-        hasContent: Boolean(
-          parsedContent && storyContentText(parsedContent).trim(),
-        ),
-        locationCount: selections?.locations.length ?? 0,
-        tagCount: selections?.tags.length ?? 0,
-      })
+  //
+  // TWO lists, not one, since private stories arrived: the destination is
+  // now a choice the contributor makes in the browser, so the server cannot
+  // know which gate applies. It computes both from this request's own fresh
+  // reads and PublishChoicePanel switches between them; what it must not do
+  // is let the client compute either. A public story still needs a location
+  // and a tag so it can be found in browse and search; a private one needs
+  // neither, because nobody will ever search for it.
+  const requirementInput = {
+    title: preview.title,
+    hasContent: Boolean(
+      parsedContent && storyContentText(parsedContent).trim(),
+    ),
+    locationCount: selections?.locations.length ?? 0,
+    tagCount: selections?.tags.length ?? 0,
+  };
+  const missingForPublic = canSubmitOwnConsent
+    ? missingStoryRequirements({ ...requirementInput, destination: "public" })
+    : [];
+  const missingForPrivate = canSubmitOwnConsent
+    ? missingStoryRequirements({ ...requirementInput, destination: "private" })
     : [];
 
   // This page is the LAST step of the editor's timeline (see
@@ -155,7 +184,7 @@ export default async function StoryPreviewPage({
   //
   // Completeness is read from the data this page already fetched, not
   // recomputed from a second source: the first three entries are literally
-  // the inverse of `missingRequirements` above, so a tick here can never
+  // the inverse of `missingForPublic` above, so a tick here can never
   // disagree with what the submit gate says.
   const doneSteps: StoryStepId[] = (
     [
@@ -174,13 +203,6 @@ export default async function StoryPreviewPage({
   )
     .filter(([filled]) => filled)
     .map(([, id]) => id);
-
-  // The step behind the FIRST unmet requirement -- what the "Add a title,
-  // at least one tag before you can submit" notice links to, so the fix is
-  // one click away instead of a hunt through the timeline. Read straight
-  // off the list the notice renders, so the link always points at the first
-  // thing that notice actually names.
-  const firstMissingStep: StoryStepId = missingRequirements[0]?.step ?? "title";
 
   const stepHrefs = Object.fromEntries(
     EDITING_STORY_STEPS.map((s) => [
@@ -207,21 +229,30 @@ export default async function StoryPreviewPage({
           that answers with Content-Disposition: attachment, and Link would
           try to client-side navigate rather than let the browser download.
 
-          The only control on this side of the row. A "Back to My Stories"
-          link sat here until 2026-09-07. The route out survives in the
-          header, though it costs a tap on a phone: checked at 375px, where
-          ContributorNav's inline My Stories link collapses into the avatar
-          menu (components/auth/user-avatar-menu.tsx) rather than staying on
-          screen. "← Back to editing" beside this is unaffected, and is the
-          link a contributor mid-draft actually reaches for.
+          Hidden while the story is still a plain, never-submitted draft --
+          see canExportStory(). The <span /> keeps the row a two-column
+          justify-between layout in that case, so "← Back to editing" stays
+          left-aligned instead of drifting to the middle.
+
+          A "Back to My Stories" link sat here until 2026-09-07. The route
+          out survives in the header, though it costs a tap on a phone:
+          checked at 375px, where ContributorNav's inline My Stories link
+          collapses into the avatar menu (components/auth/user-avatar-menu.tsx)
+          rather than staying on screen. "← Back to editing" beside this is
+          unaffected, and is the link a contributor mid-draft actually
+          reaches for.
         */}
-        <a
-          href={`/stories/${preview.storyId}/export`}
-          className="inline-flex items-center gap-1.5 text-foreground/70 underline underline-offset-2"
-        >
-          <DownloadIcon className="h-4 w-4" aria-hidden />
-          Download a copy
-        </a>
+        {canDownloadCopy ? (
+          <a
+            href={`/stories/${preview.storyId}/export`}
+            className="inline-flex items-center gap-1.5 text-foreground/70 underline underline-offset-2"
+          >
+            <DownloadIcon className="h-4 w-4" aria-hidden />
+            Download a copy
+          </a>
+        ) : (
+          <span />
+        )}
       </div>
 
       {canStartRevision && (
@@ -310,38 +341,34 @@ export default async function StoryPreviewPage({
 
       <StickyVisible show={canSubmitOwnConsent}>
         <div className="mt-8">
-          {missingRequirements.length > 0 ? (
-            <div
-              role="status"
-              className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
-            >
-              <p className="font-medium">
-                Add {missingRequirements.map((r) => r.label).join(", ")} before
-                you can submit.
-              </p>
-              {canEdit && (
-                <Link
-                  href={`/stories/${preview.storyId}/edit?step=${firstMissingStep}`}
-                  className="mt-1 inline-block underline underline-offset-2"
-                >
-                  Go to that step
-                </Link>
-              )}
-            </div>
-          ) : (
-            <SubmitConsentPanel
-              storyId={preview.storyId}
-              revisionId={preview.revisionId}
-              expectedVersion={preview.version}
-              hasMedia={preview.media.length > 0}
-              isEditorialImport={preview.sourceKind === "editorial_import"}
-              submitLabel={
-                preview.lifecycleStatus === "published"
-                  ? "Submit correction for review"
-                  : "Submit for review"
-              }
-            />
-          )}
+          <PublishChoicePanel
+            storyId={preview.storyId}
+            revisionId={preview.revisionId}
+            expectedVersion={preview.version}
+            hasMedia={preview.media.length > 0}
+            isEditorialImport={preview.sourceKind === "editorial_import"}
+            submitLabel={
+              preview.lifecycleStatus === "published"
+                ? "Submit correction for review"
+                : "Submit for review"
+            }
+            /*
+              Mirrors keep_revision_private()'s own two refusals so the
+              choice is never offered where the database would reject it.
+              An editorial import exists because staff prepared it for
+              publication, and an already-published story becomes private
+              through the governed take-down flow, not through here. The RPC
+              re-checks both regardless (Engineering Rule 2).
+            */
+            allowPrivate={
+              preview.sourceKind === "self_submitted" &&
+              preview.lifecycleStatus !== "published"
+            }
+            isAlreadyPrivate={isPrivateStory(preview.lifecycleStatus)}
+            missingForPublic={missingForPublic}
+            missingForPrivate={missingForPrivate}
+            canEdit={canEdit}
+          />
         </div>
       </StickyVisible>
     </div>

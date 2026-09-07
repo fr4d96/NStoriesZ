@@ -298,3 +298,17 @@ export function DownloadIcon(props: IconProps) {
     </svg>
   );
 }
+
+/**
+ * A bare chevron, pointing right at rest. Used as the disclosure marker on
+ * My Stories' collapsible status sections, rotated 90° when the section is
+ * open. Separate from ArrowRightIcon (which has a shaft and reads as
+ * "go somewhere"): this one only ever means "there is more under here".
+ */
+export function ChevronIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M9.5 5.5 16 12l-6.5 6.5" />
+    </svg>
+  );
+}

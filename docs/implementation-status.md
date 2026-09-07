@@ -3,7 +3,9 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-07 (preview page's "Back to My Stories" link removed; earlier the same day:
+Last updated: 2026-09-07 (the PDF download is gone from never-submitted drafts; earlier the same
+day: private stories — a story can be kept private and skips moderation entirely; earlier the same day: My Stories grouped into collapsible status sections, replacing its
+pager; earlier the same day: preview page's "Back to My Stories" link removed; earlier:
 PDF download moved to the preview page only; earlier:
 PDF export renders Chinese and emoji; earlier:
 contributors can download their own story as a PDF; earlier:
@@ -13,6 +15,195 @@ earlier: contributor edits to published stories, and the tag-input dropdown fix;
 earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
+
+**2026-09-07 (latest) — "Download a copy" is gone from never-submitted drafts.**
+
+A download is a copy of a _finished_ thing, and a draft nobody has ever done anything with is the
+one state where there isn't one yet. `canExportStory(lifecycleStatus, revisionStatus)` in
+`lib/story/story-export.ts` returns false for exactly `draft` + `draft`, and true for everything
+else.
+
+**Both halves, not just the link.** The preview page hides the control, and
+`app/(contributor)/stories/[id]/export` returns its usual flat 404 — that URL is typeable, so a
+UI-only gate would be precisely the client-trusting Engineering Rule 2 forbids. One shared
+predicate rather than two copies, because this repo has already paid for duplicated gates drifting
+(the reason `missingStoryRequirements()` is shared). It sits beside `exportStatusLabel()`, which
+takes the same two arguments.
+
+**Two states that look like drafts and still export, both confirmed with the user rather than
+guessed.** A published story being edited again previews its in-flight draft but has been submitted
+and published, so it exports — and `exportStatusLabel()` already had a name for that exact case
+("Unpublished draft update") which would otherwise have become unreachable. A private story's
+revision stays `draft` forever by design, which is the mechanism keeping it out of moderation, not
+a sign it is unfinished; it is a completed story its author chose to keep, so keeping a copy is the
+strongest case there is ("Private").
+
+**Verified live** against the running dev server, signed in: on a plain draft the link is gone and
+`GET /stories/:id/export` answers 404 with `application/json`; on a published story the link is
+present and the same route answers 200 with `application/pdf`.
+
+`e2e/story-export.spec.ts` needed real work, not just a tweak: its whole fixture was a plain draft,
+so its two positive tests asserted precisely the behaviour being removed. It now builds two
+fixtures — one submitted (the PDF-content assertions moved onto it, and its status line changes
+from `(Draft)` to `(In review)`) and one left as a plain draft for a new test asserting both the
+missing link and the 404. Not executed here, for the same reason as the RLS tests below.
+
+**2026-09-07 — Stories can be kept private, and private stories skip moderation.**
+
+Two migrations: `20260907100000_story_lifecycle_status_private.sql` (the enum value alone — `alter
+type ... add value` cannot be _used_ in the transaction that adds it, and `_revision_is_editable()`
+is a `language sql` function whose body is type-analysed at CREATE time, so the split is what makes
+the second file legal) and `20260907100100_private_stories.sql` (everything else).
+
+The submit step is now a choice of two destinations, not one button:
+
+|                    | Everyone                                     | Just me                         |
+| ------------------ | -------------------------------------------- | ------------------------------- |
+| RPC                | `submit_revision_with_consent()` (unchanged) | `keep_revision_private()` (new) |
+| consent row        | written                                      | **none**                        |
+| `revision_status`  | `draft` → `submitted`                        | stays `draft`                   |
+| `lifecycle_status` | `draft` → `pending_review`                   | `draft` → `private`             |
+| moderator          | reviews it                                   | never sees it                   |
+| images             | promoted at approval                         | stay in the private bucket      |
+
+**The revision deliberately stays `draft`, and that one decision is what makes the rest safe.**
+`get_moderation_queue()` selects `where revision_status = 'submitted'`, so a private story cannot
+enter the queue — no new exclusion filter to maintain and none for a future queue change to forget.
+Image promotion happens at approval, which is never reached, so Engineering Rules 13–14 hold by the
+code _not running_. And the immutability trigger that freezes a revision on leaving `draft` exists
+so a `revision_id` is a snapshot of what was consented to and published — a private story consented
+to and published nothing, so freezing would buy no guarantee while costing the contributor the
+ability to keep working on their own story.
+
+`_revision_is_editable()` is the single place that learned the new status, which is why the editor,
+the preview page, `save_revision_draft()` and every `set_revision_*` function work on a private
+story unchanged. Going public later is therefore the _ordinary_ submission — same consent record,
+same moderator — and there is deliberately no promote-to-public RPC that could become a way around
+either.
+
+**No public read function was modified, on purpose.** A private story fails all three of the public
+predicate's independent conditions by itself: `visibility` is `private`, `lifecycle_status` is
+`private`, and there is no `granted` consent row to join. The right change to a public query here
+was no change.
+
+**Two refusals, both `WHV04`.** An `editorial_import` cannot be kept private (staff prepared it for
+publication; locking it away would strand that work), and neither can a story with a non-null
+`published_revision_id` — unpublishing is a take-down and already has a governed, audited flow, so
+this must not become a second unaudited route to it. `WHV03` for an empty story, the same rule and
+code submission uses.
+
+**Also changed, and each one would have been a quiet regression if missed.**
+`delete_draft_story()` accepts `private` alongside `draft` — choosing "keep this to myself" must not
+also remove the ability to throw it away. `get_content_readiness_queue()` now _excludes_ private
+stories: readiness measures distance to publication, so a private story would be permanent,
+un-closeable noise in a checklist whose job is to reach zero, and a staff work queue is not where a
+contributor's private story belongs. `get_operational_metrics()` needed no change — checked, not
+assumed: all five of its counts name their statuses explicitly, so `private` falls outside every
+one. Had any been written as "everything except published", private stories would have started
+showing up as consent problems on day one.
+
+**UI.** `components/story/publish-choice-panel.tsx` replaces the bare `SubmitConsentPanel` on the
+preview page: a `<fieldset>`/`<legend>` radio group ("Who is this story for?" — _Everyone_ / _Just
+me_), then the matching form. Two separate `<form>`s bound to two separate Server Actions rather
+than one form with a hidden field — a single form would need an action that branches on a
+client-supplied value, and that value would then be deciding whether consent gets recorded. As
+built, the private path has no code route into the consent table at all. The private branch asks
+**no** permission, image-rights or identifiable-people questions, for the same reason. My Stories
+gained a **Private** section (placed beside Published, not beside Drafts: both are finished stories
+that came out as intended) and a "Private" badge; without it a private story fell through the new
+bucketing's default and appeared under "Not published — archived or not approved", which reads as
+something having gone wrong. `exportStatusLabel()` says "Private" rather than "Draft", which matters
+most in a downloaded PDF read later with no app around it to correct the impression.
+
+**Requirements differ by destination.** A public story still needs a location and a tag so it can be
+found in browse and search; a private one needs neither, because nobody will ever search for it.
+Both still need a title and real content. Since the destination is now a browser-side choice, the
+preview page computes **both** lists server-side and the panel switches between them — the gate is
+never re-derived in client code.
+
+**Rendering verified in a live browser; the save itself is not, and no database has the migration.**
+Checked against the running dev server at 375px and at desktop, signed in, on two real drafts: the
+"Who is this story for?" fieldset renders with both options, the radio card is an 80px tap target
+(measured, not eyeballed), there is no horizontal overflow (`scrollWidth` 375 = viewport 375), and
+the existing "Publication permission" form still renders in full underneath with both checkboxes,
+the identifiable-people select and its submit button — i.e. the public path is not regressed. The
+missing-requirements notice reads "Add your story, at least one location, at least one tag" and its
+"Go to that step" link resolves to `?step=story`, the first unmet one. What could NOT be exercised
+in the browser: switching to "Just me" (the pane's click action timed out repeatedly on this route,
+though nothing intercepts the control — `elementFromPoint` returns the radio itself), and the save
+itself, which needs the migration. The destination switch is covered instead by
+`components/story/publish-choice-panel.test.tsx`, which clicks the real radio and asserts the
+requirement list and form both change.
+
+**Not applied to any database.** The migrations have not been pushed anywhere: there is no Docker on this machine and no linked project, so `supabase db push` to
+the hosted development project is the next required step, and it is an outward-facing action that
+was deliberately left for a human. Consequently `types/database.ts` could not be regenerated either
+— `keep_revision_private` is called through `callUntypedRpc()` and the new `lifecycle_status` value
+through `isPrivateStory(status: string)` in `lib/story/story-visibility.ts`, both of which should
+collapse back to plain typed calls the moment `npm run supabase:types:linked` is run. The RLS
+integration tests written for this (`tests/integration/story-rls.integration.test.ts`, a
+`describe` block asserting the _absences_: no queue entry, no consent row, no public read, no
+cross-user read) have never been executed for the same reason.
+
+**2026-09-07 — My Stories is grouped into collapsible status sections.**
+
+`app/(contributor)/my-stories/my-stories-view.tsx`. Stories are bucketed into **Drafts**,
+**In review**, **Published** and **Not published**, each a native `<details>` with the count in
+its header. An empty section is not drawn at all — a contributor who has never had anything
+rejected is never told about a "Not published" group.
+
+**The twelve-per-page pager is gone, and that was not asked for — flagging it rather than
+burying it.** Paging across groups is incoherent (a section can be full on page 1 and empty on
+page 2), and collapsing a group you are not working on is a better length control than paging at
+this product's scale. `STORIES_PER_PAGE`, the page state, `goToPage()` and `listTopRef` all went
+with it. Reversible: the alternative is a pager per section, which is three page states and three
+sets of controls on one screen. The 2026-09-02 entry below describes the pager this replaced.
+
+Bucketing is exhaustive over `story_lifecycle_status`' seven values and **order-sensitive**:
+
+- `published` is checked FIRST, so a live story with an edit in flight stays under Published. Its
+  `draftRevisionStatus` is `'submitted'`, which would otherwise pull it into "In review" and make
+  a story readers can see right now vanish from the section that says so. The in-flight edit is
+  already marked on the row by `<UpdateChip>` — the right place for a sub-state (Engineering Rule
+  11: the published version stays live throughout its update's review). There is a test for
+  exactly this.
+- `review` is the whole-story review states: `pending_review`, `awaiting_contributor_approval`.
+- `drafts` is what is still editable: `draft`, `changes_requested`.
+- `closed` is terminal: `rejected`, `archived`. Its own section rather than folded into Drafts,
+  because "not approved" is not work in progress and grouping it there would imply it is.
+
+Implementation notes:
+
+- **Native `<details>`/`<summary>`**, not a hand-rolled button plus `aria-expanded`: the
+  disclosure keyboard behaviour, the expanded/collapsed state and the screen-reader announcement
+  all come free and correct (Engineering Rule 19). The default triangle is hidden two ways because
+  one is not enough — `list-none` covers Firefox and Chrome, `[&::-webkit-details-marker]:hidden`
+  covers Safari.
+- **`aria-label` on the `<details>`.** Its role is `group`, and a group's accessible name comes
+  from `aria-label`, NOT from `<summary>` (which is the disclosure control and names itself).
+  Without it a screen reader announces several unnamed groups. Found while writing the tests,
+  where `getByRole("group", { name })` failed to match.
+- **State tracks what was CLOSED**, not what is open, so every section defaults to open and a
+  newly-appearing one is never hidden. Component state like the filters — deliberately not
+  persisted, so a reload always shows everything rather than silently withholding a section
+  someone forgot they collapsed. (The grid/list toggle IS persisted; that is a preference, this is
+  a transient "get out of my way".)
+- **The grid and list bodies were extracted** into `StoryGrid` / `StoryList` so both render once
+  per section. Nothing inside them changed except the list's ordinal, which now counts within the
+  section — sections collapse independently, so a continuous run would renumber every row below
+  whenever one folded.
+
+Checked in the running app: the section renders, collapses and re-opens, and the pager is gone.
+Worth knowing for anyone testing a closed section — Chrome hides closed `<details>` content with
+`content-visibility`, not `display: none`, so a descendant still reports a layout box while being
+visually hidden and skipped by assistive tech. Assert on the `open` attribute, not on measured
+height.
+
+Tests: 25 in `my-stories-view.test.tsx` (was 23). Three pager tests were replaced by five section
+tests — grouping with counts, empty sections not rendering, collapsing one section leaving the
+others open, the published-with-update-in-review rule, and per-section numbering. One pre-existing
+test needed scoping: `getByText("Published")` now matches both the row's badge and the section
+header.
 
 **2026-09-07 (latest) — The preview page's "Back to My Stories" link is gone.**
 

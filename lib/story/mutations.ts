@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 import type {
+  KeepStoryPrivateInput,
   RevisionInput,
   SubmitRevisionInput,
 } from "@/lib/validation/story";
@@ -149,6 +150,36 @@ export async function submitRevisionWithConsent(input: SubmitRevisionInput) {
     p_editorial_assistance_confirmed: input.editorialAssistanceConfirmed,
   });
   if (error) throw error;
+}
+
+/**
+ * The other half of the submit step: keep this story private instead of
+ * publishing it (keep_revision_private(),
+ * supabase/migrations/20260907100100_private_stories.sql).
+ *
+ * Notice how little it sends compared to submitRevisionWithConsent() above.
+ * That asymmetry IS the feature: there is no consent, no terms version and
+ * no image-rights answer to pass, because nothing is being published and
+ * so no permission is being given. The RPC records no
+ * story_publication_consents row at all.
+ *
+ * Goes through callUntypedRpc() because `types/database.ts` is generated
+ * from a live Supabase project and has not been regenerated since this
+ * migration landed (no Docker on this machine, no linked project — see
+ * docs/architecture.md "Local vs hosted Supabase development"), so
+ * `keep_revision_private` is not in the generated Functions map yet. That
+ * helper's own rule applies: the moment `npm run supabase:types:linked`
+ * has been run, this goes back to a plain, fully-typed `supabase.rpc(...)`
+ * call. The cast is an escape from the generated types only — the RPC's
+ * server-side authorization and validation are entirely unaffected.
+ */
+export async function keepRevisionPrivate(input: KeepStoryPrivateInput) {
+  await requireUser();
+  const supabase = await createClient();
+  await callUntypedRpc<null>(supabase, "keep_revision_private", {
+    p_revision_id: input.revisionId,
+    p_expected_version: input.expectedVersion,
+  });
 }
 
 /**

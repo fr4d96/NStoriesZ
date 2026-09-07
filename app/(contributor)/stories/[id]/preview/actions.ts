@@ -6,10 +6,12 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
 import {
   submitRevisionSchema,
+  keepStoryPrivateSchema,
   identifiablePeopleStates,
 } from "@/lib/validation/story";
 import {
   submitRevisionWithConsent,
+  keepRevisionPrivate,
   getCurrentTermsVersion,
   requestEditorialChanges,
   declineEditorialPublication,
@@ -82,6 +84,63 @@ export async function submitOwnConsentAction(
   // param carries the confirmation across the redirect instead
   // (app/(contributor)/my-stories/submission-toast.tsx picks it up).
   redirect("/my-stories?toast=submitted");
+}
+
+/**
+ * The private half of the submit step: the contributor finishes the story
+ * and keeps it to themselves. No moderator sees it, because there is
+ * nothing public for a moderator to protect.
+ *
+ * A deliberately much smaller mirror of submitOwnConsentAction above, and
+ * the things it does NOT do are the interesting part:
+ *
+ *   * It does not read publicationConfirmed, imageRightsConfirmed or
+ *     identifiablePeopleState off the form, because the private panel never
+ *     asks those questions. They are consent to put a story, and someone's
+ *     photograph, in front of the public (docs/content-governance.md), and
+ *     recording an answer nobody was asked would be worse than not having
+ *     one.
+ *   * It does not fetch current_terms_version(). The terms govern
+ *     publication; nothing is being published.
+ *
+ * What it keeps is the part that is about trust rather than publication:
+ * the signed-in check, Zod at the boundary, and the optimistic-version
+ * token. keep_revision_private() re-derives ownership, source_kind and
+ * publication state itself and is the non-bypassable check either way
+ * (Engineering Rules 2 and 3).
+ */
+export async function keepStoryPrivateAction(
+  _prevState: ConsentActionState,
+  formData: FormData,
+): Promise<ConsentActionState> {
+  const authError = await requireSignedIn();
+  if (authError) return { error: authError };
+
+  const parsed = keepStoryPrivateSchema.safeParse({
+    revisionId: formData.get("revisionId"),
+    expectedVersion: Number(formData.get("expectedVersion")),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid request." };
+  }
+
+  try {
+    await keepRevisionPrivate(parsed.data);
+  } catch (error) {
+    return {
+      error: getErrorMessage(error, "Could not save this story privately."),
+    };
+  }
+
+  revalidatePath(`/stories/${formData.get("storyId")}/preview`);
+  revalidatePath("/my-stories");
+  // Same landing spot as a public submission, for the same reason: the
+  // story has left the "still writing it" phase, and My Stories is where
+  // its new state is visible (a "Private" badge, from
+  // app/(contributor)/my-stories/status-badge.tsx). redirect() throws
+  // internally, so the confirmation travels as a `toast` query param rather
+  // than as returned state this form could render.
+  redirect("/my-stories?toast=kept-private");
 }
 
 export async function requestEditorialChangesAction(

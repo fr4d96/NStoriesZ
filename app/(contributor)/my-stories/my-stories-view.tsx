@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { StatusBadge } from "./status-badge";
@@ -15,7 +15,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ALL, FilterRow } from "@/components/story/filter-row";
 import { StartRevisionButton } from "@/components/story/start-revision-button";
 import { destinationNames, regionNames } from "@/lib/story/card-fields";
+import { isPrivateStory } from "@/lib/story/story-visibility";
 import {
+  ChevronIcon,
   EditorialPencilIcon,
   EyeIcon,
   HiddenEyeIcon,
@@ -47,7 +49,6 @@ const VIEW_STORAGE_KEY = "kaki-my-stories-view";
  * the scale this product is for; if that ever stops being true, the RPC
  * needs p_limit/p_offset AND the axes need their own query, together.
  */
-const STORIES_PER_PAGE = 12;
 
 // Same useSyncExternalStore pattern as components/theme-toggle.tsx: the DOM
 // (here, localStorage) is the source of truth, read synchronously rather
@@ -97,6 +98,76 @@ function formatDate(value: string | null): string | null {
 }
 
 /**
+ * Which collapsible section a story belongs to on My Stories.
+ *
+ * Exhaustive over story_lifecycle_status' eight values, and deliberately
+ * checked in this order:
+ *
+ *  - `published` FIRST, so a live story with an edit in flight stays under
+ *    Published. Its `draftRevisionStatus` is 'submitted', which would
+ *    otherwise pull it into "In review" and make a story readers can see
+ *    right now vanish from the section that says so. The in-flight edit is
+ *    already marked on the row by <UpdateChip>, which is the right place for
+ *    a sub-state (Engineering Rule 11: the published version stays live
+ *    throughout its update's review).
+ *  - `review` is the whole-story review states -- a first submission waiting
+ *    on a moderator, or an editorial draft waiting on the contributor.
+ *  - `drafts` is what the contributor can still edit: a new draft, or one a
+ *    moderator sent back.
+ *  - `private` is a story the contributor finished and chose to keep to
+ *    themselves (20260907100100_private_stories.sql). It needs its own
+ *    section for the same reason `closed` does, in the opposite direction:
+ *    it is neither work in progress nor a failure, and the fall-through
+ *    below would otherwise file it under "Not published — archived or not
+ *    approved", which reads as something having gone wrong rather than as
+ *    the deliberate choice it was.
+ *  - `closed` is everything terminal. It has its own section rather than
+ *    being folded into Drafts, because "not approved" and "archived" are not
+ *    work in progress and grouping them there would imply they are.
+ */
+export type StorySection =
+  "drafts" | "review" | "published" | "private" | "closed";
+
+export function storySection(story: MyStoryWithCover): StorySection {
+  if (story.lifecycle_status === "published") return "published";
+  if (
+    story.lifecycle_status === "pending_review" ||
+    story.lifecycle_status === "awaiting_contributor_approval"
+  ) {
+    return "review";
+  }
+  if (isPrivateStory(story.lifecycle_status)) return "private";
+  if (
+    story.lifecycle_status === "draft" ||
+    story.lifecycle_status === "changes_requested"
+  ) {
+    return "drafts";
+  }
+  return "closed";
+}
+
+/**
+ * Section order is the contributor's own workflow, not the enum's: what you
+ * are still writing, then what someone else is holding, then what is live,
+ * then what is over. Each carries a plain-language hint because "In review"
+ * alone does not say who is waiting on whom.
+ */
+const SECTIONS: {
+  key: StorySection;
+  label: string;
+  hint: string;
+}[] = [
+  { key: "drafts", label: "Drafts", hint: "Yours to finish" },
+  { key: "review", label: "In review", hint: "Waiting on a moderator" },
+  { key: "published", label: "Published", hint: "Readers can see these" },
+  // Beside Published rather than beside Drafts: both are finished stories
+  // that came out the way the contributor wanted. Only the terminal states
+  // sit after them.
+  { key: "private", label: "Private", hint: "Only you can see these" },
+  { key: "closed", label: "Not published", hint: "Archived or not approved" },
+];
+
+/**
  * A story awaiting THIS contributor's approval still has
  * current_draft_revision_id set (mark_editorial_draft_awaiting_approval()
  * doesn't clear it), but the revision itself is frozen
@@ -121,14 +192,22 @@ function storyStatusFlags(story: MyStoryWithCover) {
   const editable =
     Boolean(story.current_draft_revision_id) && !awaitingApproval && !inReview;
   // Coarse client-side gate matching delete_draft_story()'s cheap
-  // precondition (lifecycle_status = 'draft' and never published) -- the
-  // RPC itself is the real safety boundary and additionally requires this
-  // story have no prior review history, which isn't visible from
-  // list_my_stories()'s columns; a story that fails that finer check surfaces
-  // the RPC's specific error via the confirm flow below instead of silently
-  // hiding the button.
+  // precondition (lifecycle_status 'draft' or 'private', and never
+  // published) -- the RPC itself is the real safety boundary and
+  // additionally requires this story have no prior review history, which
+  // isn't visible from list_my_stories()'s columns; a story that fails that
+  // finer check surfaces the RPC's specific error via the confirm flow
+  // below instead of silently hiding the button.
+  //
+  // 'private' belongs here for the same reason 'draft' does, and leaving it
+  // out would have been a quiet regression: nothing about a private story
+  // is public or reviewed, so choosing "keep this to myself" must not also
+  // take away the ability to throw it away. delete_draft_story() was
+  // widened to match in 20260907100100_private_stories.sql.
   const deletable =
-    story.lifecycle_status === "draft" && story.published_revision_id === null;
+    (story.lifecycle_status === "draft" ||
+      isPrivateStory(story.lifecycle_status)) &&
+    story.published_revision_id === null;
   // Withdrawal ("Take down") is the OTHER destructive action, and the
   // opposite case to deletable above: a story that is live to the public
   // right now. revoke_publication_consent() only has anything to do on a
@@ -495,6 +574,261 @@ function buildLocationAxes(stories: MyStoryWithCover[]): LocationAxis[] {
   return axes;
 }
 
+/**
+ * The square-cover grid, for one section's stories. Extracted from the page
+ * body when My Stories gained collapsible status sections -- both views now
+ * render once per section instead of once for the whole list.
+ */
+function StoryGrid({
+  stories,
+  takedownByStory,
+}: {
+  stories: MyStoryWithCover[];
+  takedownByStory: Map<string, TakedownRequestRow>;
+}) {
+  return (
+    <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      {stories.map((story) => {
+        const {
+          awaitingApproval,
+          editable,
+          deletable,
+          withdrawable,
+          canStartRevision,
+          inReview,
+          updateInFlight,
+        } = storyStatusFlags(story);
+        const title = story.title ?? "Untitled story";
+        const href = primaryStoryHref(story);
+        return (
+          <li key={story.id}>
+            <Link
+              href={href}
+              className="relative block aspect-square overflow-hidden rounded-md border border-border-subtle"
+            >
+              <StoryCoverThumbnail
+                mediaId={story.coverMediaId}
+                altText={story.coverAltText}
+              />
+              {/* An OPAQUE pill exactly the badge's own size. Two things were
+                  wrong before: `p-0.5` drew a 2px ring of plain surface
+                  around the tinted badge, reading as a grey halo, and
+                  `bg-surface/90` let the photo through -- so a badge whose
+                  own fill is only a 15% tint (bg-fern/15 for Published) went
+                  muddy and lost its contrast over a busy cover.
+                  `bg-background`, not `bg-surface`, because that is what the
+                  same badge sits on in the list view, so the composited
+                  colour matches between the two views.
+
+                  `flex` is load-bearing too: the badge is inline-flex, so a
+                  block wrapper adds ~4px of line-box leading around it and
+                  the rounded wrapper ends up a taller pill than the badge --
+                  a faint halo again, in a different disguise. */}
+              <div className="absolute right-2 top-2 flex rounded-full bg-background shadow-sm">
+                <StatusBadge status={story.lifecycle_status} />
+              </div>
+            </Link>
+            <div className="mt-2">
+              <p className="truncate text-sm font-medium">{title}</p>
+              {updateInFlight && (
+                <p className="mt-1">
+                  <UpdateChip inReview={inReview} />
+                </p>
+              )}
+              <div className="-ml-1.5 mt-1 flex flex-wrap items-center">
+                {editable && (
+                  <ActionIconLink
+                    href={`/stories/${story.id}/edit`}
+                    label={`Edit ${title}`}
+                    className="text-accent"
+                  >
+                    <EditorialPencilIcon className="h-4 w-4" />
+                  </ActionIconLink>
+                )}
+                {canStartRevision && (
+                  <StartRevisionButton
+                    storyId={story.id}
+                    storyTitle={title}
+                    isPublished={story.lifecycle_status === "published"}
+                    variant="icon"
+                    className={`${ACTION_ICON_CLASS} text-accent`}
+                  />
+                )}
+                {awaitingApproval ? (
+                  <ActionIconLink
+                    href={`/stories/${story.id}/preview`}
+                    label={`Review ${title}`}
+                    className="text-accent"
+                  >
+                    <EyeIcon className="h-4 w-4" />
+                  </ActionIconLink>
+                ) : (
+                  <ActionIconLink
+                    href={`/stories/${story.id}/preview`}
+                    label={`Preview ${title}`}
+                    className="text-foreground/70"
+                  >
+                    <EyeIcon className="h-4 w-4" />
+                  </ActionIconLink>
+                )}
+                {deletable && <DeleteDraftAction story={story} title={title} />}
+                {withdrawable && (
+                  <TakedownAction
+                    story={story}
+                    title={title}
+                    request={takedownByStory.get(story.id) ?? null}
+                  />
+                )}
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * The ruled-row list, for one section's stories. Styled after the landing
+ * page's catalogue index (components/home/story-index.tsx): hairline-ruled
+ * rows (.nf-entry), a mono tabular numeral, and a cover thumbnail beside the
+ * title. Unlike that index, a row here can't be one big <Link> -- each story
+ * carries its own Edit/Preview actions -- so the thumbnail and title are the
+ * linked targets and the actions sit alongside.
+ *
+ * The numeral counts within the section, not across the page: sections
+ * collapse independently, so a continuous run would renumber every row below
+ * whenever one folded.
+ */
+function StoryList({
+  stories,
+  takedownByStory,
+}: {
+  stories: MyStoryWithCover[];
+  takedownByStory: Map<string, TakedownRequestRow>;
+}) {
+  return (
+    <ul>
+      {stories.map((story, index) => {
+        const {
+          awaitingApproval,
+          editable,
+          deletable,
+          withdrawable,
+          canStartRevision,
+          inReview,
+          updateInFlight,
+        } = storyStatusFlags(story);
+        const updated = formatDate(story.updated_at);
+        const title = story.title ?? "Untitled story";
+        const href = primaryStoryHref(story);
+        return (
+          <li key={story.id} className="nf-entry">
+            {/* One grid, two shapes. Mobile: [thumb | stacked content],
+            numeral hidden (display:none claims no track). From sm up
+            the inner wrapper becomes `display: contents` so its
+            children drop into the parent grid as real columns
+            [numeral | thumb | title+meta | actions]. */}
+            <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 py-4 sm:grid-cols-[2.5rem_5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-5">
+              <span
+                aria-hidden="true"
+                className="hidden font-mono text-sm text-foreground/40 tabular-nums sm:block"
+              >
+                {String(index + 1).padStart(2, "0")}
+              </span>
+
+              <Link
+                href={href}
+                tabIndex={-1}
+                aria-hidden="true"
+                className="block h-12 w-16 overflow-hidden rounded-md border border-border-subtle bg-surface-muted sm:h-14 sm:w-20"
+              >
+                <StoryCoverThumbnail
+                  mediaId={story.coverMediaId}
+                  altText={null}
+                />
+              </Link>
+
+              <div className="sm:contents">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={href}
+                      className="font-medium hover:text-accent hover:underline underline-offset-2"
+                    >
+                      {title}
+                    </Link>
+                    <StatusBadge status={story.lifecycle_status} />
+                    {updateInFlight && <UpdateChip inReview={inReview} />}
+                  </div>
+                  {story.excerpt && (
+                    <p className="mt-1 line-clamp-2 text-sm text-foreground/70">
+                      {story.excerpt}
+                    </p>
+                  )}
+                  {updated && (
+                    <p className="mt-1 font-mono text-xs text-foreground/45 tabular-nums">
+                      Updated {updated}
+                    </p>
+                  )}
+                </div>
+
+                <div className="-ml-1.5 mt-1 flex items-center sm:mt-0">
+                  {editable && (
+                    <ActionIconLink
+                      href={`/stories/${story.id}/edit`}
+                      label={`Edit ${title}`}
+                      className="text-accent"
+                    >
+                      <EditorialPencilIcon className="h-4 w-4" />
+                    </ActionIconLink>
+                  )}
+                  {canStartRevision && (
+                    <StartRevisionButton
+                      storyId={story.id}
+                      storyTitle={title}
+                      isPublished={story.lifecycle_status === "published"}
+                      variant="icon"
+                      className={`${ACTION_ICON_CLASS} text-accent`}
+                    />
+                  )}
+                  {awaitingApproval ? (
+                    <ActionIconLink
+                      href={`/stories/${story.id}/preview`}
+                      label={`Review ${title}`}
+                      className="text-accent"
+                    >
+                      <EyeIcon className="h-4 w-4" />
+                    </ActionIconLink>
+                  ) : (
+                    <ActionIconLink
+                      href={`/stories/${story.id}/preview`}
+                      label={`Preview ${title}`}
+                      className="text-foreground/70"
+                    >
+                      <EyeIcon className="h-4 w-4" />
+                    </ActionIconLink>
+                  )}
+                  {deletable && (
+                    <DeleteDraftAction story={story} title={title} />
+                  )}
+                  {withdrawable && (
+                    <TakedownAction
+                      story={story}
+                      title={title}
+                      request={takedownByStory.get(story.id) ?? null}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function MyStoriesView({
   stories,
   takedownRequests = [],
@@ -532,35 +866,53 @@ export function MyStoriesView({
     (axis) => activeFilters[axis.key] && activeFilters[axis.key] !== ALL,
   );
 
-  const [page, setPage] = useState(1);
-  const listTopRef = useRef<HTMLDivElement>(null);
+  // Grouped from the FILTERED set, so a section's count always matches what
+  // its rows would show. Sections replaced the twelve-per-page pager that
+  // used to live here: paging across groups is incoherent (a section can be
+  // empty on page 2 and full on page 1), and collapsing a group you are not
+  // working on controls length better than paging ever did at this
+  // product's scale.
+  const grouped = useMemo(() => {
+    const buckets: Record<StorySection, MyStoryWithCover[]> = {
+      drafts: [],
+      review: [],
+      published: [],
+      private: [],
+      closed: [],
+    };
+    for (const story of filtered) buckets[storySection(story)].push(story);
+    return buckets;
+  }, [filtered]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / STORIES_PER_PAGE));
-  // Clamped on read rather than corrected in state: applying a filter can
-  // shrink the list below the page you are on, and a stored out-of-range
-  // page renders an empty screen with no obvious way back. Deriving it also
-  // keeps this out of an effect (react-hooks/set-state-in-effect).
-  const currentPage = Math.min(page, pageCount);
-  const pageStart = (currentPage - 1) * STORIES_PER_PAGE;
-  const visible = filtered.slice(pageStart, pageStart + STORIES_PER_PAGE);
+  // Tracks what is CLOSED rather than what is open, so a section added later
+  // is never accidentally hidden by a stale key.
+  //
+  // Drafts starts collapsed on purpose: it is the pile that grows without
+  // bound -- every abandoned start stays there forever -- so leaving it open
+  // pushes Published, the section a contributor actually wants to see, below
+  // the fold. The count in its header still says how many are inside, so
+  // nothing is hidden, only folded.
+  //
+  // Component state, like the filters above it, and deliberately not
+  // persisted: a reload returns to this same known layout instead of
+  // whatever someone left open three visits ago. (The grid/list toggle IS
+  // persisted; that is a preference, this is a starting position.)
+  const [closedSections, setClosedSections] = useState<
+    Partial<Record<StorySection, boolean>>
+  >({ drafts: true });
 
-  function goToPage(next: number) {
-    setPage(next);
-    // The controls sit below the list, so paging without this leaves you
-    // looking at the bottom of a page you have not read yet.
-    listTopRef.current?.scrollIntoView({ block: "start" });
+  function toggleSection(key: StorySection, open: boolean) {
+    setClosedSections((current) => ({ ...current, [key]: !open }));
   }
 
   // Any change to what is being filtered starts again from page 1 -- page 3
   // of the old result set means nothing in the new one.
   function changeFilter(key: string, value: string) {
     setActiveFilters((current) => ({ ...current, [key]: value }));
-    setPage(1);
   }
 
   function clearFilters() {
     setActiveFilters({});
-    setPage(1);
   }
 
   function changeView(next: ViewMode) {
@@ -678,8 +1030,6 @@ export function MyStoriesView({
             </p>
           )}
 
-          <div ref={listTopRef} className="scroll-mt-4" />
-
           {filtered.length === 0 ? (
             <p className="mt-8 text-foreground/65">
               No stories match those filters.{" "}
@@ -692,266 +1042,77 @@ export function MyStoriesView({
               </button>
               .
             </p>
-          ) : view === "grid" ? (
-            <ul
-              className={`grid grid-cols-2 gap-4 sm:grid-cols-3 ${
-                axes.length > 0 ? "mt-4" : "mt-8"
-              }`}
-            >
-              {visible.map((story) => {
-                const {
-                  awaitingApproval,
-                  editable,
-                  deletable,
-                  withdrawable,
-                  canStartRevision,
-                  inReview,
-                  updateInFlight,
-                } = storyStatusFlags(story);
-                const title = story.title ?? "Untitled story";
-                const href = primaryStoryHref(story);
-                return (
-                  <li key={story.id}>
-                    <Link
-                      href={href}
-                      className="relative block aspect-square overflow-hidden rounded-md border border-border-subtle"
-                    >
-                      <StoryCoverThumbnail
-                        mediaId={story.coverMediaId}
-                        altText={story.coverAltText}
-                      />
-                      <div className="absolute right-2 top-2 rounded-full bg-surface/90 p-0.5 shadow-sm backdrop-blur-sm">
-                        <StatusBadge status={story.lifecycle_status} />
-                      </div>
-                    </Link>
-                    <div className="mt-2">
-                      <p className="truncate text-sm font-medium">{title}</p>
-                      {updateInFlight && (
-                        <p className="mt-1">
-                          <UpdateChip inReview={inReview} />
-                        </p>
-                      )}
-                      <div className="-ml-1.5 mt-1 flex flex-wrap items-center">
-                        {editable && (
-                          <ActionIconLink
-                            href={`/stories/${story.id}/edit`}
-                            label={`Edit ${title}`}
-                            className="text-accent"
-                          >
-                            <EditorialPencilIcon className="h-4 w-4" />
-                          </ActionIconLink>
-                        )}
-                        {canStartRevision && (
-                          <StartRevisionButton
-                            storyId={story.id}
-                            storyTitle={title}
-                            isPublished={story.lifecycle_status === "published"}
-                            variant="icon"
-                            className={`${ACTION_ICON_CLASS} text-accent`}
-                          />
-                        )}
-                        {awaitingApproval ? (
-                          <ActionIconLink
-                            href={`/stories/${story.id}/preview`}
-                            label={`Review ${title}`}
-                            className="text-accent"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </ActionIconLink>
-                        ) : (
-                          <ActionIconLink
-                            href={`/stories/${story.id}/preview`}
-                            label={`Preview ${title}`}
-                            className="text-foreground/70"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </ActionIconLink>
-                        )}
-                        {deletable && (
-                          <DeleteDraftAction story={story} title={title} />
-                        )}
-                        {withdrawable && (
-                          <TakedownAction
-                            story={story}
-                            title={title}
-                            request={takedownByStory.get(story.id) ?? null}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
           ) : (
-            // Styled after the landing page's catalogue index
-            // (components/home/story-index.tsx): hairline-ruled rows (.nf-entry),
-            // a mono tabular numeral, and a cover thumbnail beside the title.
-            // Unlike that index, a row here can't be one big <Link> -- each story
-            // carries its own Edit/Preview actions -- so the thumbnail and title
-            // are the linked targets and the actions sit alongside.
-            <ul className={axes.length > 0 ? "mt-4" : "mt-8"}>
-              {visible.map((story, index) => {
-                const {
-                  awaitingApproval,
-                  editable,
-                  deletable,
-                  withdrawable,
-                  canStartRevision,
-                  inReview,
-                  updateInFlight,
-                } = storyStatusFlags(story);
-                const updated = formatDate(story.updated_at);
-                const title = story.title ?? "Untitled story";
-                const href = primaryStoryHref(story);
+            <div className={axes.length > 0 ? "mt-4" : "mt-8"}>
+              {SECTIONS.map(({ key, label, hint }) => {
+                const rows = grouped[key];
+                // An empty section is not drawn at all. A contributor who has
+                // never had anything rejected should not be told so.
+                if (rows.length === 0) return null;
+                const open = !closedSections[key];
                 return (
-                  <li key={story.id} className="nf-entry">
-                    {/* One grid, two shapes. Mobile: [thumb | stacked content],
-                    numeral hidden (display:none claims no track). From sm up
-                    the inner wrapper becomes `display: contents` so its
-                    children drop into the parent grid as real columns
-                    [numeral | thumb | title+meta | actions]. */}
-                    <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-3 py-4 sm:grid-cols-[2.5rem_5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-5">
-                      <span
-                        aria-hidden="true"
-                        className="hidden font-mono text-sm text-foreground/40 tabular-nums sm:block"
-                      >
-                        {String(pageStart + index + 1).padStart(2, "0")}
+                  <details
+                    key={key}
+                    open={open}
+                    onToggle={(event) =>
+                      toggleSection(key, event.currentTarget.open)
+                    }
+                    className="border-b border-border-subtle last:border-b-0"
+                    // <details> exposes role="group", whose accessible name
+                    // comes from aria-label -- NOT from <summary>, which is
+                    // the disclosure control and names itself. Without this
+                    // a screen reader announces four unnamed groups.
+                    aria-label={label}
+                  >
+                    {/* Native <details>/<summary>: the disclosure keyboard
+                        behaviour, the expanded/collapsed state and the
+                        screen-reader announcement all come free and correct,
+                        which a hand-rolled button + aria-expanded would have
+                        to reproduce (Engineering Rule 19). The default
+                        triangle is hidden two ways because one is not enough:
+                        `list-none` covers Firefox and Chrome, the
+                        ::-webkit-details-marker variant covers Safari. */}
+                    <summary className="flex cursor-pointer list-none items-center gap-3 py-4 outline-offset-4 [&::-webkit-details-marker]:hidden">
+                      <ChevronIcon
+                        className={`h-4 w-4 shrink-0 text-foreground/40 transition-transform ${
+                          open ? "rotate-90" : ""
+                        }`}
+                      />
+                      {/* Plain sans, the app's own sub-heading step
+                          (text-lg font-semibold tracking-tight, as used
+                          throughout /moderation). This deliberately does NOT
+                          set Georgia: app/globals.css records that serif as
+                          belonging to the retired Field Journal palette, and
+                          .journiq-heading -- the "My Stories" title right
+                          above these -- is heavy sans. A serif here was the
+                          only serif on the page. */}
+                      <span className="text-lg font-semibold tracking-tight">
+                        {label}
                       </span>
-
-                      <Link
-                        href={href}
-                        tabIndex={-1}
-                        aria-hidden="true"
-                        className="block h-12 w-16 overflow-hidden rounded-md border border-border-subtle bg-surface-muted sm:h-14 sm:w-20"
-                      >
-                        <StoryCoverThumbnail
-                          mediaId={story.coverMediaId}
-                          altText={null}
+                      <span className="font-mono text-xs text-foreground/45 tabular-nums">
+                        {rows.length}
+                      </span>
+                      <span className="ml-auto hidden text-sm text-foreground/45 sm:block">
+                        {hint}
+                      </span>
+                    </summary>
+                    <div className="pb-6">
+                      {view === "grid" ? (
+                        <StoryGrid
+                          stories={rows}
+                          takedownByStory={takedownByStory}
                         />
-                      </Link>
-
-                      <div className="sm:contents">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link
-                              href={href}
-                              className="font-medium hover:text-accent hover:underline underline-offset-2"
-                            >
-                              {title}
-                            </Link>
-                            <StatusBadge status={story.lifecycle_status} />
-                            {updateInFlight && (
-                              <UpdateChip inReview={inReview} />
-                            )}
-                          </div>
-                          {story.excerpt && (
-                            <p className="mt-1 line-clamp-2 text-sm text-foreground/70">
-                              {story.excerpt}
-                            </p>
-                          )}
-                          {updated && (
-                            <p className="mt-1 font-mono text-xs text-foreground/45 tabular-nums">
-                              Updated {updated}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="-ml-1.5 mt-1 flex items-center sm:mt-0">
-                          {editable && (
-                            <ActionIconLink
-                              href={`/stories/${story.id}/edit`}
-                              label={`Edit ${title}`}
-                              className="text-accent"
-                            >
-                              <EditorialPencilIcon className="h-4 w-4" />
-                            </ActionIconLink>
-                          )}
-                          {canStartRevision && (
-                            <StartRevisionButton
-                              storyId={story.id}
-                              storyTitle={title}
-                              isPublished={
-                                story.lifecycle_status === "published"
-                              }
-                              variant="icon"
-                              className={`${ACTION_ICON_CLASS} text-accent`}
-                            />
-                          )}
-                          {awaitingApproval ? (
-                            <ActionIconLink
-                              href={`/stories/${story.id}/preview`}
-                              label={`Review ${title}`}
-                              className="text-accent"
-                            >
-                              <EyeIcon className="h-4 w-4" />
-                            </ActionIconLink>
-                          ) : (
-                            <ActionIconLink
-                              href={`/stories/${story.id}/preview`}
-                              label={`Preview ${title}`}
-                              className="text-foreground/70"
-                            >
-                              <EyeIcon className="h-4 w-4" />
-                            </ActionIconLink>
-                          )}
-                          {deletable && (
-                            <DeleteDraftAction story={story} title={title} />
-                          )}
-                          {withdrawable && (
-                            <TakedownAction
-                              story={story}
-                              title={title}
-                              request={takedownByStory.get(story.id) ?? null}
-                            />
-                          )}
-                        </div>
-                      </div>
+                      ) : (
+                        <StoryList
+                          stories={rows}
+                          takedownByStory={takedownByStory}
+                        />
+                      )}
                     </div>
-                  </li>
+                  </details>
                 );
               })}
-            </ul>
-          )}
-
-          {pageCount > 1 && (
-            <nav
-              aria-label="Story pages"
-              className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-5 text-sm"
-            >
-              {/* Announced on change: without this, paging is silent to a
-                  screen reader -- the list swaps out with nothing said. */}
-              <span
-                aria-live="polite"
-                className="font-mono text-xs text-foreground/50 tabular-nums"
-              >
-                {pageStart + 1}–{pageStart + visible.length} of{" "}
-                {filtered.length}
-              </span>
-              <div className="flex items-center gap-4">
-                {/* Disabled rather than hidden at the ends, so the controls
-                    don't jump around under the pointer between pages. */}
-                <button
-                  type="button"
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="underline underline-offset-4 hover:text-accent disabled:no-underline disabled:opacity-40 disabled:hover:text-foreground"
-                >
-                  Previous
-                </button>
-                <span className="font-mono text-xs text-foreground/50 tabular-nums">
-                  {currentPage} / {pageCount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage === pageCount}
-                  className="underline underline-offset-4 hover:text-accent disabled:no-underline disabled:opacity-40 disabled:hover:text-foreground"
-                >
-                  Next
-                </button>
-              </div>
-            </nav>
+            </div>
           )}
         </>
       )}

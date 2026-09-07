@@ -1,3 +1,5 @@
+import type { StoryDestination } from "@/lib/story/story-visibility";
+
 /**
  * The one definition of the new-story timeline, shared by the editor
  * (components/story/story-edit-form.tsx, which owns steps 1-5 as in-page
@@ -75,10 +77,23 @@ export function missingStoryRequirements(input: {
   hasContent: boolean;
   locationCount: number;
   tagCount: number;
+  /**
+   * Where the story is headed. Defaults to "public", so every existing
+   * caller keeps the exact list it had before private stories existed.
+   *
+   * A private story needs a title and some actual writing -- that is what
+   * makes it a story rather than an empty shell, and keep_revision_private()
+   * enforces the content half itself (WHV03). It does NOT need a location
+   * or a tag: those two exist so a story can be FOUND in public browse and
+   * search (app/(public)), and nobody will ever search for a story only its
+   * author can see. Requiring them would be friction bought for nothing.
+   */
+  destination?: StoryDestination;
 }): StoryRequirement[] {
   const missing: StoryRequirement[] = [];
   if (!input.title.trim()) missing.push({ label: "a title", step: "title" });
   if (!input.hasContent) missing.push({ label: "your story", step: "story" });
+  if (input.destination === "private") return missing;
   if (input.locationCount < 1) {
     missing.push({ label: "at least one location", step: "places" });
   }

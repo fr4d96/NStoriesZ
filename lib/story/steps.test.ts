@@ -14,6 +14,62 @@ const complete = {
 };
 
 describe("missingStoryRequirements", () => {
+  it("still demands a location and a tag when the story is going public", () => {
+    // The default, and unchanged by private stories: a public story has to
+    // be findable in browse and search.
+    expect(
+      missingStoryRequirements({
+        ...complete,
+        locationCount: 0,
+        tagCount: 0,
+        destination: "public",
+      }).map((r) => r.label),
+    ).toEqual(["at least one location", "at least one tag"]);
+  });
+
+  it("drops the location and tag requirements for a private story", () => {
+    // Locations and tags exist so a story can be FOUND publicly. Nobody
+    // will ever search for a story only its author can see, so requiring
+    // them would be friction bought for nothing.
+    expect(
+      missingStoryRequirements({
+        ...complete,
+        locationCount: 0,
+        tagCount: 0,
+        destination: "private",
+      }),
+    ).toEqual([]);
+  });
+
+  it("still demands a title and real content for a private story", () => {
+    // The floor is the same either way: this is what makes the thing a
+    // story rather than an empty shell, and keep_revision_private()
+    // enforces the content half itself (WHV03) rather than trusting this.
+    expect(
+      missingStoryRequirements({
+        ...complete,
+        title: "  ",
+        hasContent: false,
+        destination: "private",
+      }).map((r) => r.label),
+    ).toEqual(["a title", "your story"]);
+  });
+
+  it("treats an unspecified destination as public", () => {
+    // Every caller that predates private stories passes no destination and
+    // must keep the list it always had.
+    expect(
+      missingStoryRequirements({ ...complete, locationCount: 0, tagCount: 0 }),
+    ).toEqual(
+      missingStoryRequirements({
+        ...complete,
+        locationCount: 0,
+        tagCount: 0,
+        destination: "public",
+      }),
+    );
+  });
+
   it("returns nothing for a story that is ready", () => {
     expect(missingStoryRequirements(complete)).toEqual([]);
   });

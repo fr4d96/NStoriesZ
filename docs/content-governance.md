@@ -84,6 +84,25 @@ related narrow exception: the contributor's own "approve" action in the editoria
 below (Editorial assistance section) is allowed to resubmit the exact revision the story is
 currently `awaiting_contributor_approval` on, in addition to the ordinary editable-draft path.
 
+**Implemented as of 2026-09-07 (private stories):** a contributor can now finish a story and keep it
+private, and that path records **no consent row at all**. This is the governance point, not an
+implementation detail: `story_publication_consents` is the one place we look to answer "were we
+allowed to publish this", so filing a grant for a story whose author explicitly chose _not_ to
+publish it would corrupt exactly the record it exists to protect. The private form therefore never
+asks the publication-permission, image-rights or identifiable-people questions either — collecting
+an answer to a question nobody needed to ask is how a permission that was never given ends up on
+file. `keep_revision_private()` takes no `p_publication_confirmed`, no `p_expected_terms_version`
+(the terms govern publication, and nothing is being published) and no image-rights parameters, so
+there is no code path from the private branch into the consent table.
+
+Choosing to publish a private story later is the _ordinary_ submission, not a shortcut past it: the
+revision is still an editable draft, so it goes through `submit_revision_with_consent()` with a full
+consent record and a normal moderator review. There is deliberately no promote-to-public function.
+The reverse — making an already-published story private — is **not** offered here; that is a
+take-down, and keeps its existing audited flow (`request_story_takedown()` /
+`revoke_publication_consent()`, "Corrections, withdrawal, and deletion" below) rather than gaining a
+second, unaudited route.
+
 ## Image rights
 
 - Every image attached to a story requires a recorded confirmation that the uploader/contributor has

@@ -74,9 +74,7 @@ export default async function AccountPage() {
       )}
 
       <section className="mt-10">
-        <h2 className="font-[Georgia,'Times_New_Roman',serif] text-xl tracking-tight">
-          Profile
-        </h2>
+        <h2 className="text-xl font-semibold tracking-tight">Profile</h2>
         <p className="mt-1 text-sm text-foreground/65">
           Nothing here is public unless you enable it below.
         </p>
@@ -94,7 +92,7 @@ export default async function AccountPage() {
         id="contributor-identity"
         className="mt-10 scroll-mt-24 border-t border-border-subtle pt-10"
       >
-        <h2 className="font-[Georgia,'Times_New_Roman',serif] text-xl tracking-tight">
+        <h2 className="text-xl font-semibold tracking-tight">
           Contributor identity
         </h2>
         <p className="mt-1 text-sm text-foreground/65">

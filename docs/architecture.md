@@ -478,6 +478,65 @@ that `current_draft_revision_id` references a `draft`-or-`submitted` revision of
 and `published_revision_id` references an `approved` revision of the _same_ story — regardless of
 caller.
 
+### Private stories — the branch that never enters review (2026-09-07)
+
+`lifecycle_status` gained a `private` value, and the submit step became a choice of two
+destinations rather than one:
+
+|                    | public                                  | private                    |
+| ------------------ | --------------------------------------- | -------------------------- |
+| RPC                | `submit_revision_with_consent()`        | `keep_revision_private()`  |
+| consent row        | written                                 | **none**                   |
+| `revision_status`  | `draft` → `submitted`                   | stays `draft`              |
+| `lifecycle_status` | `draft` → `pending_review`              | `draft` → `private`        |
+| `visibility`       | `private` → `public` at approval        | stays `private`            |
+| moderator          | reviews it                              | never sees it              |
+| images             | promoted to public delivery at approval | stay in the private bucket |
+
+The governing idea: **moderation exists to protect what the public sees, so a story with no public
+side has nothing to review.**
+
+**Why the revision deliberately stays `draft`.** Three guarantees fall out of that one decision,
+each of which would otherwise need its own rule someone could later forget:
+
+1. `get_moderation_queue()` selects `where r.revision_status = 'submitted'`. A revision that never
+   becomes `submitted` cannot appear in the queue — no new exclusion filter to maintain.
+2. Approval is what promotes images out of the private bucket (`finalize_story_publication()`). A
+   private story never reaches it, so Engineering Rules 13–14 hold by the code _not_ running.
+3. `story_revisions_protect_immutable_content()` freezes a revision the moment it leaves `draft`.
+   Immutability exists so a `revision_id` is a trustworthy snapshot of what was _consented to and
+   published_. A private story consented to nothing and published nothing, so freezing would buy no
+   guarantee and would cost the contributor the ability to keep working on their own story.
+
+`_revision_is_editable()` is the single place that learned the new status (`lifecycle_status in
+('draft', 'private', 'published')`), which is what keeps the editor, the preview page,
+`save_revision_draft()` and every `set_revision_*` function working on a private story unchanged.
+
+**Going public later needs no new function.** The private story's revision is still an editable
+draft, so the contributor submits it through the ordinary `submit_revision_with_consent()` path,
+which sets `pending_review` exactly as it does from `draft`. There is deliberately no
+promote-to-public RPC, so going public is always the _same_ code path, with the same consent record
+and the same review.
+
+**Two refusals.** `keep_revision_private()` rejects an `editorial_import` (staff prepared it for
+publication; locking it away would strand that work) and any story with a non-null
+`published_revision_id` (unpublishing is a take-down, and already has a governed, audited flow —
+`request_story_takedown()` / `revoke_publication_consent()`). Both raise `WHV04`. It also raises
+`WHV03` for an empty story, the same rule and code submission uses.
+
+**Other functions touched.** `delete_draft_story()` accepts `private` alongside `draft` — choosing
+"keep this to myself" must not also take away the ability to throw it away.
+`get_content_readiness_queue()` now _excludes_ private stories: readiness measures how close a story
+is to publication, so a private one would be permanent, un-closeable noise in a checklist whose job
+is to reach zero, and a staff work queue is not where a contributor's private story belongs.
+`get_operational_metrics()` needed no change — checked, not assumed: all five of its counts name
+their statuses explicitly, so `private` falls outside every one.
+
+**No public read function was modified**, deliberately. A private story fails all three of the
+public predicate's independent conditions on its own: `visibility` is `private`, `lifecycle_status`
+is `private`, and there is no `granted` consent row to join. The correct change to a public query
+here is no change.
+
 ### Public reads
 
 `get_published_story(slug)`, `list_published_stories(...)`, `get_published_story_media(story_id)`

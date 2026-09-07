@@ -1,10 +1,60 @@
 import { describe, expect, it } from "vitest";
 import {
+  canExportStory,
   contentDispositionAttachment,
   exportStatusLabel,
   travelStyleLabel,
   tripLabel,
 } from "@/lib/story/story-export";
+
+describe("canExportStory", () => {
+  it("refuses a plain, never-submitted draft", () => {
+    // The only state with nothing finished to take a copy of. The
+    // contributor has the editor open on it anyway.
+    expect(canExportStory("draft", "draft")).toBe(false);
+  });
+
+  it("allows a story that is with a moderator", () => {
+    expect(canExportStory("pending_review", "submitted")).toBe(true);
+  });
+
+  it("allows a published story", () => {
+    expect(canExportStory("published", "approved")).toBe(true);
+  });
+
+  it("allows a published story that is being edited again", () => {
+    // Looks like a draft (get_story_preview() resolves to the in-flight
+    // revision) but the story itself has been submitted and published.
+    // exportStatusLabel() has a name for exactly this state, so refusing
+    // here would make that name unreachable.
+    expect(canExportStory("published", "draft")).toBe(true);
+    expect(exportStatusLabel("published", "draft")).toBe(
+      "Unpublished draft update",
+    );
+  });
+
+  it("allows a private story, whose revision stays a draft forever", () => {
+    // Staying `draft` is the mechanism that keeps a private story out of
+    // moderation and its images out of public delivery -- not a sign it is
+    // unfinished. It is a completed story its author chose to keep, which
+    // makes keeping a copy of it the strongest case there is.
+    expect(canExportStory("private", "draft")).toBe(true);
+    expect(exportStatusLabel("private", "draft")).toBe("Private");
+  });
+
+  it("allows the states a moderator or the contributor closed", () => {
+    expect(canExportStory("changes_requested", "changes_requested")).toBe(true);
+    expect(canExportStory("rejected", "rejected")).toBe(true);
+    expect(canExportStory("archived", "approved")).toBe(true);
+  });
+
+  it("allows an editor-prepared story awaiting the contributor's approval", () => {
+    // Not submitted by the contributor yet, but it is a finished thing an
+    // editor is asking them to read carefully -- exactly when having a copy
+    // helps.
+    expect(canExportStory("awaiting_contributor_approval", "draft")).toBe(true);
+  });
+});
 
 describe("exportStatusLabel", () => {
   it("calls an approved revision on a published story Published", () => {
@@ -22,6 +72,15 @@ describe("exportStatusLabel", () => {
     expect(exportStatusLabel("published", "submitted")).toBe(
       "Update in review",
     );
+  });
+
+  it("calls a private story Private, not Draft", () => {
+    // A private story's revision stays 'draft' forever — that is what keeps
+    // it out of the moderation queue and its images out of public delivery.
+    // Without this case the PDF would say "Draft", which reads as unfinished
+    // work waiting to be submitted rather than a deliberate choice, in the
+    // one place there is no app around the label to correct it.
+    expect(exportStatusLabel("private", "draft")).toBe("Private");
   });
 
   it("labels a first-time story by its own revision state", () => {

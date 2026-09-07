@@ -2949,3 +2949,207 @@ describe("story_revision_expenses (migrations 20260902110000-110400)", () => {
     expect(expenses[0].amountNzdCents).toBe(200000);
   }, 30000);
 });
+
+/**
+ * Private stories (supabase/migrations/20260907100000 + 20260907100100).
+ *
+ * The claim under test is a negative one -- "a private story is not
+ * reviewed and is not public" -- so these assert the ABSENCES that make it
+ * true, not just that the happy path returns without an error:
+ *
+ *   * it never enters the moderation queue,
+ *   * it records no publication consent,
+ *   * it is not readable by anyone else, by id or by slug,
+ *   * and it stays editable by its owner throughout.
+ *
+ * Plus the two refusals keep_revision_private() owes the take-down flow and
+ * the editorial workflow.
+ */
+describe("private stories skip moderation entirely (migration 20260907100100)", () => {
+  let storyId: string;
+  let revisionId: string;
+  let storySlug: string;
+  let version: number;
+
+  async function refreshVersion() {
+    const { data } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    version = data![0].version;
+    storySlug = data![0].slug;
+    return version;
+  }
+
+  it("owner creates a draft and keeps it private instead of submitting it", async () => {
+    const { data, error } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug("kept-private"),
+        p_content_json: [
+          { type: "paragraph", text: "For me, not for the internet." },
+        ],
+      },
+    );
+    expect(error).toBeNull();
+    storyId = data![0].story_id;
+    revisionId = data![0].revision_id;
+
+    await refreshVersion();
+    const { error: privateError } = await untypedRpc(
+      owner.client,
+      "keep_revision_private",
+      { p_revision_id: revisionId, p_expected_version: version },
+    );
+    expect(privateError).toBeNull();
+
+    const { data: after } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    expect(after![0].lifecycle_status).toBe("private");
+    expect(after![0].visibility).toBe("private");
+    // The revision deliberately stays a DRAFT — that is the mechanism that
+    // keeps it out of the queue and its images out of public delivery.
+    expect(after![0].revision_status).toBe("draft");
+  }, 30000);
+
+  it("records no publication consent at all", async () => {
+    // story_publication_consents is the record of permission to PUBLISH
+    // (docs/content-governance.md). Nobody gave permission to publish this,
+    // so there must be nothing on file saying they did.
+    const { data, error } = await owner.client.rpc("current_consent_state", {
+      p_story_id: storyId,
+    });
+    expect(error).toBeNull();
+    expect(data?.publication_confirmed_at ?? null).toBeNull();
+  });
+
+  it("never appears in the moderation queue", async () => {
+    const { data, error } = await moderator.client.rpc("get_moderation_queue", {
+      p_status: "submitted",
+      p_limit: 50,
+    });
+    expect(error).toBeNull();
+    expect((data ?? []).some((row) => row.story_id === storyId)).toBe(false);
+  });
+
+  it("is not publicly readable, by id or by guessing the slug", async () => {
+    const { data: bySlug } = await untypedRpc<unknown[]>(
+      anon,
+      "get_published_story",
+      { p_slug: storySlug },
+    );
+    expect(bySlug ?? []).toHaveLength(0);
+
+    const { data: listed } = await anon.rpc("list_published_stories", {
+      p_limit: 50,
+    });
+    expect((listed ?? []).some((row) => row.story_id === storyId)).toBe(false);
+  });
+
+  it("is not readable by another signed-in user", async () => {
+    const { data, error } = await other.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    expect(data).toBeNull();
+    expect(error).not.toBeNull();
+  });
+
+  it("stays editable by its owner, and can be re-saved privately", async () => {
+    await refreshVersion();
+    const { error: saveError } = await owner.client.rpc("save_revision_draft", {
+      p_revision_id: revisionId,
+      p_expected_version: version,
+      p_title: slug("kept-private-edited"),
+      p_content_json: [{ type: "paragraph", text: "Still just for me." }],
+    });
+    expect(saveError).toBeNull();
+
+    await refreshVersion();
+    const { error: againError } = await untypedRpc(
+      owner.client,
+      "keep_revision_private",
+      { p_revision_id: revisionId, p_expected_version: version },
+    );
+    expect(againError).toBeNull();
+  }, 30000);
+
+  it("another user cannot make someone else's story private", async () => {
+    await refreshVersion();
+    const { error } = await untypedRpc(other.client, "keep_revision_private", {
+      p_revision_id: revisionId,
+      p_expected_version: version,
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("a stale expected_version is rejected", async () => {
+    await refreshVersion();
+    const { error } = await untypedRpc(owner.client, "keep_revision_private", {
+      p_revision_id: revisionId,
+      p_expected_version: version + 99,
+    });
+    expect(error).not.toBeNull();
+  });
+
+  it("the owner can change their mind and send it for review after all", async () => {
+    // The whole point of leaving the revision an editable draft: going
+    // public is the SAME code path as any other first submission, with the
+    // same consent record and the same moderator, not a shortcut past them.
+    await refreshVersion();
+    const { error } = await owner.client.rpc("submit_revision_with_consent", {
+      p_revision_id: revisionId,
+      p_expected_version: version,
+      p_confirmation_method: "account",
+      p_publication_confirmed: true,
+      p_expected_terms_version: currentTermsVersion,
+    });
+    expect(error).toBeNull();
+
+    const { data: after } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    expect(after![0].lifecycle_status).toBe("pending_review");
+
+    const { data: queue } = await moderator.client.rpc("get_moderation_queue", {
+      p_status: "submitted",
+      p_limit: 50,
+    });
+    expect((queue ?? []).some((row) => row.story_id === storyId)).toBe(true);
+  }, 30000);
+
+  it("an empty story cannot be saved privately either (WHV03)", async () => {
+    const { data } = await owner.client.rpc("create_self_service_draft", {
+      p_title: slug("empty-private"),
+    });
+    const emptyStoryId = data![0].story_id;
+    const emptyRevisionId = data![0].revision_id;
+    const { data: read } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: emptyStoryId,
+    });
+
+    const { error } = await untypedRpc(owner.client, "keep_revision_private", {
+      p_revision_id: emptyRevisionId,
+      p_expected_version: read![0].version,
+    });
+    expect(error).not.toBeNull();
+    expect(error?.code).toBe("WHV03");
+  }, 30000);
+
+  it("an already-published story cannot be made private this way", async () => {
+    // Unpublishing is a take-down, with its own audit trail
+    // (request_story_takedown / revoke_publication_consent). This must not
+    // become a second, unaudited way to do it.
+    const published = await publishOwnerStory({
+      title: slug("published-not-privatable"),
+    });
+    const { data: read } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: published.storyId,
+    });
+    const { error } = await untypedRpc(owner.client, "keep_revision_private", {
+      p_revision_id: read![0].revision_id,
+      p_expected_version: read![0].version,
+    });
+    expect(error).not.toBeNull();
+    expect(error?.code).toBe("WHV04");
+  }, 60000);
+});

@@ -16,6 +16,7 @@ import {
   type StoryPdfImage,
 } from "@/lib/story/story-pdf";
 import {
+  canExportStory,
   contentDispositionAttachment,
   exportStatusLabel,
   travelStyleLabel,
@@ -27,7 +28,8 @@ import { logAppEvent } from "@/lib/log";
 // both need real Node APIs, same reasoning as the PDF import routes.
 export const runtime = "nodejs";
 
-// Never cached, never statically generated. This can serve a private draft,
+// Never cached, never statically generated. This can serve an unpublished
+// story (a private one, or an in-flight edit to a published one),
 // so every request must re-authorize against the live session
 // (Engineering Rules 10-13) -- the same pin the private preview page carries.
 export const dynamic = "force-dynamic";
@@ -36,7 +38,7 @@ export const dynamic = "force-dynamic";
  * GET /stories/:id/export -- the contributor's own copy of their story, as a
  * PDF.
  *
- * AUTHORIZATION. Two independent checks, neither of which trusts anything in
+ * AUTHORIZATION. Three independent checks, none of which trusts anything in
  * the URL beyond the story id:
  *
  *  1. `get_story_preview()` (via getStoryPreview) is the same private,
@@ -48,6 +50,15 @@ export const dynamic = "force-dynamic";
  *     PREVIEW a draft in the review UI, but this endpoint mints a file that
  *     leaves the platform, and "download someone else's unpublished story"
  *     is not what this feature is for. Staff keep the on-screen preview.
+ *  3. canExportStory() refuses a story that is still a plain,
+ *     never-submitted draft -- a download is a copy of a finished thing,
+ *     and that is the one state where there isn't one yet. A PRIVATE story
+ *     still exports (its revision stays `draft` by design, which is not the
+ *     same as unfinished), and so does a published story with an edit in
+ *     flight. The preview page hides the link for the same cases, but that
+ *     is presentation only -- this URL is typeable, so the rule has to live
+ *     here too (Engineering Rule 2). Sharing the one predicate is what
+ *     stops the two from drifting apart.
  *
  * Every failure returns a flat 404 -- signed out, wrong person, missing
  * story and unreadable content are indistinguishable to the caller, matching
@@ -81,6 +92,13 @@ export async function GET(
     preview.viewerRelationship !== "owner" &&
     preview.viewerRelationship !== "linked_contributor"
   ) {
+    return notFound();
+  }
+
+  // Check 3 -- see the header comment. Same flat 404 as every other failure
+  // here, so "you may not have this" and "there is nothing to have" stay
+  // indistinguishable to the caller.
+  if (!canExportStory(preview.lifecycleStatus, preview.revisionStatus)) {
     return notFound();
   }
 
@@ -135,8 +153,8 @@ export async function GET(
       // runtime sets it correctly, and a hand-set value that disagrees with
       // whatever transfer encoding Next chooses is worse than none.
       "Content-Disposition": contentDispositionAttachment(asciiName, asciiName),
-      // Belt and braces with `dynamic = "force-dynamic"`: this body can be a
-      // private draft, so no shared cache may ever hold it.
+      // Belt and braces with `dynamic = "force-dynamic"`: this body can be
+      // an unpublished story, so no shared cache may ever hold it.
       "Cache-Control": "no-store, max-age=0",
       "X-Content-Type-Options": "nosniff",
     },
