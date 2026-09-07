@@ -710,14 +710,7 @@ describe("MyStoriesView", () => {
             makeStory({
               id: "00000000-0000-4000-8000-000000000005",
               title: "Just for me",
-              // Cast for the same reason lib/story/story-visibility.ts takes
-              // a plain `string`: types/database.ts is generated from a live
-              // Supabase project and has not been regenerated since
-              // 20260907100000 added 'private' to story_lifecycle_status, so
-              // the union here is one value short of the real enum. Drops
-              // out the moment `npm run supabase:types:linked` is run.
-              lifecycle_status:
-                "private" as MyStoryWithCover["lifecycle_status"],
+              lifecycle_status: "private",
               published_revision_id: null,
             }),
           ] as MyStoryWithCover[]

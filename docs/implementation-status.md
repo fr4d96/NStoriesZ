@@ -46,7 +46,7 @@ present and the same route answers 200 with `application/pdf`.
 so its two positive tests asserted precisely the behaviour being removed. It now builds two
 fixtures — one submitted (the PDF-content assertions moved onto it, and its status line changes
 from `(Draft)` to `(In review)`) and one left as a plain draft for a new test asserting both the
-missing link and the 404. Not executed here, for the same reason as the RLS tests below.
+missing link and the 404. All 6 specs run and pass against the linked development project.
 
 **2026-09-07 — Stories can be kept private, and private stories skip moderation.**
 
@@ -135,15 +135,28 @@ itself, which needs the migration. The destination switch is covered instead by
 `components/story/publish-choice-panel.test.tsx`, which clicks the real radio and asserts the
 requirement list and form both change.
 
-**Not applied to any database.** The migrations have not been pushed anywhere: there is no Docker on this machine and no linked project, so `supabase db push` to
-the hosted development project is the next required step, and it is an outward-facing action that
-was deliberately left for a human. Consequently `types/database.ts` could not be regenerated either
-— `keep_revision_private` is called through `callUntypedRpc()` and the new `lifecycle_status` value
-through `isPrivateStory(status: string)` in `lib/story/story-visibility.ts`, both of which should
-collapse back to plain typed calls the moment `npm run supabase:types:linked` is run. The RLS
-integration tests written for this (`tests/integration/story-rls.integration.test.ts`, a
-`describe` block asserting the _absences_: no queue entry, no consent row, no public read, no
-cross-user read) have never been executed for the same reason.
+**Applied to the linked development project (`ybhydepjaantkngngvuf`) and exercised there.**
+`supabase db push` applied exactly these two migrations and nothing else — `migration list` showed
+no drift beforehand, and the two-file enum split did what it was written for: the `language sql`
+`_revision_is_editable()` re-creation went through with no "unsafe use of new value of enum type".
+
+`types/database.ts` was then regenerated with `npm run supabase:types:linked`. The real diff is 9
+lines — `kept_private_at`, `keep_revision_private`, and `"private"` sitting after `"draft"` in the
+enum, exactly as declared. (The generator emits no semicolons, so the file must be run through
+Prettier afterwards or `format:check` fails and the diff looks like a 2,000-line rewrite.) With
+real types in hand the two deliberate stand-ins were removed: `keepRevisionPrivate()` is a plain
+typed `supabase.rpc(...)` again, per `callUntypedRpc()`'s own rule, and the enum cast in
+`my-stories-view.test.tsx` is gone. `isPrivateStory(status: string)` KEEPS its `string` parameter —
+that was never only about stale types: `StoryPreview` widens every status to `string` on purpose,
+so narrowing to the enum would break the preview page. Its comment now says so.
+
+**The RLS integration tests then ran for real: 99 passed**, including this change's own `describe`
+block, which asserts the _absences_ that make "private" mean anything — never in
+`get_moderation_queue()`, no `story_publication_consents` row, not readable by anon by id or by
+guessed slug, not readable by another signed-in user — plus the round trip back out (submitting a
+private story later lands it in the moderation queue like any other first submission), `WHV03` on
+an empty story and `WHV04` on an already-published one. The post-run cleanup reported no orphaned
+rows.
 
 **2026-09-07 — My Stories is grouped into collapsible status sections.**
 

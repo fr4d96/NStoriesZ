@@ -16,18 +16,18 @@
  * whole rule; everything else here is bookkeeping for it.
  *
  * WHY `lifecycleStatus: string` AND NOT THE GENERATED ENUM UNION.
- * `types/database.ts` is generated from a live Supabase project and is
- * never hand-edited (CLAUDE.md, "Folder conventions"). It has not been
- * regenerated since 20260907100000 added 'private' to
- * story_lifecycle_status, so `Database["public"]["Enums"]["story_lifecycle_status"]`
- * still lacks the value and a direct `story.lifecycle_status === "private"`
- * fails to compile as a comparison between non-overlapping types. Widening
- * to `string` once, here, in a function whose name says exactly what it
- * tests, is the honest version of that -- the alternative is an `as string`
- * cast at each of the five call sites, which would survive the
- * regeneration and quietly outlive its reason. When `npm run
- * supabase:types:linked` is next run, this parameter can be narrowed to the
- * enum union and nothing else has to change.
+ * The two callers disagree about the type, and `string` is the honest
+ * common denominator rather than a leftover. My Stories reads
+ * `list_my_stories()`'s row, whose `lifecycle_status` IS the generated enum
+ * union; the preview page reads `StoryPreview`
+ * (lib/story/contributor-queries.ts), which deliberately widens every
+ * status to `string` so a page never has to care which enum a status came
+ * from. Narrowing this parameter to the enum would break the second caller
+ * and buy nothing the function name does not already say.
+ *
+ * (Until 20260907100100 was pushed and `npm run supabase:types:linked` run,
+ * this also worked around 'private' being absent from the generated enum.
+ * That reason is gone; the one above is why it stays.)
  */
 export const PRIVATE_LIFECYCLE_STATUS = "private";
 

@@ -370,6 +370,7 @@ export type Database = {
           created_by: string | null;
           current_draft_revision_id: string | null;
           id: string;
+          kept_private_at: string | null;
           lifecycle_status: Database["public"]["Enums"]["story_lifecycle_status"];
           owner_user_id: string | null;
           published_at: string | null;
@@ -391,6 +392,7 @@ export type Database = {
           created_by?: string | null;
           current_draft_revision_id?: string | null;
           id?: string;
+          kept_private_at?: string | null;
           lifecycle_status?: Database["public"]["Enums"]["story_lifecycle_status"];
           owner_user_id?: string | null;
           published_at?: string | null;
@@ -412,6 +414,7 @@ export type Database = {
           created_by?: string | null;
           current_draft_revision_id?: string | null;
           id?: string;
+          kept_private_at?: string | null;
           lifecycle_status?: Database["public"]["Enums"]["story_lifecycle_status"];
           owner_user_id?: string | null;
           published_at?: string | null;
@@ -1954,6 +1957,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      keep_revision_private: {
+        Args: { p_expected_version: number; p_revision_id: string };
+        Returns: undefined;
+      };
       link_contributor_to_user: {
         Args: { p_contributor_id: string; p_note?: string; p_user_id: string };
         Returns: undefined;
@@ -2380,6 +2387,7 @@ export type Database = {
         "confirmed" | "not_applicable" | "pending" | "declined";
       story_lifecycle_status:
         | "draft"
+        | "private"
         | "awaiting_contributor_approval"
         | "pending_review"
         | "changes_requested"
@@ -2551,6 +2559,7 @@ export const Constants = {
       ],
       story_lifecycle_status: [
         "draft",
+        "private",
         "awaiting_contributor_approval",
         "pending_review",
         "changes_requested",
