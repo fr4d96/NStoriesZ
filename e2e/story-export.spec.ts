@@ -62,9 +62,13 @@ const hasAllCredentials = Boolean(
   MODERATOR_PASSWORD,
 );
 
-const STORY_TITLE = `rls-test export Whangārei ${Date.now()}`;
+const STORY_TITLE = `rls-test export 陈美玲 Whangārei ${Date.now()}`;
 const STORY_SENTENCE =
   "We drove south from Whakatāne with a boot full of wet gear.";
+/** Mixed Latin/Chinese/emoji, to prove the fallback faces resolve on a real
+ * server rather than only under Vitest — they are read from process.cwd(),
+ * which is the one thing a unit test cannot exercise realistically. */
+const STORY_MIXED = "我在紐西蘭的一年。Picking 奇异果 🥝 all season.";
 
 async function signInRpcClient(
   email: string,
@@ -101,7 +105,7 @@ async function createDraftStory(owner: SupabaseClient): Promise<string> {
     p_content_json: [
       {
         type: "markdown",
-        text: `## Getting there\n\n${STORY_SENTENCE}\n\n- Wet weather gear\n- Steel-cap boots\n`,
+        text: `## Getting there\n\n${STORY_SENTENCE}\n\n${STORY_MIXED}\n\n- Wet weather gear\n- Steel-cap boots\n`,
       },
     ],
   });
@@ -168,6 +172,14 @@ test.describe("story PDF export", () => {
     // Macrons survive the round trip -- the reason this route embeds a font
     // instead of using a PDF base-14 one.
     expect(text).toContain("Whangārei");
+    // Chinese and emoji come from the committed fallback faces, resolved from
+    // process.cwd() -- proving assets/fonts is readable by the running server.
+    expect(text).toContain("我在紐西蘭的一年");
+    expect(text).toContain("奇异果");
+    expect(text).toContain("🥝");
+    expect(text).toContain("陈美玲");
+    // And nothing degraded to the old question-mark substitution.
+    expect(text).not.toContain("???");
     // Engineering Rule 17 travels with the file.
     expect(text).toContain("Personal experience, not advice");
     // And the copy says what it is: this story has never been published.

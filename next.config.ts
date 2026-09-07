@@ -152,6 +152,9 @@ const nextConfig: NextConfig = {
     "/stories/*/export": [
       "./node_modules/@img/sharp-libvips-*/lib/*",
       "./node_modules/pdfjs-dist/standard_fonts/LiberationSans-*.ttf",
+      // The committed CJK + emoji fallback faces. Opened by path at runtime
+      // from process.cwd(), so nothing statically imports them either.
+      "./assets/fonts/*.ttf",
     ],
     "/stories/new/pdf-attach": ["./node_modules/@img/sharp-libvips-*/lib/*"],
     "/editorial/*/edit": ["./node_modules/@img/sharp-libvips-*/lib/*"],

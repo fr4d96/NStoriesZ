@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-07 (contributors can download their own story as a PDF; earlier:
+Last updated: 2026-09-07 (PDF export renders Chinese and emoji; earlier the same day:
+contributors can download their own story as a PDF; earlier:
 My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
 story; earlier: the custom-label copy bug that broke editing a published story;
 earlier: contributor edits to published stories, and the tag-input dropdown fix;
@@ -11,7 +12,77 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-07 (latest) — A contributor can download their own story as a PDF.**
+**2026-09-07 (latest) — The PDF export renders Chinese and emoji.**
+
+Font fallback in `lib/story/story-pdf.ts`. Follow-up to the export entry below, which shipped
+with Latin-only coverage and turned everything else into `?`.
+
+**Two fonts are now committed to `assets/fonts/` (SIL OFL 1.1, licence alongside them).** Unlike
+the Liberation faces — which ride along inside pdfjs-dist and cost nothing — these are real files
+in the repo:
+
+- `NotoSansSC-Regular.ttf` (10.1 MB, 30,898 glyphs). Simplified Chinese plus a large slice of
+  Traditional. Malaysia, this product's launch market, uses Simplified, and a Chinese-Malaysian
+  contributor's own display name rendering as `???` was the case worth fixing.
+- `NotoEmoji-Regular.ttf` (0.8 MB, 1,905 glyphs). The **monochrome** Noto Emoji, deliberately not
+  Noto Color Emoji.
+
+**Why not an npm dependency, the way Liberation Sans works.** `@fontsource/*` ships only per-range
+`.woff2` subsets (918 files), which pdfkit cannot use. `@expo-google-fonts/*` does ship the static
+`.ttf` pdfkit needs, but unpacks 96 MB of nine weights to use two files, on every CI install. A
+committed file is the smaller cost. Weighed explicitly rather than defaulted into.
+
+**Why colour emoji is not an option, checked rather than assumed.** Colour emoji fonts keep their
+glyphs in bitmap (`sbix`, `CBDT`) or layered `COLR` tables, none of which pdfkit writes into a PDF.
+Inspected Apple Color Emoji directly: `sbix` present, **no `glyf` outlines at all**, so embedding
+it produces blank boxes — worse than the `?` it would replace. Noto Emoji has real outlines and
+subsets normally, so emoji come out as black line art.
+
+**There is no bold CJK face, on purpose.** A second weight is another 10 MB, so CJK inside bold
+text renders at regular weight while the Latin around it still goes bold. Flat-looking in a
+heading, never missing.
+
+How it works:
+
+- **`segmentByFont()`** walks a string and splits it into runs by which face can actually draw
+  each character, asking the fonts themselves. **Order matters and is load-bearing**: the primary
+  face is tried FIRST even though Noto Sans SC also carries Latin glyphs — checking CJK first
+  would silently re-typeset every ASCII letter in the document. There is a test that asserts on
+  the embedded font names, because that particular mistake is invisible in extracted text.
+- **`drawSegments()`** emits one pdfkit `continued` chain across all the segments, so a paragraph
+  that switches script mid-sentence still wraps as a single block. `writeRuns()` already switched
+  faces per run for bold/italic/links, so this extended a mechanism rather than adding one.
+- **Right-aligned text goes through `drawPlain()` instead.** pdfkit honours `align` only on an
+  unchained call, and every right-aligned string here (page numbers, formatted currency, list
+  markers) is ASCII the primary face covers anyway.
+- **Mixed-face text cannot be measured exactly** — `heightOfString()` uses one font. `measureText()`
+  measures in the widest face present, biasing the estimate high: over-reserving costs a little
+  whitespace, under-reserving overlaps the next block.
+- **PDF metadata (Title/Author) now carries the raw string.** Those are UTF-16BE literals that
+  never reference an embedded font, so a Chinese title shows correctly in a reader's Properties
+  panel.
+
+**Size is a deployment cost, not a per-download one — measured, not assumed.** pdfkit subsets:
+only the glyphs actually used are embedded. A 23.3 MB font plus twelve Chinese characters produced
+a 15 KB PDF, and a full mixed-script sample page came to 55 KB. A test pins this at
+under 400 KB so a future change that accidentally embeds a whole face fails loudly.
+
+`next.config.ts` gained `./assets/fonts/*.ttf` in the `/stories/*/export` tracing entry — opened by
+path from `process.cwd()`, so nothing statically imports them and @vercel/nft cannot see them
+otherwise. Verified in the built `.nft.json`, as that file's comment demands.
+
+**Worth knowing for the next person:** the Playwright spec caught this feature failing while the
+unit tests passed, because `playwright.config.ts` runs `npm run start` against the EXISTING
+`.next` build. Run `npm run build` (or `npm run verify:full`) before `test:e2e`, or you are testing
+the previous commit.
+
+Tests: 7 `segmentByFont` cases plus 4 rendering cases (Chinese through title/body/facts, emoji
+round-trip, the subsetting ceiling, and the font-ordering guard). `e2e/story-export.spec.ts` now
+carries mixed Latin/Chinese/emoji content and asserts no `???` survives — the one check a unit
+test cannot make honestly, since the fonts resolve from `process.cwd()`. `npm run verify` clean:
+825 tests; the 5 Playwright specs pass live against the linked project.
+
+**2026-09-07 — A contributor can download their own story as a PDF.**
 
 New route `GET /stories/:id/export`
 (`app/(contributor)/stories/[id]/export/route.ts`), reachable from a "Download a copy" link on
@@ -44,12 +115,10 @@ Things worth knowing before touching it:
   no macron vowels — so Helvetica cannot render `Manawatū`, `Whakatāne` or `Whangārei`, three
   regions in this product's own seed data (20260812120000). Coverage was checked with fontkit
   before choosing. No font file is committed; the four faces already ship inside pdfjs-dist.
-- **`sanitizeForFont()` asks the real font which code points it has** and substitutes `?` for the
-  rest, rather than carrying a hand-written list of Unicode ranges that could drift from the .ttf.
-  Practical limit: **CJK and emoji are not covered** — a contributor whose display name is in a
-  non-Latin script gets `???` rather than silent blank boxes. Shipping a font with that coverage
-  costs 10–20 MB on every deployment of this route; if it becomes a real complaint, that is the
-  fix, and it is a one-line change here.
+- **Coverage is decided by asking the real fonts** which code points they have, rather than by a
+  hand-written list of Unicode ranges that could drift from the .ttf files. Superseded the same
+  day by font fallback — see the next entry; CJK and emoji ARE now covered, and only a script
+  none of the three faces has still degrades to `?`.
 - **`buildStoryPdf` names a real .ttf in the `PDFDocument` constructor on purpose.** Left to
   default, pdfkit initialises with Helvetica and reads
   `node_modules/pdfkit/js/data/Helvetica.afm` off disk. That read is invisible to @vercel/nft —

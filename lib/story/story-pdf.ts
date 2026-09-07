@@ -46,7 +46,8 @@ import { isSafeHref } from "@/lib/validation/story";
  * so a base-14 font cannot render its own reference data. Verified with
  * fontkit before choosing: Liberation Sans covers Latin Extended-A (the
  * macrons), curly quotes, en/em dashes and the bullet characters used
- * below. It does NOT cover CJK or emoji -- see `sanitizeForFont()`.
+ * below. It does NOT cover CJK or emoji -- those come from the fallback
+ * faces declared in FALLBACK_FONT_FILES, via segmentByFont().
  *
  * WHY NOT A COMMITTED FONT FILE: this adds no binary to the repo. Liberation
  * is SIL OFL 1.1 (node_modules/pdfjs-dist/standard_fonts/LICENSE_LIBERATION),
@@ -94,66 +95,167 @@ const FONT_FILES = {
 
 type FontKey = keyof typeof FONT_FILES;
 
+/**
+ * Fallback faces for scripts Liberation Sans has no glyphs for. Unlike the
+ * Liberation faces (which ride along inside pdfjs-dist), these are committed
+ * to this repo -- no npm package ships the static .ttf pdfkit needs
+ * (@fontsource has only per-range .woff2 subsets), and the one that does
+ * (@expo-google-fonts/*) unpacks 96 MB of weights to use two files.
+ *
+ * Both are SIL OFL 1.1 -- see assets/fonts/LICENSE-OFL.txt.
+ *
+ *  - NotoSansSC-Regular.ttf (10.1 MB, 30,898 glyphs) covers Simplified and a
+ *    large slice of Traditional Chinese. Malaysia -- this product's launch
+ *    market -- uses Simplified, and a Chinese-Malaysian contributor's own
+ *    display name is the case this whole mechanism exists for.
+ *  - NotoEmoji-Regular.ttf (0.8 MB, 1,905 glyphs) is the MONOCHROME Noto
+ *    Emoji, deliberately NOT Noto Color Emoji. Colour emoji fonts store
+ *    glyphs as bitmaps (sbix/CBDT) or layered COLR, none of which pdfkit
+ *    writes into a PDF -- verified against Apple Color Emoji, which has an
+ *    sbix table and no outlines at all, so embedding it yields blank boxes.
+ *    This one has real outlines and subsets normally; emoji come out as
+ *    black line art.
+ *
+ * There is deliberately NO bold CJK face: a second weight is another 10 MB,
+ * so CJK inside bold text renders at regular weight. Latin around it still
+ * goes bold. Flat-looking in a heading, never missing.
+ */
+const FALLBACK_FONT_FILES = {
+  cjk: "NotoSansSC-Regular.ttf",
+  emoji: "NotoEmoji-Regular.ttf",
+} as const;
+
+type FallbackKey = keyof typeof FALLBACK_FONT_FILES;
+
+/** Every registered pdfkit font name -- the Liberation faces plus fallbacks. */
+type RegisteredFont =
+  (typeof FONT_FILES)[FontKey] | (typeof FALLBACK_FONT_FILES)[FallbackKey];
+
 function fontPath(key: FontKey): string {
   return path.join(liberationFontDir(), FONT_FILES[key]);
 }
 
 /**
- * The regular face, opened once, purely so `sanitizeForFont()` can ask the
- * REAL font which code points it can draw. A hand-maintained list of Unicode
- * ranges was the alternative and would be wrong the moment it drifted from
- * the actual .ttf; this cannot drift.
+ * Committed fonts live in `assets/fonts/`, resolved from the process working
+ * directory. NOT next to this module via `import.meta.url`: that is a bundler
+ * artefact under Turbopack and does not point at a real repo path, whereas
+ * `process.cwd()` is the deployed project root on Vercel. Paired with the
+ * `outputFileTracingIncludes` entry for `/stories/*\/export` in
+ * next.config.ts, which is what actually gets the files deployed.
  */
-let coverageFontCache: fontkit.Font | undefined;
-
-function coverageFont(): fontkit.Font {
-  if (!coverageFontCache) {
-    const opened = fontkit.openSync(fontPath("regular"));
-    // openSync widens to Font | FontCollection because a .ttc holds several
-    // faces. These are plain .ttf files, so the collection branch is
-    // unreachable -- but assert it rather than assume it, so a swapped font
-    // file fails here with a clear message instead of somewhere downstream.
-    //
-    // Narrowed on the method actually used below, NOT on `getFont`: fontkit
-    // puts `getFont` on a single Font too, so that discriminator matches
-    // everything and rejects the good case.
-    if (!("hasGlyphForCodePoint" in opened)) {
-      throw new Error(
-        `Expected a single-face font at ${FONT_FILES.regular}, got a collection.`,
-      );
-    }
-    coverageFontCache = opened;
-  }
-  return coverageFontCache;
+function fallbackFontPath(key: FallbackKey): string {
+  return path.join(process.cwd(), "assets", "fonts", FALLBACK_FONT_FILES[key]);
 }
 
 /**
- * Replaces characters Liberation Sans has no glyph for, so unsupported text
- * renders as a visible "?" rather than the silent blank box a missing glyph
- * otherwise produces. The realistic case is a contributor whose chosen
- * display name is in a non-Latin script (Chinese, Tamil, Arabic) --
- * Kakinotes' initial market is Malaysia, so this is not hypothetical.
- *
- * Handled this way rather than by shipping a CJK font because a font with
- * that coverage is 10-20 MB on every deployment of this route, for a case
- * the export can degrade gracefully on instead. The limitation is stated in
- * docs/implementation-status.md rather than hidden.
+ * The three faces opened for glyph lookup, so segmentation asks the REAL
+ * fonts what they can draw. A hand-maintained list of Unicode ranges was the
+ * alternative and would be wrong the moment it drifted from the .ttf files;
+ * this cannot drift.
  */
-export function sanitizeForFont(text: string): string {
-  const font = coverageFont();
-  let out = "";
+type CoverageFonts = {
+  primary: fontkit.Font;
+  cjk: fontkit.Font;
+  emoji: fontkit.Font;
+};
+
+let coverageFontsCache: CoverageFonts | undefined;
+
+function openSingleFace(file: string): fontkit.Font {
+  const opened = fontkit.openSync(file);
+  // openSync widens to Font | FontCollection because a .ttc holds several
+  // faces. These are all single-face files, so the collection branch is
+  // unreachable -- but assert it rather than assume it, so a swapped font
+  // file fails here with a clear message instead of somewhere downstream.
+  //
+  // Narrowed on the method actually used below, NOT on `getFont`: fontkit
+  // puts `getFont` on a single Font too, so that discriminator matches
+  // everything and rejects the good case.
+  if (!("hasGlyphForCodePoint" in opened)) {
+    throw new Error(
+      `Expected a single-face font at ${file}, got a collection. Unwrap it ` +
+        `with getFont(postscriptName) before registering it with pdfkit.`,
+    );
+  }
+  return opened;
+}
+
+function coverageFonts(): CoverageFonts {
+  if (!coverageFontsCache) {
+    coverageFontsCache = {
+      primary: openSingleFace(fontPath("regular")),
+      cjk: openSingleFace(fallbackFontPath("cjk")),
+      emoji: openSingleFace(fallbackFontPath("emoji")),
+    };
+  }
+  return coverageFontsCache;
+}
+
+/**
+ * One stretch of text that can be drawn in a single face. `fallback` is null
+ * when the caller's own face (regular/bold/italic/bold-italic) can draw it.
+ */
+export type TextSegment = { text: string; fallback: FallbackKey | null };
+
+/**
+ * Splits text into runs by which font can actually draw each character.
+ *
+ * Order matters: the PRIMARY face is tried first even though Noto Sans SC
+ * also carries Latin glyphs. Checking CJK first would quietly re-set every
+ * ASCII letter in the document in a different typeface.
+ *
+ * Coverage is checked against Liberation Sans REGULAR only. The bold and
+ * italic faces are the same family with the same character set, so a
+ * per-weight check would cost three more parsed fonts to answer identically.
+ *
+ * A character no face can draw still becomes "?" -- visibly wrong beats the
+ * silent blank box a missing glyph renders as.
+ */
+export function segmentByFont(text: string): TextSegment[] {
+  const fonts = coverageFonts();
+  const segments: TextSegment[] = [];
+
+  const push = (char: string, fallback: FallbackKey | null) => {
+    const last = segments[segments.length - 1];
+    if (last && last.fallback === fallback) last.text += char;
+    else segments.push({ text: char, fallback });
+  };
+
   for (const char of text) {
     const codePoint = char.codePointAt(0);
-    // Keep the newlines and tabs pdfkit's own layout depends on; every
-    // other control character is dropped rather than turned into "?".
+    // Keep the newlines and tabs pdfkit's own layout depends on; every other
+    // control character is dropped rather than turned into "?".
     if (char === "\n" || char === "\t") {
-      out += char;
+      push(char, null);
       continue;
     }
     if (codePoint === undefined || codePoint < 0x20) continue;
-    out += font.hasGlyphForCodePoint(codePoint) ? char : "?";
+
+    if (fonts.primary.hasGlyphForCodePoint(codePoint)) push(char, null);
+    else if (fonts.cjk.hasGlyphForCodePoint(codePoint)) push(char, "cjk");
+    else if (fonts.emoji.hasGlyphForCodePoint(codePoint)) push(char, "emoji");
+    else push("?", null);
   }
-  return out;
+
+  return segments;
+}
+
+/**
+ * The face to MEASURE mixed-font text with. pdfkit's heightOfString() uses
+ * one font, so a string that switches faces mid-line cannot be measured
+ * exactly. Picking the fallback present biases the estimate high -- CJK
+ * glyphs are wider and taller than Latin, so the text wraps sooner and
+ * reserves more vertical space than it needs. Over-reserving costs a little
+ * whitespace; under-reserving overlaps the next block.
+ */
+function measurementFont(segments: TextSegment[]): RegisteredFont {
+  if (segments.some((segment) => segment.fallback === "cjk")) {
+    return FALLBACK_FONT_FILES.cjk;
+  }
+  if (segments.some((segment) => segment.fallback === "emoji")) {
+    return FALLBACK_FONT_FILES.emoji;
+  }
+  return FONT_FILES.regular;
 }
 
 /**
@@ -427,8 +529,134 @@ class StoryPdfRenderer {
     if (this.doc.y + needed > this.contentBottom) this.doc.addPage();
   }
 
-  private text(value: string): string {
-    return sanitizeForFont(value);
+  /**
+   * The pdfkit font name for one segment: its fallback face when it has one,
+   * otherwise the caller's own weight/style.
+   */
+  private fontNameFor(segment: TextSegment, baseFont: FontKey): RegisteredFont {
+    if (segment.fallback) return FALLBACK_FONT_FILES[segment.fallback];
+    return FONT_FILES[baseFont];
+  }
+
+  /**
+   * Draws a string that may switch faces mid-word, as one pdfkit `continued`
+   * chain so the text still flows and wraps as a single paragraph.
+   *
+   * `align` is honoured only on the first call of a chain (pdfkit's rule), so
+   * anything non-left-aligned must be single-segment ASCII -- which every
+   * right-aligned caller here is (page numbers, currency, list markers). Those
+   * go through `drawPlain()` instead and never reach this method.
+   */
+  private drawSegments(
+    value: string,
+    options: {
+      baseFont: FontKey;
+      size: number;
+      color: string;
+      width: number;
+      x?: number;
+      y?: number;
+      lineGap?: number;
+      lineBreak?: boolean;
+      ellipsis?: boolean;
+      underline?: boolean;
+      strike?: boolean;
+      link?: string;
+      /** Leave the chain open so a caller can append more segments. */
+      continued?: boolean;
+    },
+  ): void {
+    const segments = segmentByFont(value);
+    if (segments.length === 0) return;
+
+    segments.forEach((segment, index) => {
+      const isLast = index === segments.length - 1;
+      this.doc
+        .font(this.fontNameFor(segment, options.baseFont))
+        .fontSize(options.size)
+        .fillColor(options.color);
+
+      const shared = {
+        lineGap: options.lineGap,
+        underline: options.underline,
+        strike: options.strike,
+        link: options.link,
+        continued: isLast ? Boolean(options.continued) : true,
+      };
+
+      if (index === 0 && options.x !== undefined && options.y !== undefined) {
+        this.doc.text(segment.text, options.x, options.y, {
+          ...shared,
+          width: options.width,
+          lineBreak: options.lineBreak,
+          ellipsis: options.ellipsis,
+        });
+      } else if (index === 0) {
+        this.doc.text(segment.text, {
+          ...shared,
+          width: options.width,
+          lineBreak: options.lineBreak,
+          ellipsis: options.ellipsis,
+        });
+      } else {
+        // Only the FIRST call of a continued chain establishes the column;
+        // pdfkit ignores width/align/position on the rest of the chain.
+        this.doc.text(segment.text, shared);
+      }
+    });
+  }
+
+  /**
+   * Height of a string once wrapped, measured in the widest face it needs.
+   * See `measurementFont()` -- a mixed-face string cannot be measured exactly,
+   * so this biases high rather than overlapping the block below.
+   */
+  private measureText(
+    value: string,
+    baseFont: FontKey,
+    size: number,
+    width: number,
+    lineGap?: number,
+  ): number {
+    const segments = segmentByFont(value);
+    const measureWith = measurementFont(segments);
+    const font =
+      measureWith === FONT_FILES.regular ? FONT_FILES[baseFont] : measureWith;
+    this.doc.font(font).fontSize(size);
+    return this.doc.heightOfString(segments.map((s) => s.text).join(""), {
+      width,
+      lineGap,
+    });
+  }
+
+  /**
+   * Text guaranteed to be ASCII the primary face covers -- page numbers,
+   * formatted currency, list markers. Kept separate from `drawSegments()`
+   * because these are the only callers that need `align`, which pdfkit
+   * honours only on an unchained call.
+   */
+  private drawPlain(
+    value: string,
+    options: {
+      baseFont: FontKey;
+      size: number;
+      color: string;
+      x: number;
+      y: number;
+      width: number;
+      align?: "left" | "right" | "center";
+      lineBreak?: boolean;
+    },
+  ): void {
+    this.doc
+      .font(FONT_FILES[options.baseFont])
+      .fontSize(options.size)
+      .fillColor(options.color)
+      .text(value, options.x, options.y, {
+        width: options.width,
+        align: options.align,
+        lineBreak: options.lineBreak,
+      });
   }
 
   // -- Footer ------------------------------------------------------------
@@ -469,14 +697,25 @@ class StoryPdfRenderer {
       .stroke()
       .restore();
 
-    this.doc.font(FONT_FILES.regular).fontSize(8).fillColor(MUTED);
-    this.doc.text(this.text(this.input.title), left, y, {
+    this.drawSegments(this.input.title, {
+      baseFont: "regular",
+      size: 8,
+      color: MUTED,
+      x: left,
+      y,
       width: width - 40,
-      align: "left",
       lineBreak: false,
       ellipsis: true,
     });
-    this.doc.text(String(this.pageNumber), left, y, {
+    // The page number is always ASCII, and it is the one piece of footer text
+    // that must be right-aligned -- see drawPlain()'s note on why alignment
+    // and font chaining cannot be combined.
+    this.drawPlain(String(this.pageNumber), {
+      baseFont: "regular",
+      size: 8,
+      color: MUTED,
+      x: left,
+      y,
       width,
       align: "right",
       lineBreak: false,
@@ -511,19 +750,20 @@ class StoryPdfRenderer {
         : run.code
           ? CODE_INK
           : (options.color ?? INK);
-      this.doc
-        .font(FONT_FILES[fontKeyFor(run, options)])
-        .fontSize(size)
-        .fillColor(color);
-      this.doc.text(this.text(run.text), {
-        // Only the FIRST call of a continued chain establishes the column;
-        // pdfkit ignores width/align on the rest of the chain.
+      // Each run is itself split by font coverage, so one **bold** run
+      // containing both Latin and Chinese becomes two chained calls in two
+      // faces -- and the chain runs unbroken across every run in the
+      // paragraph, which is what keeps it wrapping as one block of text.
+      this.drawSegments(run.text, {
+        baseFont: fontKeyFor(run, options),
+        size,
+        color,
         width: column.width,
-        continued: !isLast,
         lineGap,
         underline: Boolean(run.link),
         strike: run.strike,
         link: run.link ?? undefined,
+        continued: !isLast,
       });
     });
 
@@ -736,13 +976,15 @@ class StoryPdfRenderer {
    * first-person travel story; legibility matters more than fixed pitch.
    */
   private renderCode(node: Code, column: Column): void {
-    const value = this.text(node.value.replace(/\s+$/, ""));
+    const value = node.value.replace(/\s+$/, "");
     const innerWidth = column.width - CODE_PADDING * 2;
-    this.doc.font(FONT_FILES.regular).fontSize(BODY_SIZE - 1);
-    const height = this.doc.heightOfString(value, {
-      width: innerWidth,
-      lineGap: 2,
-    });
+    const height = this.measureText(
+      value,
+      "regular",
+      BODY_SIZE - 1,
+      innerWidth,
+      2,
+    );
 
     this.doc.moveDown(0.3);
     this.ensureSpace(height + CODE_PADDING * 2);
@@ -752,12 +994,15 @@ class StoryPdfRenderer {
       .rect(column.left, top, column.width, height + CODE_PADDING * 2)
       .fill(CODE_BG)
       .restore();
-    this.doc
-      .fillColor(CODE_INK)
-      .text(value, column.left + CODE_PADDING, top + CODE_PADDING, {
-        width: innerWidth,
-        lineGap: 2,
-      });
+    this.drawSegments(value, {
+      baseFont: "regular",
+      size: BODY_SIZE - 1,
+      color: CODE_INK,
+      x: column.left + CODE_PADDING,
+      y: top + CODE_PADDING,
+      width: innerWidth,
+      lineGap: 2,
+    });
     this.doc.y = top + height + CODE_PADDING * 2;
     this.doc.x = column.left;
     this.doc.moveDown(0.5);
@@ -791,20 +1036,21 @@ class StoryPdfRenderer {
         const cell = row.children[i];
         cells.push(
           cell
-            ? this.text(
-                runsToPlainText(phrasingToPieces(cell.children, PLAIN_STYLE)),
-              )
+            ? runsToPlainText(phrasingToPieces(cell.children, PLAIN_STYLE))
             : "",
         );
       }
 
-      this.doc
-        .font(isHeader ? FONT_FILES.bold : FONT_FILES.regular)
-        .fontSize(BODY_SIZE - 0.5);
+      const baseFont: FontKey = isHeader ? "bold" : "regular";
       const rowHeight =
         Math.max(
           ...cells.map((value) =>
-            this.doc.heightOfString(value || " ", { width: innerWidth }),
+            this.measureText(
+              value || " ",
+              baseFont,
+              BODY_SIZE - 0.5,
+              innerWidth,
+            ),
           ),
         ) +
         padding * 2;
@@ -813,14 +1059,14 @@ class StoryPdfRenderer {
       const top = this.doc.y;
 
       cells.forEach((value, columnIndex) => {
-        this.doc
-          .fillColor(isHeader ? INK : MUTED)
-          .text(
-            value,
-            column.left + columnIndex * cellWidth + padding,
-            top + padding,
-            { width: innerWidth },
-          );
+        this.drawSegments(value, {
+          baseFont,
+          size: BODY_SIZE - 0.5,
+          color: isHeader ? INK : MUTED,
+          x: column.left + columnIndex * cellWidth + padding,
+          y: top + padding,
+          width: innerWidth,
+        });
       });
 
       this.doc.y = top + rowHeight;
@@ -896,9 +1142,8 @@ class StoryPdfRenderer {
       caption ?? (image.decorative ? null : image.altText?.trim() || null);
 
     this.doc.moveDown(0.4);
-    this.doc.font(FONT_FILES.italic).fontSize(BODY_SIZE - 1.5);
     const captionHeight = describedBy
-      ? this.doc.heightOfString(this.text(describedBy), { width }) + 4
+      ? this.measureText(describedBy, "italic", BODY_SIZE - 1.5, width) + 4
       : 0;
 
     this.ensureSpace(height + captionHeight + 6);
@@ -915,11 +1160,14 @@ class StoryPdfRenderer {
     this.doc.y = top + height;
 
     if (describedBy) {
-      this.doc
-        .font(FONT_FILES.italic)
-        .fontSize(BODY_SIZE - 1.5)
-        .fillColor(MUTED)
-        .text(this.text(describedBy), column.left, this.doc.y + 4, { width });
+      this.drawSegments(describedBy, {
+        baseFont: "italic",
+        size: BODY_SIZE - 1.5,
+        color: MUTED,
+        x: column.left,
+        y: this.doc.y + 4,
+        width,
+      });
     }
 
     this.doc.x = column.left;
@@ -931,43 +1179,46 @@ class StoryPdfRenderer {
   renderHeader(): void {
     const column = this.column;
 
-    this.doc
-      .font(FONT_FILES.bold)
-      .fontSize(23)
-      .fillColor(INK)
-      .text(this.text(this.input.title), column.left, this.doc.y, {
-        width: column.width,
-        lineGap: 2,
-      });
+    this.drawSegments(this.input.title, {
+      baseFont: "bold",
+      size: 23,
+      color: INK,
+      x: column.left,
+      y: this.doc.y,
+      width: column.width,
+      lineGap: 2,
+    });
 
     if (this.input.excerpt) {
       this.doc.moveDown(0.4);
-      this.doc
-        .font(FONT_FILES.italic)
-        .fontSize(12)
-        .fillColor(MUTED)
-        .text(this.text(this.input.excerpt), {
-          width: column.width,
-          lineGap: 2,
-        });
+      this.drawSegments(this.input.excerpt, {
+        baseFont: "italic",
+        size: 12,
+        color: MUTED,
+        x: column.left,
+        y: this.doc.y,
+        width: column.width,
+        lineGap: 2,
+      });
     }
 
     this.doc.moveDown(0.6);
     // Engineering Rule 17: the personal-experience label travels with the
     // story. A PDF is the copy most likely to be read away from the site, so
     // it carries the label at the top, not only in the colophon.
-    this.doc
-      .font(FONT_FILES.regular)
-      .fontSize(9)
-      .fillColor(MUTED)
-      .text(
-        this.text(
-          `Personal experience, not advice — shared by ${endWithStop(
-            this.input.attributionValue,
-          )}`,
-        ),
-        { width: column.width },
-      );
+    this.drawSegments(
+      `Personal experience, not advice — shared by ${endWithStop(
+        this.input.attributionValue,
+      )}`,
+      {
+        baseFont: "regular",
+        size: 9,
+        color: MUTED,
+        x: column.left,
+        y: this.doc.y,
+        width: column.width,
+      },
+    );
 
     this.doc.moveDown(0.8);
     this.renderFacts(column);
@@ -1000,20 +1251,28 @@ class StoryPdfRenderer {
     this.doc.moveDown(0.5);
 
     for (const [label, value] of rows) {
-      this.doc.font(FONT_FILES.regular).fontSize(9.5);
-      const height = this.doc.heightOfString(this.text(value), {
-        width: column.width - labelWidth,
-      });
+      const valueWidth = column.width - labelWidth;
+      const height = this.measureText(value, "regular", 9.5, valueWidth);
       this.ensureSpace(height + 4);
       const top = this.doc.y;
-      this.doc
-        .fillColor(MUTED)
-        .text(label, column.left, top, { width: labelWidth - 8 });
-      this.doc
-        .fillColor(INK)
-        .text(this.text(value), column.left + labelWidth, top, {
-          width: column.width - labelWidth,
-        });
+      // The label is a fixed English word ("Trip", "Places"); only the value
+      // can carry a contributor's own tags or place names.
+      this.drawPlain(label, {
+        baseFont: "regular",
+        size: 9.5,
+        color: MUTED,
+        x: column.left,
+        y: top,
+        width: labelWidth - 8,
+      });
+      this.drawSegments(value, {
+        baseFont: "regular",
+        size: 9.5,
+        color: INK,
+        x: column.left + labelWidth,
+        y: top,
+        width: valueWidth,
+      });
       this.doc.y = top + height + 3;
     }
 
@@ -1044,20 +1303,30 @@ class StoryPdfRenderer {
     this.doc.moveDown(0.5);
 
     for (const expense of this.input.expenses) {
-      this.doc.font(FONT_FILES.regular).fontSize(BODY_SIZE);
       const label = expense.note
         ? `${expense.name} — ${expense.note}`
         : expense.name;
       const amountWidth = 90;
-      const height = this.doc.heightOfString(this.text(label), {
-        width: column.width - amountWidth,
-      });
+      const labelWidth = column.width - amountWidth;
+      // The label can be a contributor-typed custom category or note; the
+      // amount is always formatted currency, and is the right-aligned half.
+      const height = this.measureText(label, "regular", BODY_SIZE, labelWidth);
       this.ensureSpace(height + 6);
       const top = this.doc.y;
-      this.doc.fillColor(INK).text(this.text(label), column.left, top, {
-        width: column.width - amountWidth,
+      this.drawSegments(label, {
+        baseFont: "regular",
+        size: BODY_SIZE,
+        color: INK,
+        x: column.left,
+        y: top,
+        width: labelWidth,
       });
-      this.doc.text(formatNzdCents(expense.amountNzdCents), column.left, top, {
+      this.drawPlain(formatNzdCents(expense.amountNzdCents), {
+        baseFont: "regular",
+        size: BODY_SIZE,
+        color: INK,
+        x: column.left,
+        y: top,
         width: column.width,
         align: "right",
         lineBreak: false,
@@ -1120,21 +1389,21 @@ class StoryPdfRenderer {
     this.ensureSpace(70);
     this.renderRule(column);
     const exported = this.input.exportedAt.toISOString().slice(0, 10);
-    this.doc
-      .font(FONT_FILES.regular)
-      .fontSize(8.5)
-      .fillColor(MUTED)
-      .text(
-        this.text(
-          `Your copy of "${this.input.title}" (${this.input.statusLabel}), ` +
-            `exported from Kakinotes on ${exported}. This is one person's ` +
-            `personal account of a Working Holiday Visa experience, not advice. ` +
-            `${this.input.siteUrl}`,
-        ),
-        column.left,
-        this.doc.y,
-        { width: column.width, lineGap: 2 },
-      );
+    this.drawSegments(
+      `Your copy of "${this.input.title}" (${this.input.statusLabel}), ` +
+        `exported from Kakinotes on ${exported}. This is one person's ` +
+        `personal account of a Working Holiday Visa experience, not advice. ` +
+        `${this.input.siteUrl}`,
+      {
+        baseFont: "regular",
+        size: 8.5,
+        color: MUTED,
+        x: column.left,
+        y: this.doc.y,
+        width: column.width,
+        lineGap: 2,
+      },
+    );
   }
 }
 
@@ -1168,8 +1437,12 @@ export async function buildStoryPdf(input: StoryPdfInput): Promise<Buffer> {
     // files are read.
     font: fontPath("regular"),
     info: {
-      Title: sanitizeForFont(input.title),
-      Author: sanitizeForFont(input.attributionValue),
+      // Raw, unsegmented values: PDF metadata strings are written as UTF-16BE
+      // literals and never reference an embedded font, so a Chinese title
+      // shows correctly in a reader's Properties panel regardless of which
+      // faces the page content uses.
+      Title: input.title,
+      Author: input.attributionValue,
       Creator: "Kakinotes",
       Subject: "Personal experience, not advice.",
       CreationDate: input.exportedAt,
@@ -1180,6 +1453,12 @@ export async function buildStoryPdf(input: StoryPdfInput): Promise<Buffer> {
   doc.registerFont(FONT_FILES.bold, fontPath("bold"));
   doc.registerFont(FONT_FILES.italic, fontPath("italic"));
   doc.registerFont(FONT_FILES.boldItalic, fontPath("boldItalic"));
+  // Fallback faces, registered under their own filenames so segmentByFont()'s
+  // key maps straight onto a pdfkit font name. pdfkit SUBSETS what it embeds,
+  // so naming a 10 MB CJK font here costs the deployment, not the output: a
+  // page of Chinese still produces a PDF measured in kilobytes.
+  doc.registerFont(FALLBACK_FONT_FILES.cjk, fallbackFontPath("cjk"));
+  doc.registerFont(FALLBACK_FONT_FILES.emoji, fallbackFontPath("emoji"));
 
   const chunks: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
