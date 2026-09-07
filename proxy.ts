@@ -50,9 +50,13 @@ const PROTECTED_PATHS = ["/my-stories", "/stories/new", "/account"];
 // Dynamic authoring routes added in Prompt 4 Sub-phase 3 — /stories/:id/edit
 // (plus its nested upload Route Handler) and /stories/:id/preview both
 // require a signed-in session; a static string list can't express the :id
-// segment, so these get their own pattern.
+// segment, so these get their own pattern. /stories/:id/export (the
+// contributor's own PDF copy) joins them: it serves private draft content
+// and its own handler already refuses a signed-out caller, but without a
+// session refresh here a long-lived tab could 401 on a download it should
+// have been allowed.
 const PROTECTED_DYNAMIC_STORY_PATH =
-  /^\/stories\/[^/]+\/(edit|preview)(\/.*)?$/;
+  /^\/stories\/[^/]+\/(edit|preview|export)(\/.*)?$/;
 const PREVIEW_PATH = /^\/stories\/[^/]+\/preview(\/.*)?$/;
 
 // Exact-match-only patterns (no trailing (\/.*)? subpath) for the three
@@ -540,6 +544,11 @@ export const config = {
     "/account/:path*",
     "/stories/:id/edit/:path*",
     "/stories/:id/preview/:path*",
+    // Route Handler, so it is deliberately NOT added to the exact-match
+    // per-row patterns above (STORY_PREVIEW_PAGE_PATH and friends): it
+    // already returns a genuine 404 itself, same reasoning as
+    // /stories/:id/edit/upload.
+    "/stories/:id/export",
     "/editorial",
     "/editorial/:path*",
     "/moderation",

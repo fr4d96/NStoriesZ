@@ -3,14 +3,170 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-02 (My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
+Last updated: 2026-09-07 (PDF export renders Chinese and emoji; earlier the same day:
+contributors can download their own story as a PDF; earlier:
+My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
 story; earlier: the custom-label copy bug that broke editing a published story;
 earlier: contributor edits to published stories, and the tag-input dropdown fix;
 earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-02 (latest) — My Stories is paged.**
+**2026-09-07 (latest) — The PDF export renders Chinese and emoji.**
+
+Font fallback in `lib/story/story-pdf.ts`. Follow-up to the export entry below, which shipped
+with Latin-only coverage and turned everything else into `?`.
+
+**Two fonts are now committed to `assets/fonts/` (SIL OFL 1.1, licence alongside them).** Unlike
+the Liberation faces — which ride along inside pdfjs-dist and cost nothing — these are real files
+in the repo:
+
+- `NotoSansSC-Regular.ttf` (10.1 MB, 30,898 glyphs). Simplified Chinese plus a large slice of
+  Traditional. Malaysia, this product's launch market, uses Simplified, and a Chinese-Malaysian
+  contributor's own display name rendering as `???` was the case worth fixing.
+- `NotoEmoji-Regular.ttf` (0.8 MB, 1,905 glyphs). The **monochrome** Noto Emoji, deliberately not
+  Noto Color Emoji.
+
+**Why not an npm dependency, the way Liberation Sans works.** `@fontsource/*` ships only per-range
+`.woff2` subsets (918 files), which pdfkit cannot use. `@expo-google-fonts/*` does ship the static
+`.ttf` pdfkit needs, but unpacks 96 MB of nine weights to use two files, on every CI install. A
+committed file is the smaller cost. Weighed explicitly rather than defaulted into.
+
+**Why colour emoji is not an option, checked rather than assumed.** Colour emoji fonts keep their
+glyphs in bitmap (`sbix`, `CBDT`) or layered `COLR` tables, none of which pdfkit writes into a PDF.
+Inspected Apple Color Emoji directly: `sbix` present, **no `glyf` outlines at all**, so embedding
+it produces blank boxes — worse than the `?` it would replace. Noto Emoji has real outlines and
+subsets normally, so emoji come out as black line art.
+
+**There is no bold CJK face, on purpose.** A second weight is another 10 MB, so CJK inside bold
+text renders at regular weight while the Latin around it still goes bold. Flat-looking in a
+heading, never missing.
+
+How it works:
+
+- **`segmentByFont()`** walks a string and splits it into runs by which face can actually draw
+  each character, asking the fonts themselves. **Order matters and is load-bearing**: the primary
+  face is tried FIRST even though Noto Sans SC also carries Latin glyphs — checking CJK first
+  would silently re-typeset every ASCII letter in the document. There is a test that asserts on
+  the embedded font names, because that particular mistake is invisible in extracted text.
+- **`drawSegments()`** emits one pdfkit `continued` chain across all the segments, so a paragraph
+  that switches script mid-sentence still wraps as a single block. `writeRuns()` already switched
+  faces per run for bold/italic/links, so this extended a mechanism rather than adding one.
+- **Right-aligned text goes through `drawPlain()` instead.** pdfkit honours `align` only on an
+  unchained call, and every right-aligned string here (page numbers, formatted currency, list
+  markers) is ASCII the primary face covers anyway.
+- **Mixed-face text cannot be measured exactly** — `heightOfString()` uses one font. `measureText()`
+  measures in the widest face present, biasing the estimate high: over-reserving costs a little
+  whitespace, under-reserving overlaps the next block.
+- **PDF metadata (Title/Author) now carries the raw string.** Those are UTF-16BE literals that
+  never reference an embedded font, so a Chinese title shows correctly in a reader's Properties
+  panel.
+
+**Size is a deployment cost, not a per-download one — measured, not assumed.** pdfkit subsets:
+only the glyphs actually used are embedded. A 23.3 MB font plus twelve Chinese characters produced
+a 15 KB PDF, and a full mixed-script sample page came to 55 KB. A test pins this at
+under 400 KB so a future change that accidentally embeds a whole face fails loudly.
+
+`next.config.ts` gained `./assets/fonts/*.ttf` in the `/stories/*/export` tracing entry — opened by
+path from `process.cwd()`, so nothing statically imports them and @vercel/nft cannot see them
+otherwise. Verified in the built `.nft.json`, as that file's comment demands.
+
+**Worth knowing for the next person:** the Playwright spec caught this feature failing while the
+unit tests passed, because `playwright.config.ts` runs `npm run start` against the EXISTING
+`.next` build. Run `npm run build` (or `npm run verify:full`) before `test:e2e`, or you are testing
+the previous commit.
+
+Tests: 7 `segmentByFont` cases plus 4 rendering cases (Chinese through title/body/facts, emoji
+round-trip, the subsetting ceiling, and the font-ordering guard). `e2e/story-export.spec.ts` now
+carries mixed Latin/Chinese/emoji content and asserts no `???` survives — the one check a unit
+test cannot make honestly, since the fonts resolve from `process.cwd()`. `npm run verify` clean:
+825 tests; the 5 Playwright specs pass live against the linked project.
+
+**2026-09-07 — A contributor can download their own story as a PDF.**
+
+New route `GET /stories/:id/export`
+(`app/(contributor)/stories/[id]/export/route.ts`), reachable from a "Download a copy" link on
+the private preview page and a download icon on every row in My Stories. **No migration, no schema
+change, no database write** — this is a read path over what `get_story_preview()` already returns.
+
+Why this and not a zip of Markdown + images: asked for as a PDF. The published-shaped, formatted
+version of a story only exists inside Kakinotes, and that is the thing worth being able to keep.
+
+**Authorization is two independent checks, and the second one is narrower than the preview page's.**
+`get_story_preview()` is the same private, path-free RPC the preview page uses — it re-derives the
+caller server-side and RAISES for anyone unrelated to the story, caught as a flat 404. On top of
+that, the route accepts only `owner` and `linked_contributor`. `assigned_editor` and `admin` can
+legitimately preview a draft in the review UI, but this endpoint mints a **file that leaves the
+platform**, and downloading someone else's unpublished story is not what the feature is for. Every
+failure — signed out, wrong person, no such story — returns the identical flat 404. Images are
+fetched server-side by media id, each re-authorized on its own via
+`authorize_story_media_preview()` before `downloadMediaPreviewBytes()` reads it; no storage path
+ever reaches the browser (Rules 12/13).
+
+`lib/story/story-pdf.ts` is the renderer and is deliberately **pure**: it takes fully-resolved
+text, labels and image bytes and returns a Buffer. No Supabase client, no authorization, so the
+whole layout is unit-testable without a database and there is no second place a "who may read
+this" decision could drift from the route's.
+
+Things worth knowing before touching it:
+
+- **It embeds Liberation Sans (from pdfjs-dist, SIL OFL 1.1) rather than using a built-in PDF
+  font, and that is not a style preference.** The PDF base-14 fonts are WinAnsi-encoded, which has
+  no macron vowels — so Helvetica cannot render `Manawatū`, `Whakatāne` or `Whangārei`, three
+  regions in this product's own seed data (20260812120000). Coverage was checked with fontkit
+  before choosing. No font file is committed; the four faces already ship inside pdfjs-dist.
+- **Coverage is decided by asking the real fonts** which code points they have, rather than by a
+  hand-written list of Unicode ranges that could drift from the .ttf files. Superseded the same
+  day by font fallback — see the next entry; CJK and emoji ARE now covered, and only a script
+  none of the three faces has still degrades to `?`.
+- **`buildStoryPdf` names a real .ttf in the `PDFDocument` constructor on purpose.** Left to
+  default, pdfkit initialises with Helvetica and reads
+  `node_modules/pdfkit/js/data/Helvetica.afm` off disk. That read is invisible to @vercel/nft —
+  the same blind spot next.config.ts already documents for libheif's `.wasm`, which works locally
+  and 500s in production. There is a regression test that instruments `fs.readFileSync` and asserts
+  **zero** `.afm` reads.
+- **next.config.ts gained an `outputFileTracingIncludes` entry for `/stories/*/export`** (the four
+  .ttf files plus sharp's libvips). Verified after building, as that file's own comment demands —
+  a key that matches nothing fails silently: all four fonts appear in
+  `.next/server/app/(contributor)/stories/[id]/export/route.js.nft.json`.
+- **The footer zeroes `page.margins.bottom` while it draws.** The footer sits below `page.maxY()`,
+  and pdfkit's `text()` calls `addPage()` when the cursor is past that — from inside the
+  `pageAdded` handler, which recursed until the stack blew. The first symptom was not a stack
+  overflow but `Cannot read properties of undefined (reading 'metrics')` thrown from font
+  embedding, because the re-entrant page was created while the first font was still being built.
+  Cost most of the debugging time on this task; every standalone repro drew its footer higher up
+  the page and passed.
+- Markdown is parsed with remark (`unified` + `remark-parse` + `remark-gfm`) and walked directly.
+  Headings, paragraphs, bold/italic/strikethrough, links, bullet/numbered/nested lists, task
+  lists, blockquotes, tables, rules, code blocks and `![[mediaId]]` embeds are all rendered. Task
+  checkboxes are **drawn as vectors** — Liberation Sans has no U+2610/U+2611.
+- An inline image's stored embed width maps to a _fraction_ of the PDF text column
+  (against the public page's 1024px `max-w-5xl` container), so a half-width photo on screen stays
+  a half-width photo on paper. Photos never placed in the text appear under "More photos".
+- The PDF carries the Rule 17 "personal experience, not advice" label at the top and a colophon
+  naming **what this copy is** — `exportStatusLabel()` never says "Published" for a draft update to
+  a published story, which is exactly the distinction Rule 11 exists to protect.
+- The "exported on" date and the filename use **UTC**, so a download on a NZ morning can be stamped
+  with the previous day. Deterministic and unambiguous; change it only if someone actually
+  complains.
+
+Dependencies (Rule 20): `pdfkit` **moved from devDependencies to dependencies** — it was already
+here, used only by fixture-generation scripts, and is now production code. `fontkit` (already
+present transitively, now explicit) for the glyph-coverage check, `unified` + `remark-parse`
+(already present transitively via react-markdown, now explicit) because this module imports them
+directly, and `@types/pdfkit` / `@types/fontkit` as devDependencies. `pdfkit` and `fontkit` were
+added to `serverExternalPackages` as insurance: pdfkit locates its own AFM data via `__dirname`,
+and both ship a browser build alongside the Node one.
+
+Tests: `lib/story/story-pdf.test.ts` (23) renders real PDFs and reads them back with pdfjs — macron
+round-trip, every block type, unsafe-href stripping, inline vs gallery placement, alt-text
+fallback, pagination, empty body, and the `.afm` guard. `lib/story/story-export.test.ts` (8) covers
+the status/trip/travel-style labels and the RFC 5987 Content-Disposition.
+`e2e/story-export.spec.ts` (5, **passing live against the linked project**) proves an owner gets a
+real readable PDF and that another contributor, unrelated staff, and a signed-out caller all do
+not. `npm run verify` clean: 818 tests.
+
+**2026-09-02 — My Stories is paged.**
 
 12 stories per page (`STORIES_PER_PAGE` in `app/(contributor)/my-stories/my-stories-view.tsx`). 12
 divides evenly by both grid widths — 2 columns on a phone, 3 from `sm` — so a page never ends in a

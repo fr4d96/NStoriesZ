@@ -120,3 +120,70 @@ export async function listActiveTags(): Promise<ActiveTag[]> {
   if (error) throw error;
   return data ?? [];
 }
+
+/**
+ * Resolves a revision's stored location rows into display labels, in the
+ * order the contributor arranged them.
+ *
+ * DELIBERATELY DOES NOT FILTER ON `active`, unlike every reader above. Those
+ * populate authoring pickers, where a retired entry must not be offered. This
+ * one describes what a story ALREADY references, and a region retired after
+ * publication is still where that person actually went — filtering it would
+ * silently drop a place from their own export. Same reasoning as
+ * get_revision_selections() resolving retired tag names server-side
+ * (20260816100200_get_revision_selections_tag_names.sql).
+ *
+ * Label shape matches the public story page's `regionLabels()`:
+ * "Destination, Region", or the bare region when there is no destination.
+ */
+export async function resolveLocationLabels(
+  locations: readonly {
+    regionId: string;
+    destinationId: string | null;
+    customDestinationLabel: string | null;
+    sortOrder: number;
+  }[],
+): Promise<string[]> {
+  if (locations.length === 0) return [];
+  const supabase = await createClient();
+
+  const regionIds = [...new Set(locations.map((l) => l.regionId))];
+  const destinationIds = [
+    ...new Set(
+      locations
+        .map((l) => l.destinationId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  const [regions, destinations] = await Promise.all([
+    supabase.from("regions").select("id, name").in("id", regionIds),
+    destinationIds.length
+      ? supabase
+          .from("destinations")
+          .select("id, name")
+          .in("id", destinationIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (regions.error) throw regions.error;
+  if (destinations.error) throw destinations.error;
+
+  const regionName = new Map(
+    (regions.data ?? []).map((r) => [r.id, r.name] as const),
+  );
+  const destinationName = new Map(
+    (destinations.data ?? []).map((d) => [d.id, d.name] as const),
+  );
+
+  return [...locations]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((location) => {
+      const region = regionName.get(location.regionId) ?? null;
+      const destination = location.destinationId
+        ? (destinationName.get(location.destinationId) ?? null)
+        : location.customDestinationLabel;
+      if (destination && region) return `${destination}, ${region}`;
+      return destination ?? region;
+    })
+    .filter((label): label is string => Boolean(label));
+}

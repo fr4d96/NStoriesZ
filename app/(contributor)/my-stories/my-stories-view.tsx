@@ -16,6 +16,7 @@ import { ALL, FilterRow } from "@/components/story/filter-row";
 import { StartRevisionButton } from "@/components/story/start-revision-button";
 import { destinationNames, regionNames } from "@/lib/story/card-fields";
 import {
+  DownloadIcon,
   EditorialPencilIcon,
   EyeIcon,
   HiddenEyeIcon,
@@ -221,6 +222,37 @@ function ActionIconLink({
     >
       {children}
     </Link>
+  );
+}
+
+/**
+ * Download this story as a PDF (app/(contributor)/stories/[id]/export).
+ *
+ * A PLAIN <a>, deliberately not next/link: the target is a Route Handler that
+ * answers with `Content-Disposition: attachment`, and Link would try to
+ * client-side navigate to it instead of letting the browser take the
+ * download. `download` is not set either -- the filename comes from the
+ * response header, which is the only place that knows the story's title.
+ */
+function DownloadPdfAction({
+  storyId,
+  title,
+  className,
+}: {
+  storyId: string;
+  title: string;
+  className?: string;
+}) {
+  const label = `Download ${title} as a PDF`;
+  return (
+    <a
+      href={`/stories/${storyId}/export`}
+      title={label}
+      aria-label={label}
+      className={`${ACTION_ICON_CLASS} text-foreground/70 ${className ?? ""}`}
+    >
+      <DownloadIcon className="h-4 w-4" />
+    </a>
   );
 }
 
@@ -767,6 +799,7 @@ export function MyStoriesView({
                             <EyeIcon className="h-4 w-4" />
                           </ActionIconLink>
                         )}
+                        <DownloadPdfAction storyId={story.id} title={title} />
                         {deletable && (
                           <DeleteDraftAction story={story} title={title} />
                         )}
@@ -895,6 +928,7 @@ export function MyStoriesView({
                               <EyeIcon className="h-4 w-4" />
                             </ActionIconLink>
                           )}
+                          <DownloadPdfAction storyId={story.id} title={title} />
                           {deletable && (
                             <DeleteDraftAction story={story} title={title} />
                           )}
