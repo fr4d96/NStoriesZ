@@ -3,7 +3,15 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-07 (PDF export renders Chinese and emoji; earlier the same day:
+Last updated: 2026-09-09 (/account rebuilt as left-hand tabs; earlier the same day:
+username sign-in, opt-in and additive; earlier:
+every mention of Canva removed; earlier:
+a story's cover falls back to its first photo; earlier:
+the PDF download is gone from never-submitted drafts; earlier the same
+day: private stories — a story can be kept private and skips moderation entirely; earlier the same day: My Stories grouped into collapsible status sections, replacing its
+pager; earlier the same day: preview page's "Back to My Stories" link removed; earlier:
+PDF download moved to the preview page only; earlier:
+PDF export renders Chinese and emoji; earlier:
 contributors can download their own story as a PDF; earlier:
 My Stories paged at 12 per page; earlier: My Stories' per-story N+1 deleted — one RPC, not one preview call per
 story; earlier: the custom-label copy bug that broke editing a published story;
@@ -12,7 +20,449 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-07 (latest) — The PDF export renders Chinese and emoji.**
+**2026-09-09 (latest) — /account is left-hand tabs, not one long scroll.**
+
+Profile, Sign-in, and Contributor identity are now three tabs: a vertical rail on the left with the
+settings on the right, collapsing to a horizontally scrollable strip above the content on mobile.
+The "Role: user" line is gone, and `getCurrentUserRole()` went with it -- it was that line's only
+consumer on this page, so the page now makes one fewer query.
+
+- **`app/(contributor)/account/account-tabs.tsx`** (new, client). Full ARIA tabs pattern: roving
+  tabindex, arrow keys on _both_ axes (the same tablist is vertical on desktop and horizontal on
+  mobile -- a keyboard user should not have to know which), Home/End, automatic activation.
+- **The hash is the state, not a mirror of it.** `useSyncExternalStore` subscribes to
+  `location.hash` directly instead of copying it into a `useState` inside an effect -- which the
+  React compiler lint rejects outright ("Calling setState synchronously within an effect can
+  trigger cascading renders"), and which would have given two sources of truth that can disagree.
+  `history.replaceState` does not fire `hashchange`, so activate() dispatches one; a click, a
+  keypress, a deep link, and an in-page anchor then all travel the identical path.
+- **`/account#contributor-identity` still works**, which matters because
+  `lib/auth/post-login-redirect.ts` sends every brand-new account there on first sign-in. Each
+  panel carries its tab's id as its own DOM id, so the anchor is real rather than intercepted.
+  A test covers it specifically.
+- **Panels stay mounted, inactive ones `hidden`**, so unsaved edits and each form's action state
+  survive a tab switch. Only safe because the three forms use distinct field ids (`displayName` vs
+  `contributorDisplayName`) -- checked before relying on it, since colliding ids are exactly the
+  defect documented in `components/auth/auth-modal.tsx`.
+- **One copy fix the tabs forced:** contributor-form.tsx referred to the "Public profile web
+  address" _above_, which is now a tab away. It is a link to `#profile` instead.
+
+14 new tests (895 total). Live-verified signed in at both viewports: tab switching, roving
+tabindex, the deep link, and the cross-tab link.
+
+**Same day — the stale-types escape hatches are all retired.** Regenerating `types/database.ts`
+made three "types are not caught up yet" workarounds untrue at once, so all three went back to
+plain, fully-typed calls, exactly as each one's own comment instructed:
+
+- `lib/story/active-lookups.ts` -> `supabase.from("expense_categories")`. The hand-written
+  `String(row.x)` coercion mapping went with it -- it only existed because `untypedFrom()` returns
+  `Record<string, unknown>`; the generated Row already matches `ActiveExpenseCategory` exactly.
+- `lib/story/contributor-queries.ts` -> `supabase.rpc("get_revision_selections")`.
+- `lib/story/mutations.ts` -> `supabase.rpc("set_revision_expenses")`. **Careful bit:**
+  `callUntypedRpc()` threw on error, a plain `rpc()` returns it. The swap silently dropped that
+  throw at first -- a failed expense write would have looked like a successful save. `if (error)
+throw error;` restored, matching every other call in the file.
+
+Both helpers (`call-untyped-rpc.ts`, `call-untyped-table.ts`) now have zero call sites and are
+kept, with refreshed notes, on the same terms the RPC one already documented: the gap reopens every
+time a migration lands ahead of a regeneration.
+
+Live-verified: the story edit page renders (it awaits both read paths, so it would not), and all 11
+expense categories load in `sort_order` with "Other" last. The `set_revision_expenses` **write**
+path is covered by typecheck and the restored throw only -- exercising it would have written real
+expense rows to an actual story, which was not mine to do.
+
+**2026-09-09 — You can sign in with a username, if you set one.**
+
+The sign-in field is now "Email or username". Email sign-in is untouched; usernames are purely
+additive and entirely opt-in. **Nobody is backfilled, sign-up does not ask, and forgot-password
+stays email-only** -- an account with no username signs in exactly as it did before. This is the
+deliberately small version of the feature; the full version (a username for every account, set at
+sign-up, usable for password recovery) is roughly 2x the work and is not built.
+
+- **New table `public.usernames`**, not a `profiles.username` column. `profiles` is anon-readable
+  for opted-in public profiles, and RLS filters _rows, not columns_, so a username there would be
+  harvestable by anyone with the public anon key via `GET /rest/v1/profiles?select=username`. Same
+  gap already closed for `contributors` in Prompt 5. `usernames` is owner-only, has no anon policy,
+  and revokes anon grants outright.
+- **`lib/auth/username-login.ts` is the second module allowed to import the service-role client.**
+  Supabase's `signInWithPassword` takes only an email or phone, and at sign-in time the caller is
+  anonymous, so the username-to-email lookup cannot run as `anon`. A `SECURITY DEFINER` function
+  granted to `anon` -- the usual pattern here -- would be a bulk email harvester, since anyone
+  holding the public anon key could call it directly. The `no-restricted-imports` allowlist in
+  `eslint.config.mjs` now has two entries instead of one; both carry a justification in their own
+  header.
+- **Every failure is the same message.** Unknown username, unknown email, unresolvable identifier,
+  wrong password, or a service-role lookup that could not run all return
+  "Incorrect email/username or password." A test asserts the unknown-username and wrong-password
+  messages are byte-identical.
+- **`@` is what separates the two shapes**, not a heuristic: usernames may not contain it (CHECK
+  constraint + Zod), emails must. `classifySignInIdentifier()` is pure and directly tested.
+- **Reserved-name guard** on both sides (DB CHECK + Zod) so nobody can register `admin`, `support`,
+  `moderator`, and friends. A test asserts every reserved name is itself a legal username -- it
+  caught one (`me`) that the 3-character minimum already made impossible.
+- **Set it at `/account`** under a new "Sign-in" section. Separate form, separate write, because it
+  is a different table with different RLS.
+
+**Known gap, unchanged by this work but worth naming:** `signInAction` has no rate limiting. A
+guessable username is a better credential-stuffing target than an unknown email, so this is more
+worth closing now than it was.
+
+**Applied and cleaned up.** The migration is pushed, `types/database.ts` is regenerated, and all
+three `untypedTable()` call sites are back to plain typed `supabase.from("usernames")` calls. The
+temporary helper has been deleted. Verified live: RLS on, 3 policies, `anon` has neither SELECT nor
+INSERT. `npm run verify` passes.
+
+**A migration-history trap, found the hard way.** The first `db push` did nothing at all -- it
+aborts _before applying anything_ when the remote history holds a version with no matching local
+file, so the failure looked exactly like "the feature is broken". The culprit:
+`cover_falls_back_to_first_photo` was applied via the Supabase MCP, which stamps its own timestamp
+(`20260908064045`) instead of using the filename (`20260908090000`). Content was proven identical
+by md5 of the live function body, so the local file was renamed to match the deployed version --
+nothing written to remote history. Two follow-ons: `npm run supabase:types:linked` emits
+Prettier-dirty output, so `npx prettier --write types/database.ts` belongs in the same breath.
+
+**Next:** live-verify the round trip (set a username, sign out, sign in with it).
+
+**2026-09-08 — Every mention of Canva is gone; the PDF import feature is not.**
+
+117 references across 26 files, all of them copy, code comments and doc filenames. **No
+Canva-specific logic ever existed** -- the importer has always been generic PDF handling, so
+nothing about how it works changed.
+
+- **User-facing copy:** "Import from PDF or Canva" -> "Import from PDF"; "Have it as a PDF or
+  Canva export?" -> "Have it as a PDF?"; the editorial radio "PDF / Canva file" -> "PDF file"
+  (with `e2e/pdf-import.spec.ts`'s `getByLabel` updated in the same change, since the test
+  selects by that label); "Upload a PDF (including a Canva export)" -> "...(including one
+  exported from a design tool)".
+- **`docs/pdf-canva-import-plan.md` -> `docs/pdf-import-plan.md`**, with all 20 files that
+  referenced the old filename updated.
+- **Comments where Canva justified a NUMBER were reworded, not deleted.** `pdf-validation.ts`'s
+  75 MiB ceiling is still explained ("photo-heavy design-tool exports... headroom above the one
+  real design-tool sample measured during the Stage 0.5 spike"), as is `pdf-import.ts`'s
+  per-page sizing ("real design-tool page sizes vary widely") and next.config.ts's 80 MB proxy
+  limit ("a real ~57 MB 151-page design-tool export"). Losing the brand should not lose the
+  reason a constant is what it is.
+- **`docs/pdf-import-spike-findings.md`** keeps its central caveat intact -- it now reads "we do
+  not have access to real design-tool PDF exports and could not run that tool itself", which says
+  exactly what it said before. A research record whose whole point is "never verified against the
+  real exporter" would be worthless if that were smoothed away.
+
+**`canvas` was never touched.** `@napi-rs/canvas` is a real dependency and the PDF rasterizer
+depends on it; a naive case-insensitive search for "canva" matches "canvas" and would have
+broken the importer outright. Every replacement was matched on `Canva` not followed by `s`, and
+the dependency plus its `serverExternalPackages`/`outputFileTracingIncludes` entries are
+unchanged. Verified after the fact: zero `[Cc]anva(?!s)` matches remain outside node_modules,
+and `@napi-rs/canvas` still resolves.
+
+`npm run verify` clean: 856 tests.
+
+**Found while verifying, NOT caused by this change and NOT fixed:**
+`e2e/pdf-import.spec.ts`'s second test ("editor imports a PDF end to end") fails. The import
+itself works -- pdf-attach returns 200 and the browser lands on `/editorial/:id/edit` -- but the
+assertion that the placeholder body text is _visible_ fails because that text now sits inside
+`<StepSection id="story">`, which `story-edit-form.tsx` renders with a `hidden` class whenever it
+is not the active step. The page opens on `title`, so the text is mounted and correct but not on
+screen. This broke when the editor became a stepped timeline and nobody re-ran the spec. The fix
+is a product question rather than a test tweak: arguably a freshly imported draft should land on
+"Your story", which is exactly the step the import's placeholder text is telling the editor to
+fill in.
+
+**2026-09-08 — A story's cover falls back to its first photo.**
+
+`supabase/migrations/20260908064045_cover_falls_back_to_first_photo.sql` plus a small
+TypeScript change. Layer 1 of the cover-photo research; layers 2 and 3 are not built.
+
+**Measured before changing anything: 39 of the 42 revisions with photos had no cover — 92.9%.**
+That included 4 of the 5 published stories and every one of the 6 then awaiting review, several
+carrying 6 to 12 photos. Nothing ever set `is_cover`: it defaults to false, no upload path sets
+it, the submit gate does not require it, the moderator quality checks do not flag it, and the
+only control is a "Set as cover" button nested inside a per-photo Details panel, beside "Delete
+photo". So the normal outcome was a story with a dozen photos rendering the NoImage placeholder,
+and shipping **no og:image** when shared.
+
+**The fix is a read, not a write.** Nothing stored changed and no row was backfilled — the cover
+is now _resolved_ as "the explicitly chosen photo if there is one, the first photo otherwise".
+Every existing story gained a cover the moment it shipped, with nothing for any contributor to
+redo, and an explicit choice still wins the instant someone makes one.
+
+**The pattern was already in the codebase, on one side of a disagreement.**
+`list_published_stories()` has resolved its card image as `order by rm.is_cover desc,
+rm.sort_order asc` — no `and is_cover` predicate — since
+20260903140100_custom_destination_reads_and_copy.sql. That is why the PUBLIC story index has
+always shown photos while My Stories showed the placeholder for the very same story: the two
+readers disagreed, and only one of them was right. This makes `list_my_stories()` agree with the
+one that was, rather than inventing a rule.
+
+- `list_my_stories()` — both cover subqueries. Return shape is unchanged, so `create or replace`
+  rather than the DROP+CREATE every previous change to this function needed. Built on
+  20260907110000_list_my_stories_tags.sql (the private-stories work rewrote it the day before);
+  the body is that live definition with the two subqueries changed and nothing else touched.
+- **`coverOf()` in `lib/story/public-queries.ts`** — the same rule for the TypeScript side, used
+  by the public story page's og:image, which was `.find((m) => m.is_cover)` and therefore
+  `undefined` for a story nobody had set a cover on. A named exported function rather than an
+  inline `?? media[0]` precisely because this rule has several homes and they have to agree.
+  `get_published_story_media()` already returns rows in `sort_order`, so `[0]` is the same first
+  photo the SQL picks.
+- **`sort_order`, not "first image embedded in the story text".** The photo panel's Earlier/Later
+  controls already let a contributor arrange photos, so the first one is a choice they can make
+  without ever learning the word "cover" — and it needs no Markdown parsing in SQL. `cover.id`
+  stays as the final tiebreaker so the result is deterministic.
+- **Deliberately unchanged: the `cover_selected` readiness metric.** It keeps its strict
+  `and m.is_cover` test, because it measures whether a human CHOSE a cover — still worth knowing
+  to an editor. Loosening it would make it true for every story with a photo and tell nobody
+  anything.
+
+Verified against the live development project: revisions with a resolvable cover went **3 → 42**,
+all 39 gained one, and all 3 pre-existing explicit covers were still honoured — including one
+whose chosen photo is _not_ its first, which is the case that breaks if the ordering is wrong. In
+the running app, My Stories went from 17 placeholders to 10 real photos and 7 placeholders, and
+that 10/7 split is exactly the number of that contributor's stories with and without any photo.
+
+Tests: 5 in the new `lib/story/public-queries.test.ts` covering `coverOf()` — explicit choice,
+first-photo fallback, explicit-choice-that-is-not-first, no photos, single photo. No integration
+test for the SQL: the RLS suite never attaches media (that needs the admin upload pipeline), so
+covering it there would mean building a media fixture path — the ordering was verified directly
+against all 42 real revisions instead. `npm run verify` clean: 856 tests.
+
+**Not built (see the research):** the cover control still lives inside the per-photo Details
+panel rather than on the tile, and nothing in the editor yet says a cover exists. Those were
+layers 2 and 3.
+
+**2026-09-07 — "Download a copy" is gone from never-submitted drafts.**
+
+A download is a copy of a _finished_ thing, and a draft nobody has ever done anything with is the
+one state where there isn't one yet. `canExportStory(lifecycleStatus, revisionStatus)` in
+`lib/story/story-export.ts` returns false for exactly `draft` + `draft`, and true for everything
+else.
+
+**Both halves, not just the link.** The preview page hides the control, and
+`app/(contributor)/stories/[id]/export` returns its usual flat 404 — that URL is typeable, so a
+UI-only gate would be precisely the client-trusting Engineering Rule 2 forbids. One shared
+predicate rather than two copies, because this repo has already paid for duplicated gates drifting
+(the reason `missingStoryRequirements()` is shared). It sits beside `exportStatusLabel()`, which
+takes the same two arguments.
+
+**Two states that look like drafts and still export, both confirmed with the user rather than
+guessed.** A published story being edited again previews its in-flight draft but has been submitted
+and published, so it exports — and `exportStatusLabel()` already had a name for that exact case
+("Unpublished draft update") which would otherwise have become unreachable. A private story's
+revision stays `draft` forever by design, which is the mechanism keeping it out of moderation, not
+a sign it is unfinished; it is a completed story its author chose to keep, so keeping a copy is the
+strongest case there is ("Private").
+
+**Verified live** against the running dev server, signed in: on a plain draft the link is gone and
+`GET /stories/:id/export` answers 404 with `application/json`; on a published story the link is
+present and the same route answers 200 with `application/pdf`.
+
+`e2e/story-export.spec.ts` needed real work, not just a tweak: its whole fixture was a plain draft,
+so its two positive tests asserted precisely the behaviour being removed. It now builds two
+fixtures — one submitted (the PDF-content assertions moved onto it, and its status line changes
+from `(Draft)` to `(In review)`) and one left as a plain draft for a new test asserting both the
+missing link and the 404. All 6 specs run and pass against the linked development project.
+
+**2026-09-07 — Stories can be kept private, and private stories skip moderation.**
+
+Two migrations: `20260907100000_story_lifecycle_status_private.sql` (the enum value alone — `alter
+type ... add value` cannot be _used_ in the transaction that adds it, and `_revision_is_editable()`
+is a `language sql` function whose body is type-analysed at CREATE time, so the split is what makes
+the second file legal) and `20260907100100_private_stories.sql` (everything else).
+
+The submit step is now a choice of two destinations, not one button:
+
+|                    | Everyone                                     | Just me                         |
+| ------------------ | -------------------------------------------- | ------------------------------- |
+| RPC                | `submit_revision_with_consent()` (unchanged) | `keep_revision_private()` (new) |
+| consent row        | written                                      | **none**                        |
+| `revision_status`  | `draft` → `submitted`                        | stays `draft`                   |
+| `lifecycle_status` | `draft` → `pending_review`                   | `draft` → `private`             |
+| moderator          | reviews it                                   | never sees it                   |
+| images             | promoted at approval                         | stay in the private bucket      |
+
+**The revision deliberately stays `draft`, and that one decision is what makes the rest safe.**
+`get_moderation_queue()` selects `where revision_status = 'submitted'`, so a private story cannot
+enter the queue — no new exclusion filter to maintain and none for a future queue change to forget.
+Image promotion happens at approval, which is never reached, so Engineering Rules 13–14 hold by the
+code _not running_. And the immutability trigger that freezes a revision on leaving `draft` exists
+so a `revision_id` is a snapshot of what was consented to and published — a private story consented
+to and published nothing, so freezing would buy no guarantee while costing the contributor the
+ability to keep working on their own story.
+
+`_revision_is_editable()` is the single place that learned the new status, which is why the editor,
+the preview page, `save_revision_draft()` and every `set_revision_*` function work on a private
+story unchanged. Going public later is therefore the _ordinary_ submission — same consent record,
+same moderator — and there is deliberately no promote-to-public RPC that could become a way around
+either.
+
+**No public read function was modified, on purpose.** A private story fails all three of the public
+predicate's independent conditions by itself: `visibility` is `private`, `lifecycle_status` is
+`private`, and there is no `granted` consent row to join. The right change to a public query here
+was no change.
+
+**Two refusals, both `WHV04`.** An `editorial_import` cannot be kept private (staff prepared it for
+publication; locking it away would strand that work), and neither can a story with a non-null
+`published_revision_id` — unpublishing is a take-down and already has a governed, audited flow, so
+this must not become a second unaudited route to it. `WHV03` for an empty story, the same rule and
+code submission uses.
+
+**Also changed, and each one would have been a quiet regression if missed.**
+`delete_draft_story()` accepts `private` alongside `draft` — choosing "keep this to myself" must not
+also remove the ability to throw it away. `get_content_readiness_queue()` now _excludes_ private
+stories: readiness measures distance to publication, so a private story would be permanent,
+un-closeable noise in a checklist whose job is to reach zero, and a staff work queue is not where a
+contributor's private story belongs. `get_operational_metrics()` needed no change — checked, not
+assumed: all five of its counts name their statuses explicitly, so `private` falls outside every
+one. Had any been written as "everything except published", private stories would have started
+showing up as consent problems on day one.
+
+**UI.** `components/story/publish-choice-panel.tsx` replaces the bare `SubmitConsentPanel` on the
+preview page: a `<fieldset>`/`<legend>` radio group ("Who is this story for?" — _Everyone_ / _Just
+me_), then the matching form. Two separate `<form>`s bound to two separate Server Actions rather
+than one form with a hidden field — a single form would need an action that branches on a
+client-supplied value, and that value would then be deciding whether consent gets recorded. As
+built, the private path has no code route into the consent table at all. The private branch asks
+**no** permission, image-rights or identifiable-people questions, for the same reason. My Stories
+gained a **Private** section (placed beside Published, not beside Drafts: both are finished stories
+that came out as intended) and a "Private" badge; without it a private story fell through the new
+bucketing's default and appeared under "Not published — archived or not approved", which reads as
+something having gone wrong. `exportStatusLabel()` says "Private" rather than "Draft", which matters
+most in a downloaded PDF read later with no app around it to correct the impression.
+
+**Requirements differ by destination.** A public story still needs a location and a tag so it can be
+found in browse and search; a private one needs neither, because nobody will ever search for it.
+Both still need a title and real content. Since the destination is now a browser-side choice, the
+preview page computes **both** lists server-side and the panel switches between them — the gate is
+never re-derived in client code.
+
+**Rendering verified in a live browser; the save itself is not, and no database has the migration.**
+Checked against the running dev server at 375px and at desktop, signed in, on two real drafts: the
+"Who is this story for?" fieldset renders with both options, the radio card is an 80px tap target
+(measured, not eyeballed), there is no horizontal overflow (`scrollWidth` 375 = viewport 375), and
+the existing "Publication permission" form still renders in full underneath with both checkboxes,
+the identifiable-people select and its submit button — i.e. the public path is not regressed. The
+missing-requirements notice reads "Add your story, at least one location, at least one tag" and its
+"Go to that step" link resolves to `?step=story`, the first unmet one. What could NOT be exercised
+in the browser: switching to "Just me" (the pane's click action timed out repeatedly on this route,
+though nothing intercepts the control — `elementFromPoint` returns the radio itself), and the save
+itself, which needs the migration. The destination switch is covered instead by
+`components/story/publish-choice-panel.test.tsx`, which clicks the real radio and asserts the
+requirement list and form both change.
+
+**Applied to the linked development project (`ybhydepjaantkngngvuf`) and exercised there.**
+`supabase db push` applied exactly these two migrations and nothing else — `migration list` showed
+no drift beforehand, and the two-file enum split did what it was written for: the `language sql`
+`_revision_is_editable()` re-creation went through with no "unsafe use of new value of enum type".
+
+`types/database.ts` was then regenerated with `npm run supabase:types:linked`. The real diff is 9
+lines — `kept_private_at`, `keep_revision_private`, and `"private"` sitting after `"draft"` in the
+enum, exactly as declared. (The generator emits no semicolons, so the file must be run through
+Prettier afterwards or `format:check` fails and the diff looks like a 2,000-line rewrite.) With
+real types in hand the two deliberate stand-ins were removed: `keepRevisionPrivate()` is a plain
+typed `supabase.rpc(...)` again, per `callUntypedRpc()`'s own rule, and the enum cast in
+`my-stories-view.test.tsx` is gone. `isPrivateStory(status: string)` KEEPS its `string` parameter —
+that was never only about stale types: `StoryPreview` widens every status to `string` on purpose,
+so narrowing to the enum would break the preview page. Its comment now says so.
+
+**The RLS integration tests then ran for real: 99 passed**, including this change's own `describe`
+block, which asserts the _absences_ that make "private" mean anything — never in
+`get_moderation_queue()`, no `story_publication_consents` row, not readable by anon by id or by
+guessed slug, not readable by another signed-in user — plus the round trip back out (submitting a
+private story later lands it in the moderation queue like any other first submission), `WHV03` on
+an empty story and `WHV04` on an already-published one. The post-run cleanup reported no orphaned
+rows.
+
+**2026-09-07 — My Stories is grouped into collapsible status sections.**
+
+`app/(contributor)/my-stories/my-stories-view.tsx`. Stories are bucketed into **Drafts**,
+**In review**, **Published** and **Not published**, each a native `<details>` with the count in
+its header. An empty section is not drawn at all — a contributor who has never had anything
+rejected is never told about a "Not published" group.
+
+**The twelve-per-page pager is gone, and that was not asked for — flagging it rather than
+burying it.** Paging across groups is incoherent (a section can be full on page 1 and empty on
+page 2), and collapsing a group you are not working on is a better length control than paging at
+this product's scale. `STORIES_PER_PAGE`, the page state, `goToPage()` and `listTopRef` all went
+with it. Reversible: the alternative is a pager per section, which is three page states and three
+sets of controls on one screen. The 2026-09-02 entry below describes the pager this replaced.
+
+Bucketing is exhaustive over `story_lifecycle_status`' seven values and **order-sensitive**:
+
+- `published` is checked FIRST, so a live story with an edit in flight stays under Published. Its
+  `draftRevisionStatus` is `'submitted'`, which would otherwise pull it into "In review" and make
+  a story readers can see right now vanish from the section that says so. The in-flight edit is
+  already marked on the row by `<UpdateChip>` — the right place for a sub-state (Engineering Rule
+  11: the published version stays live throughout its update's review). There is a test for
+  exactly this.
+- `review` is the whole-story review states: `pending_review`, `awaiting_contributor_approval`.
+- `drafts` is what is still editable: `draft`, `changes_requested`.
+- `closed` is terminal: `rejected`, `archived`. Its own section rather than folded into Drafts,
+  because "not approved" is not work in progress and grouping it there would imply it is.
+
+Implementation notes:
+
+- **Native `<details>`/`<summary>`**, not a hand-rolled button plus `aria-expanded`: the
+  disclosure keyboard behaviour, the expanded/collapsed state and the screen-reader announcement
+  all come free and correct (Engineering Rule 19). The default triangle is hidden two ways because
+  one is not enough — `list-none` covers Firefox and Chrome, `[&::-webkit-details-marker]:hidden`
+  covers Safari.
+- **`aria-label` on the `<details>`.** Its role is `group`, and a group's accessible name comes
+  from `aria-label`, NOT from `<summary>` (which is the disclosure control and names itself).
+  Without it a screen reader announces several unnamed groups. Found while writing the tests,
+  where `getByRole("group", { name })` failed to match.
+- **State tracks what was CLOSED**, not what is open, so every section defaults to open and a
+  newly-appearing one is never hidden. Component state like the filters — deliberately not
+  persisted, so a reload always shows everything rather than silently withholding a section
+  someone forgot they collapsed. (The grid/list toggle IS persisted; that is a preference, this is
+  a transient "get out of my way".)
+- **The grid and list bodies were extracted** into `StoryGrid` / `StoryList` so both render once
+  per section. Nothing inside them changed except the list's ordinal, which now counts within the
+  section — sections collapse independently, so a continuous run would renumber every row below
+  whenever one folded.
+
+Checked in the running app: the section renders, collapses and re-opens, and the pager is gone.
+Worth knowing for anyone testing a closed section — Chrome hides closed `<details>` content with
+`content-visibility`, not `display: none`, so a descendant still reports a layout box while being
+visually hidden and skipped by assistive tech. Assert on the `open` attribute, not on measured
+height.
+
+Tests: 25 in `my-stories-view.test.tsx` (was 23). Three pager tests were replaced by five section
+tests — grouping with counts, empty sections not rendering, collapsing one section leaving the
+others open, the published-with-update-in-review rule, and per-section numbering. One pre-existing
+test needed scoping: `getByText("Published")` now matches both the row's badge and the section
+header.
+
+**2026-09-07 — The preview page's "Back to My Stories" link is gone.**
+
+Removed from the header row of `app/(contributor)/stories/[id]/preview/page.tsx`, leaving
+"← Back to editing" on the left and "Download a copy" on the right. The wrapper `<div>` that held
+the two right-hand links went with it.
+
+**The route out survives, but it is one tap deeper on a phone** — checked at 375px rather than
+assumed: ContributorNav's inline My Stories link collapses into the avatar menu at that width, so
+it is in the DOM but not on screen. On desktop it stays visible in the header. "← Back to editing"
+is unaffected, and is the link a contributor mid-draft actually reaches for. Flagging it because
+"there is still a way back" is true on desktop and only nearly true on mobile.
+
+A side benefit at 375px: the row used to carry three links and now carries two, so it no longer
+crowds.
+
+**2026-09-07 — The PDF download lives only on the preview page.**
+
+Removed `DownloadPdfAction` and its two call sites (grid and list views) from
+`app/(contributor)/my-stories/my-stories-view.tsx`, along with the now-unused `DownloadIcon`
+import. The "Download a copy" link on the private preview page is now the sole entry point to
+`/stories/:id/export`.
+
+Product decision, not a technical one: the My Stories row already carries Edit, Preview, Download,
+Delete and (on a published story) Take down, and downloading is a rarer action than any of them.
+The route, its authorization and its tests are untouched — this only removes a second doorway to
+the same endpoint. `DownloadIcon` stays in `components/icons.tsx`; the preview page still uses it,
+and its doc comment was corrected since it referenced a row that no longer has one.
+
+No test changed: `my-stories-view.test.tsx` never asserted on the download control, and
+`e2e/story-export.spec.ts` only ever checked the preview page's link.
+
+**2026-09-07 — The PDF export renders Chinese and emoji.**
 
 Font fallback in `lib/story/story-pdf.ts`. Follow-up to the export entry below, which shipped
 with Latin-only coverage and turned everything else into `?`.
@@ -86,7 +536,8 @@ test cannot make honestly, since the fonts resolve from `process.cwd()`. `npm ru
 
 New route `GET /stories/:id/export`
 (`app/(contributor)/stories/[id]/export/route.ts`), reachable from a "Download a copy" link on
-the private preview page and a download icon on every row in My Stories. **No migration, no schema
+the private preview page — the only entry point (see the 2026-09-07 note above; it was briefly
+also an icon on every My Stories row, removed on request). **No migration, no schema
 change, no database write** — this is a read path over what `get_story_preview()` already returns.
 
 Why this and not a zip of Markdown + images: asked for as a PDF. The published-shaped, formatted
@@ -879,7 +1330,7 @@ pointing at a file that no longer exists.
   2026-08-27 direct-to-storage change, were still directing readers to it from six live code
   comments. Repointed to `upload-actions.ts`. Two references are left alone on purpose because they
   correctly describe the file as historical (`upload-actions.ts`'s own "Replaces…" line, and
-  `lib/supabase/server.ts`). Dated entries elsewhere in this file, `docs/pdf-canva-import-plan.md`
+  `lib/supabase/server.ts`). Dated entries elsewhere in this file, `docs/pdf-import-plan.md`
   and `docs/pdf-import-spike-findings.md` are historical records and were **not** rewritten.
 
 - **Found while chasing that:** `createClient()` in `lib/supabase/server.ts` takes a `fetch`
@@ -1501,7 +1952,7 @@ real-photo crash fixed same day.**
 - A landing-page handwriting-font trial was explored in the same session and then **reverted at
   the user's request** — no font change is present in this codebase.
 
-**2026-08-18 — PDF/Canva import: Turbopack runtime fix, proxy body-size fix, and the
+**2026-08-18 — PDF import: Turbopack runtime fix, proxy body-size fix, and the
 anti-recurrence e2e coverage that would have caught both.**
 
 Follow-up to the Stage 5 entry below, which shipped the feature but left it working only under
@@ -1547,7 +1998,7 @@ function`, the exact second error the Stage 5 entry recorded.
   `Request body exceeded 10MB for /editorial/new/pdf-preview. Only the first 10MB will be
 available unless configured.` `proxy.ts`'s matcher includes `/editorial/:path*`, and Next
   **silently truncates** (not rejects) a proxied body past 10 MB by default. Against
-  `MAX_PDF_IMPORT_INPUT_BYTES` (75 MiB, sized for the real ~57 MB 151-page Canva sample this
+  `MAX_PDF_IMPORT_INPUT_BYTES` (75 MiB, sized for the real ~57 MB 151-page design-tool sample this
   feature exists for), every genuinely large export would have arrived truncated and been reported
   to the editor as a corrupt PDF. `next.config.ts` now sets
   `experimental.proxyClientMaxBodySize = "80mb"` with the same cross-referencing-comment
@@ -1619,10 +2070,10 @@ available unless configured.` `proxy.ts`'s matcher includes `/editorial/:path*`,
 - `npm run verify` passes: **385 tests** (384 + 1 new `AuthModal` test), 0 lint errors, 0 format
   issues, typecheck clean, build clean.
 
-**2026-08-18 — PDF/Canva import, Stage 5 (UI: upload → page picker → alt text → mandatory review
+**2026-08-18 — PDF import, Stage 5 (UI: upload → page picker → alt text → mandatory review
 step). Completes the full plan (Stages 0.5–5).**
 
-Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 5, the last stage. Gives
+Executed [docs/pdf-import-plan.md](pdf-import-plan.md)'s Stage 5, the last stage. Gives
 Stages 1–4's standalone Route Handlers a real UI, reached from the existing editorial "new import"
 page (`/editorial/new`).
 
@@ -1632,7 +2083,7 @@ page (`/editorial/new`).
   is a post-creation tool used _inside_ the real editor (`story-edit-form.tsx`) to replace an
   already-created draft's body text, not a mode of `/editorial/new`. `/editorial/new`
   (`new-import-form.tsx`) only ever had one mode: title + contributor → blank draft. Stage 5 adds a
-  second, real mode next to it — "Blank draft" vs. "PDF / Canva file" — driven by a new `importMode`
+  second, real mode next to it — "Blank draft" vs. "PDF file" — driven by a new `importMode`
   radio pair local to `new-import-form.tsx`; `content-import-panel.tsx` itself is untouched, since a
   PDF import produces its own content_json in one submit and never needs the paste-text tool.
 - **New files**:
@@ -1805,20 +2256,20 @@ PDF"`) landed on the correct `story_revision_media` rows in the database — the
   real end-to-end flow more thoroughly (real hosted Supabase project, real signed URLs, a real
   discovered bug) than a scripted Playwright spec would have added on top, and Playwright would hit
   the identical Turbopack/pdfjs-dist gap in this sandboxed environment's `next build` output anyway.
-- **This completes the full PDF/Canva import plan** (`docs/pdf-canva-import-plan.md`, Stages
+- **This completes the full PDF import plan** (`docs/pdf-import-plan.md`, Stages
   0.5–5). Next, if anyone picks this up: (1) resolve the Turbopack/`pdfjs-dist` bundling gap
   documented above — likely a Next.js/Turbopack issue report, or a Poppler/`pdftoppm`-based
   fallback per the plan's own Stage 0.5 alternative-candidates list, if Turbopack support doesn't
   land — since it currently means this feature only works correctly under classic webpack dev or
   possibly a non-Turbopack production build, not the `npm run dev`/`npm run build` defaults this
   repo's `package.json` scripts currently use; (2) re-confirm the 40-page/12-image ceilings against
-  the real deploy target once (1) is resolved and a large real Canva export can be tested end to
+  the real deploy target once (1) is resolved and a large real design-tool export can be tested end to
   end again, per Stage 0.5's own noted caveat that its timing numbers were sandbox-measured.
 
-**2026-08-18 — PDF/Canva import, Stage 4 (wire into the editorial import workflow: two-phase
+**2026-08-18 — PDF import, Stage 4 (wire into the editorial import workflow: two-phase
 preview → select → attach).**
 
-Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 4 only (explicitly
+Executed [docs/pdf-import-plan.md](pdf-import-plan.md)'s Stage 4 only (explicitly
 stopped there — no picker/alt-text/review UI; that's Stage 5, not started). This is the first stage
 where Stages 1–3's standalone modules get a real caller: two new staff-only Route Handlers under
 `app/(editor)/editorial/new/`, alongside the existing single-phase `new-import-form.tsx` importer
@@ -1939,17 +2390,17 @@ where Stages 1–3's standalone modules get a real caller: two new staff-only Ro
 - `npm run verify` passes: **375 tests** (up from 362), 0 lint errors, typecheck clean, build clean.
   Both new routes appear in the build's route table (`ƒ /editorial/new/pdf-attach`,
   `ƒ /editorial/new/pdf-preview`).
-- Next: Stage 5 of `docs/pdf-canva-import-plan.md` — the picker/alt-text/review UI: extend
+- Next: Stage 5 of `docs/pdf-import-plan.md` — the picker/alt-text/review UI: extend
   `new-import-form.tsx` (or a new PDF-mode component) to call Phase A on file select, render the
   thumbnail grid with a 12-page selection limit (mirroring `image-upload-manager.tsx`'s existing
   selection/limit conventions), collect per-page alt text before Phase B can be submitted
   client-side, then call Phase B and navigate to `/editorial/:id/edit` using the returned `storyId`.
   Not started.
 
-**2026-08-18 — PDF/Canva import, Stage 3 (assemble the story draft: image blocks in page order,
+**2026-08-18 — PDF import, Stage 3 (assemble the story draft: image blocks in page order,
 minimal shell text).**
 
-Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 3 only (explicitly
+Executed [docs/pdf-import-plan.md](pdf-import-plan.md)'s Stage 3 only (explicitly
 stopped there — no editorial workflow wiring, no Server Action/Route Handler, no UI; those start at
 Stage 4). Still no caller anywhere in the app references the new function — it remains a standalone,
 tested server module, same posture as Stages 1–2.
@@ -2004,14 +2455,14 @@ true`); placeholder text present; zero-pages edge case still validates; title de
   character/separator sanitization, and a filename exceeding 200 characters after the extension is
   stripped.
 - `npm run verify` passes: 362 tests (up from 350), 0 lint errors, typecheck clean, build clean.
-- Next: Stage 4 of `docs/pdf-canva-import-plan.md` — wire Stages 1–3 into the real editorial-import
+- Next: Stage 4 of `docs/pdf-import-plan.md` — wire Stages 1–3 into the real editorial-import
   workflow as a two-phase (preview → select → attach) Server Action/Route Handler pair, per that
   stage's own spec. Not started.
 
-**2026-08-18 — PDF/Canva import, Stage 2 (full-quality render + attach through the existing image
+**2026-08-18 — PDF import, Stage 2 (full-quality render + attach through the existing image
 pipeline).**
 
-Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 2 only (explicitly
+Executed [docs/pdf-import-plan.md](pdf-import-plan.md)'s Stage 2 only (explicitly
 stopped there — no `content_json` assembly, no editorial workflow wiring, no UI; those start at
 Stage 3). Still no UI, Server Action, or Route Handler references either new function — both remain
 standalone, tested server modules, same posture as Stage 1.
@@ -2095,14 +2546,14 @@ and char_length(alt_text) > 0)` — would otherwise reject a fresh, not-yet-capt
 - **Not done** (explicitly out of scope for this pass): Stage 3 (`content_json` assembly, default
   title), Stage 4 (editorial workflow wiring — Phase A/B actions, Route Handler for the PDF upload
   itself), Stage 5 (UI: page picker, alt-text form, mandatory review step).
-- **Next**: Stage 3 of `docs/pdf-canva-import-plan.md` — assemble a valid `content_json` document
+- **Next**: Stage 3 of `docs/pdf-import-plan.md` — assemble a valid `content_json` document
   referencing the Stage 2-attached page images in selection order (`![[mediaId]]` embed tokens, no
   extracted prose) plus a default title derived from the uploaded filename, reusing
   `createDraftAction`'s "Untitled story" convention rather than inventing new default-title logic.
 
-**2026-08-18 — PDF/Canva import, Stage 0.5 (rendering spike) and Stage 1 (rendering module).**
+**2026-08-18 — PDF import, Stage 0.5 (rendering spike) and Stage 1 (rendering module).**
 
-Executed [docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md)'s Stage 0.5 and Stage 1 only
+Executed [docs/pdf-import-plan.md](pdf-import-plan.md)'s Stage 0.5 and Stage 1 only
 (explicitly stopped there — no UI, no editorial workflow wiring, no image-pipeline attachment; that
 starts at Stage 2). Full findings: [docs/pdf-import-spike-findings.md](pdf-import-spike-findings.md)'s
 new "Stage 0.5" section.
@@ -2110,7 +2561,7 @@ new "Stage 0.5" section.
 - **Decision: rasterize with `pdfjs-dist` + `@napi-rs/canvas`.** First-preference option from the
   plan, installed and worked cleanly with no native toolchain and no fallback needed. Confirmed
   correct against both the fictional fixture PDFs and — the actual point of this spike — the real
-  30-page bilingual Canva export used in the earlier (superseded) text-extraction spike: a page
+  30-page bilingual design-tool export used in the earlier (superseded) text-extraction spike: a page
   whose Chinese prose Stage 0 found was **silently dropped by text extraction** renders perfectly
   as an image, since rasterization never needs to read anything as text. A useful implementation
   detail found while wiring this up: pdfjs-dist v6's own Node-path default already `require()`s
@@ -2172,7 +2623,7 @@ new "Stage 0.5" section.
   unrelated `pdfjs-dist` type-surface change between the version they were originally written
   against and the version now pinned) was fixed minimally (inline type instead of the missing
   export) since it blocked `tsc --noEmit` for the whole repo.
-- **Next**: Stage 2 of `docs/pdf-canva-import-plan.md` — `renderPagesAtFullQuality()` at full/publish
+- **Next**: Stage 2 of `docs/pdf-import-plan.md` — `renderPagesAtFullQuality()` at full/publish
   resolution, feeding each rendered page through the **existing, unmodified**
   `lib/story/image-pipeline.ts` path exactly as a manual upload would, respecting the real
   12-image-per-revision limit at that (the real) enforcement point.
@@ -5443,7 +5894,7 @@ every draft started with a placeholder title someone had to notice and replace.
   `.trim().min(1).max(200)`, the same contributor-identity error, the same `redirect()`.
 - The Strict-Mode `started` ref guard is gone with the effect; `pending` disabling the button is
   what now prevents a double-submit.
-- Cross-links with `/stories/new/import` (the PDF/Canva path), which has always asked for a title
+- Cross-links with `/stories/new/import` (the PDF path), which has always asked for a title
   first — the two entry points now behave the same way.
 - New test `app/(contributor)/stories/new/start-new-story.test.tsx` (4 cases), including the
   explicit "creates nothing on mount" regression. `e2e/cross-contributor-access.spec.ts` updated

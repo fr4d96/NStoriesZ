@@ -6,6 +6,11 @@ import { useToast } from "@/components/ui/toast";
 
 const TOAST_MESSAGES: Record<string, string> = {
   submitted: "Submitted for review.",
+  // Deliberately says no review is coming, because the contributor has just
+  // been through a step whose every other outcome sends the story to a
+  // moderator -- leaving that unsaid invites them to wait for something
+  // that will never arrive.
+  "kept-private": "Saved privately. Only you can see it.",
 };
 
 /**

@@ -101,8 +101,14 @@ export function ContributorForm({
           Contributor page web address
         </label>
         <p className="mt-1 text-xs text-foreground/55">
-          This is separate from the &ldquo;Public profile web address&rdquo;
-          above — it controls whether you appear on{" "}
+          {/* "above" was accurate when /account was one long scroll. It is
+              now a tab away, so this points at it -- AccountTabs watches
+              hashchange, so the link opens that tab. */}
+          This is separate from the{" "}
+          <a href="#profile" className="underline underline-offset-2">
+            &ldquo;Public profile web address&rdquo; on the Profile tab
+          </a>{" "}
+          — it controls whether you appear on{" "}
           <a
             href="/contributors"
             className="underline underline-offset-2"

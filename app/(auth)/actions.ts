@@ -11,8 +11,18 @@ import {
 import { resolveSafeReturnTo } from "@/lib/validation/safe-redirect";
 import { getCurrentUserRole } from "@/lib/auth/roles";
 import { resolveSignInLandingPath } from "@/lib/auth/contributor-identity";
+import { classifySignInIdentifier } from "@/lib/auth/sign-in-identifier";
+import { resolveEmailForUsername } from "@/lib/auth/username-login";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
+/**
+ * One message for every way a sign-in can fail: unknown email, unknown
+ * username, an identifier that is neither shape, a wrong password, or a
+ * service-role lookup that could not run. Never says which — see
+ * lib/auth/username-login.ts and lib/auth/sign-in-identifier.ts.
+ */
+const GENERIC_SIGN_IN_ERROR = "Incorrect email/username or password.";
 
 export type AuthFormState = {
   error?: string;
@@ -63,7 +73,7 @@ export async function signInAction(
   formData: FormData,
 ): Promise<AuthFormState> {
   const parsed = signInSchema.safeParse({
-    email: formData.get("email"),
+    identifier: formData.get("identifier"),
     password: formData.get("password"),
   });
 
@@ -71,15 +81,36 @@ export async function signInAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
+  // Supabase's signInWithPassword takes an email or a phone number and
+  // nothing else, so a username sign-in is always "resolve to the email
+  // first, then sign in exactly as before". The resolved email comes from
+  // the database and is used server-side only — it is never returned to the
+  // browser, and the identifier the user typed is never trusted as an
+  // account reference in its own right (Engineering Rule 2).
+  const identifier = classifySignInIdentifier(parsed.data.identifier);
+  if (!identifier) {
+    return { error: GENERIC_SIGN_IN_ERROR };
+  }
+
+  const email =
+    identifier.kind === "email"
+      ? identifier.email
+      : await resolveEmailForUsername(identifier.username);
+
+  if (!email) {
+    return { error: GENERIC_SIGN_IN_ERROR };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
+    email,
     password: parsed.data.password,
   });
 
   if (error) {
-    // Deliberately generic — never confirms whether the email is registered.
-    return { error: "Incorrect email or password." };
+    // Deliberately generic — never confirms whether the email or username
+    // is registered.
+    return { error: GENERIC_SIGN_IN_ERROR };
   }
 
   // An explicit `next` (e.g. bounced here from a protected page) always

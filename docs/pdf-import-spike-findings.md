@@ -2,26 +2,26 @@
 
 Status: **Stage 0 (text extraction, superseded) and Stage 0.5 (page rasterization) complete.** This
 is a throwaway-spike report, not a spec. It informs Stage 1+ of
-[docs/pdf-canva-import-plan.md](pdf-canva-import-plan.md); it ships no production code.
+[docs/pdf-import-plan.md](pdf-import-plan.md); it ships no production code.
 
 ## Important limitation up front
 
-**We do not have access to real Canva PDF exports and could not run Canva itself in this
+**We do not have access to real design-tool PDF exports and could not run that tool itself in this
 environment.** Every sample below is a fictional PDF _generated_ to approximate the shapes
 described in the plan (plain document, multi-column/decorative, flattened-to-image), not an
-actual Canva export. In particular:
+actual design-tool export. In particular:
 
 - The "no text layer" sample (`no-text-layer-scan-sim.pdf`) simulates a fully rasterized page by
   rendering an image with zero real text objects in the content stream. This is a reasonable proxy
-  for "extractor sees no text," but it cannot prove or disprove how _often_ real Canva "Doc" vs.
+  for "extractor sees no text," but it cannot prove or disprove how _often_ real design-tool "Doc" vs.
   "social story"/poster templates actually flatten text this way — that can only be confirmed
-  against real Canva output.
-- The multi-column/decorative samples simulate absolute text-box positioning (which Canva does
-  use for its layouts), but Canva's actual PDF output may use different font embedding, subsetting,
+  against real design-tool output.
+- The multi-column/decorative samples simulate absolute text-box positioning (which such tools do
+  use for their layouts), but the tool's actual PDF output may use different font embedding, subsetting,
   or content-stream structuring that behaves differently under pdfjs-dist. Treat the multi-column
-  findings below as "the mechanism works on PDFs shaped like this," not "confirmed against Canva."
+  findings below as "the mechanism works on PDFs shaped like this," not "confirmed against the real exporter."
 
-**Recommendation:** before Stage 1, if at all possible, get 2-3 real Canva PDF exports (Doc
+**Recommendation:** before Stage 1, if at all possible, get 2-3 real design-tool PDF exports (Doc
 template and Poster/social-story template) from the product owner and re-run
 `scripts/spike-pdf-extract.ts` against them. That is a cheap, high-value confirmation this spike
 could not do.
@@ -32,14 +32,14 @@ All content is invented placeholder text (fictional names: Jane Traveler, Kiran 
 Mele Tupou; fictional places/businesses: Sunridge Farms, Frostline Lodge, Ridgeview, Fernbrook).
 Nothing resembles real contributor material, per CLAUDE.md Engineering Rule 22.
 
-| File                         | Simulates                                                                                                                                                     | Generator             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `plain-doc-1.pdf`            | Canva "Doc" template export: title + 3 headings + paragraphs, single column                                                                                   | pdfkit                |
-| `plain-doc-2.pdf`            | Same shape, adds a sub-heading level and a bullet-style list                                                                                                  | pdfkit                |
-| `decorative-poster-1.pdf`    | Canva "social story"/poster export: oversized headline, two side-by-side text-box columns at the same y-position, one embedded raster image, off-flow caption | pdfkit                |
-| `decorative-poster-2.pdf`    | Canva infographic-style export: three narrow columns of varying font sizes, no images                                                                         | pdfkit                |
-| `no-text-layer-scan-sim.pdf` | Fully flattened/rasterized export (or scan): a single full-page image, zero text objects                                                                      | pdfkit                |
-| `control-browser-print.pdf`  | Non-Canva control: HTML printed to PDF via Chromium (Playwright), simulating a Google-Docs/browser-print-style export                                         | Playwright + Chromium |
+| File                         | Simulates                                                                                                                                                           | Generator             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `plain-doc-1.pdf`            | design-tool "Doc" template export: title + 3 headings + paragraphs, single column                                                                                   | pdfkit                |
+| `plain-doc-2.pdf`            | Same shape, adds a sub-heading level and a bullet-style list                                                                                                        | pdfkit                |
+| `decorative-poster-1.pdf`    | design-tool "social story"/poster export: oversized headline, two side-by-side text-box columns at the same y-position, one embedded raster image, off-flow caption | pdfkit                |
+| `decorative-poster-2.pdf`    | design-tool infographic-style export: three narrow columns of varying font sizes, no images                                                                         | pdfkit                |
+| `no-text-layer-scan-sim.pdf` | Fully flattened/rasterized export (or scan): a single full-page image, zero text objects                                                                            | pdfkit                |
+| `control-browser-print.pdf`  | Non-design-tool control: HTML printed to PDF via Chromium (Playwright), simulating a Google-Docs/browser-print-style export                                         | Playwright + Chromium |
 
 Sample PDFs live in `scratch/pdf-samples/` (gitignored-equivalent scratch location, not committed
 as feature code — see Cleanup below). Generators: `scripts/spike-generate-samples.mjs` (pdfkit
@@ -86,7 +86,7 @@ text-matrix scale, x/y position), and any image-paint operator names found by wa
 - Reading order: **NOT top-to-bottom/left-to-right in extraction order in general** — pdfjs returns
   runs in content-stream order, which in this sample happened to already be left-column-then-
   right-column because that's the order they were drawn. In general, content-stream order is
-  **not guaranteed to match visual reading order** for absolutely-positioned text boxes; Canva
+  **not guaranteed to match visual reading order** for absolutely-positioned text boxes; the exporting tool
   could draw the right column before the left column depending on its internal element order. The
   x/y positions are present and reliable, though, so a real reading-order reconstruction (Stage 2)
   must sort/cluster by position rather than trust emission order. This confirms the plan's Stage 2
@@ -105,7 +105,7 @@ text-matrix scale, x/y position), and any image-paint operator names found by wa
 - Reading order: same caveat as above — this sample's three columns happen to interleave in a
   sane visual order in this run only because of draw order, not because pdfjs reconstructed
   columns. A genuine multi-column detector (compare x-ranges of runs at similar y, per the plan)
-  is required before Stage 2 can trust this for real Canva multi-column layouts.
+  is required before Stage 2 can trust this for real design-tool multi-column layouts.
 - Font sizes: 3 distinct sizes (20/13/9pt).
 - Verdict: **pass, same caveat as above**.
 
@@ -118,13 +118,13 @@ text-matrix scale, x/y position), and any image-paint operator names found by wa
   content, which makes a clean "zero extractable text" rejection straightforward to implement.
   It does **not** by itself tell an editor "this page has an image but no text" vs. "this page is
   genuinely blank" — Stage 2 should specifically report page-has-image-but-no-text as its own
-  warning category, since that's the actionable signal for "this Canva export flattened its text."
+  warning category, since that's the actionable signal for "this design-tool export flattened its text."
 
-### `control-browser-print.pdf` — non-Canva control (Chromium print-to-PDF)
+### `control-browser-print.pdf` — non-design-tool control (Chromium print-to-PDF)
 
 - Real text extracted: **yes**, 9 runs, cleanly separated headings/paragraphs.
 - Reading order: **sane**, top-to-bottom, matching source HTML order (single-column browser-print
-  output draws in visual order, unlike absolutely-positioned Canva-style layouts).
+  output draws in visual order, unlike absolutely-positioned design-tool-style layouts).
 - Font sizes: 3 distinct sizes (19.5/13.5/9pt) matching h1/h2/body from the source CSS.
 - Verdict: **pass** — confirms pdfjs-dist's behavior isn't idiosyncratic to the pdfkit-generated
   samples; a completely different PDF generator (Chromium's PDF printer) produces equally usable
@@ -151,16 +151,16 @@ text-matrix scale, x/y position), and any image-paint operator names found by wa
 
 ## Summary: go/no-go by PDF shape
 
-| Shape                                                       | Real text extractable?  | Reading order                                                                                                                         | Font-size metadata | Verdict                                                                                                                                                                                                                                                 |
-| ----------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plain document (Canva "Doc"-style)                          | Yes, reliably           | Sane, top-to-bottom                                                                                                                   | Yes, per run       | **Go**                                                                                                                                                                                                                                                  |
-| Decorative / multi-column (Canva poster/social-story-style) | Yes                     | **Not guaranteed sane from emission order alone — must reconstruct from x/y position, with explicit multi-column detection/flagging** | Yes, per run       | **Go, conditional on Stage 2 building real position-based reading-order reconstruction, not trusting emission order**                                                                                                                                   |
-| Flattened-to-image / no text layer                          | No (by design/expected) | n/a                                                                                                                                   | n/a                | **Go on rejection path**: cleanly detectable (zero text items) and should produce an explicit "no extractable text" rejection, never a silent empty draft, per the plan's "full rejection over truncation" rule. OCR remains out of scope per the plan. |
+| Shape                                                             | Real text extractable?  | Reading order                                                                                                                         | Font-size metadata | Verdict                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plain document (design-tool "Doc"-style)                          | Yes, reliably           | Sane, top-to-bottom                                                                                                                   | Yes, per run       | **Go**                                                                                                                                                                                                                                                  |
+| Decorative / multi-column (design-tool poster/social-story-style) | Yes                     | **Not guaranteed sane from emission order alone — must reconstruct from x/y position, with explicit multi-column detection/flagging** | Yes, per run       | **Go, conditional on Stage 2 building real position-based reading-order reconstruction, not trusting emission order**                                                                                                                                   |
+| Flattened-to-image / no text layer                                | No (by design/expected) | n/a                                                                                                                                   | n/a                | **Go on rejection path**: cleanly detectable (zero text items) and should produce an explicit "no extractable text" rejection, never a silent empty draft, per the plan's "full rejection over truncation" rule. OCR remains out of scope per the plan. |
 
 No sample here forced the "OCR is unavoidable" decision point the plan calls out — every generated
 shape except the deliberately-no-text sample produced usable text. But per the limitation noted at
-the top of this doc, **that finding is bounded by the fact that these are simulated Canva shapes,
-not real Canva exports** — confirming against real Canva output before or early in Stage 2 remains
+the top of this doc, **that finding is bounded by the fact that these are simulated design-tool shapes,
+not real design-tool exports** — confirming against real design-tool output before or early in Stage 2 remains
 recommended, not optional.
 
 ## Library recommendation for Stage 2
@@ -170,10 +170,10 @@ library: real text with position and derivable font size, and a separate (if low
 enumerate embedded images — no need to combine multiple libraries. No fallback to `pdf-parse` or
 `unpdf` was necessary.
 
-## Real Canva PDF sample (2026-08-17)
+## Real design-tool PDF sample (2026-08-17)
 
 **This section supersedes the "Important limitation up front" caveat above where it conflicts.**
-The user supplied one real Canva export to test against: a 30-page PDF (`New Zealand Working
+The user supplied one real design-tool export to test against: a 30-page PDF (`New Zealand Working
 Holiday_1-30.pdf`, ~14.7MB — pages 1-30 of a larger 151-page personal document) authored by a
 Malaysian WHV traveller, in a bilingual Chinese/English "story scrapbook" template.
 
@@ -191,7 +191,7 @@ excerpts — see the script's own comments) was written to a location outside th
 
 ### What the real document actually looks like, structurally
 
-This is unambiguously a Canva **scrapbook/travel-journal template** export, not a plain "Doc"
+This is unambiguously a design-tool **scrapbook/travel-journal template** export, not a plain "Doc"
 template — closer to the spike's `decorative-poster-*` simulations than the `plain-doc-*` ones,
 but richer:
 
@@ -237,7 +237,7 @@ stats) against all 30 pages.
   heuristic will need size-bucketing/clustering, not exact-match comparison.
   - Some duplicate-position, duplicate-string runs were observed (e.g. page 1's title text appeared
     twice at the identical transform) — likely a stroke+fill or shadow/outline rendering pass in
-    Canva's output. Stage 2 will need basic de-duplication (same string + same/near-identical
+    the tool's output. Stage 2 will need basic de-duplication (same string + same/near-identical
     x/y/font) before treating run count as a content-density signal.
 - **Reading order: confirmed NOT reliable from emission order**, and now with a concrete real
   example, not just a hypothetical: on a real page (photo-grid/caption page 13, "Auckland Food"),
@@ -245,7 +245,7 @@ stats) against all 30 pages.
   _bottom_ of the page (y≈250-380 in a ~1687pt-tall page), emitted **before** the page's own title
   text near the top (y≈1563). This is not a subtle column-interleaving issue like the synthetic
   samples showed — it's a flat-out non-monotonic y-order within a single page, consistent with
-  Canva drawing decorative/caption elements in an internal layer order unrelated to visual position.
+  the tool drawing decorative/caption elements in an internal layer order unrelated to visual position.
   x/y positions remain present and reliable per run, so the plan's Stage 2 requirement to
   reconstruct order from position (not emission order) is **confirmed necessary, not just
   theoretically prudent** — this real document would produce visibly scrambled output without it.
@@ -271,7 +271,7 @@ On this real document (majority Chinese-language body text, per the product's ow
 market of Malaysian WHV travellers), **pdfjs-dist's `getTextContent()` extracted zero runs
 containing any Chinese/CJK characters, anywhere in the 30-page sample** — while it correctly
 extracted English words, numbers, URLs, and punctuation from the very same pages. Verified directly:
-across all 30 pages, the content streams contain 4,368 `showText` operator calls (i.e., Canva _is_
+across all 30 pages, the content streams contain 4,368 `showText` operator calls (i.e., the tool _is_
 drawing the glyphs — they render correctly on screen/print, as seen in the page images captured
 during this spike), but `getTextContent()` yields only 605 non-empty text items total, of which
 **none** contain a CJK character (checked with a Unicode CJK-range regex against every extracted
@@ -284,7 +284,7 @@ plausible-looking text-run count (a handful of English headers/numbers plus a sc
 punctuation marks), giving false confidence that the page "extracted fine" when the actual story
 content is missing entirely.
 
-Root cause (inferred, not proven in this spike): most likely the CJK text in this Canva export uses
+Root cause (inferred, not proven in this spike): most likely the CJK text in this design-tool export uses
 an embedded/subsetted font whose glyphs are referenced by glyph index without a usable ToUnicode
 CMap, so pdfjs can draw the glyph (it has the outline) but cannot map it back to a Unicode
 character for the text layer — a known general class of PDF-generator issue, not specific to
@@ -295,7 +295,7 @@ the symptom.
 Malaysian WHV travellers and that nationality/language must be data, not hard-coded — but it does
 not currently say anything about the _language_ of story body text, and the existing plan's Stage 2
 heuristics (heading detection, reading-order reconstruction, bullet detection) were designed and
-validated only against Latin-script/English samples. If real contributor Canva exports are
+validated only against Latin-script/English samples. If real contributor design-tool exports are
 routinely bilingual or Chinese-primary (as this one real sample is), a heuristic-only Stage 2 built
 without accounting for this could silently drop the majority of a contributor's actual story text
 while still reporting "extraction succeeded" (non-zero run count) — the opposite failure mode from
@@ -313,7 +313,7 @@ embedded font's CMap/ToUnicode table is present and covers the glyphs actually u
 - **Decorative/multi-column/scrapbook shape**: still **Go, conditional on position-based reading-
   order reconstruction** — the prior spike's caveat is now **confirmed on real output**, not just
   simulated. No change to the conclusion, but confidence in it is now higher (it was previously a
-  reasonable inference from a hand-built approximation; it is now an observed fact on real Canva
+  reasonable inference from a hand-built approximation; it is now an observed fact on real design-tool
   output).
 - **Flattened-to-image / no-text-layer pages**: **unchanged, Go on rejection path** — not
   encountered in this real 30-page sample (every page had a genuine text layer), but the prior
@@ -326,13 +326,13 @@ embedded font's CMap/ToUnicode table is present and covers the glyphs actually u
   real bilingual contributor content. Recommend Stage 2 scope explicitly include: (a) a
   low-extraction-relative-to-showText-density detector per page, surfaced as its own warning
   category distinct from "zero text extracted," and (b) testing Stage 2's heuristics against at
-  least one further real bilingual/CJK Canva sample before considering the heuristics
+  least one further real bilingual/CJK design-tool sample before considering the heuristics
   production-ready, since this spike's inferred root cause (missing ToUnicode CMap) was not
-  independently confirmed and could vary by which Canva font/template a contributor used.
+  independently confirmed and could vary by which font/template a contributor used.
 
 **Overall**: the library recommendation (carry `pdfjs-dist` forward — see below, unchanged) still
 holds. The structural shape findings (font-size-as-heading-signal, position-based reading-order
-need, separate image-extraction API) are all **confirmed, not overturned**, by real Canva output.
+need, separate image-extraction API) are all **confirmed, not overturned**, by real design-tool output.
 But this real sample surfaces a genuinely new, higher-priority risk — non-Latin-script text going
 missing from extraction while the page still reports plausible non-zero text-run counts — that the
 English-only synthetic samples structurally could not have revealed, and that is directly relevant
@@ -346,13 +346,13 @@ ground rules.
 - `scripts/spike-generate-samples.mjs`, `scripts/spike-generate-control.mjs`,
   `scripts/spike-pdf-extract.ts` — left in the repo, **untracked**, for human review. Not deleted
   per this task's instructions, but not staged/committed either.
-- `scripts/spike-pdf-extract-real-sample.ts` — added during the real-Canva-PDF-sample follow-up
+- `scripts/spike-pdf-extract-real-sample.ts` — added during the real-design-tool-PDF-sample follow-up
   above. Takes a PDF path and output directory as CLI args (`npx tsx
 scripts/spike-pdf-extract-real-sample.ts <pdf-path> <output-dir>`); contains no content from any
   specific document (generic/reusable), left untracked for human review alongside the other spike
   scripts.
 - `scratch/pdf-samples/*.pdf` — the 6 generated fixture PDFs, left for inspection, untracked. The
-  real Canva sample PDF used in the follow-up above was **not** copied here or anywhere else in the
+  real design-tool sample PDF used in the follow-up above was **not** copied here or anywhere else in the
   repo — it was read directly from its original location outside the repo, per the task's
   instructions, and no real personal content from it was written into any repo path.
 - **`package.json` / `package-lock.json` were NOT modified.** `pdfkit` and `pdfjs-dist` were
@@ -373,7 +373,7 @@ scripts/spike-pdf-extract-real-sample.ts <pdf-path> <output-dir>`); contains no 
 
 ## Stage 0.5 — Page-rendering spike (2026-08-18)
 
-Follows the pivot documented at the top of `docs/pdf-canva-import-plan.md`: import now rasterizes
+Follows the pivot documented at the top of `docs/pdf-import-plan.md`: import now rasterizes
 PDF pages to images instead of extracting text. This section de-risks _that_, per the plan's Stage
 0.5 checklist.
 
@@ -416,7 +416,7 @@ DPI), writing output to `scratch/pdf-render-spike-output/` (untracked scratch, n
   is crisp and correctly positioned, headings/body font-size hierarchy renders as expected, the
   decorative sample's colored rectangle and two-column layout render pixel-accurate to the source.
   No garbling, no missing glyphs, no color/layout corruption.
-- **Real Canva PDF, CJK rendering — the actual point of this spike, given Stage 0's finding that
+- **Real design-tool PDF, CJK rendering — the actual point of this spike, given Stage 0's finding that
   text _extraction_ silently drops CJK.** Rendered pages 1, 13, and 25 of the real 30-page sample
   (`~/Downloads/New Zealand Working Holiday split_pdf/New Zealand Working Holiday_1-30.pdf` — read
   from its original location only, never copied into the repo, per Ground Rule 6; the one-off
@@ -489,7 +489,7 @@ infrastructure, not a small change).
    environment; no native toolchain required; no CJK-rendering problem (rasterization, not text
    extraction). Added as **real dependencies** in Stage 1 (previously `--no-save`).
 2. **Preview resolution: ~1000px long edge** (computed per-page from each page's actual size, not a
-   fixed DPI/scale — real Canva page sizes vary). Chosen for picker-UI legibility; per the timing
+   fixed DPI/scale — real design-tool page sizes vary). Chosen for picker-UI legibility; per the timing
    finding above, resolution has limited effect on total request time, so this is a legibility
    choice, not primarily a performance one.
 3. **Page-count ceiling: 40 pages.** At the measured ~270-290ms/page for a real, photo-dense,

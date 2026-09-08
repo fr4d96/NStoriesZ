@@ -5,7 +5,7 @@ import type { ContributorForEditorial } from "@/lib/story/editorial-queries";
 
 /**
  * Title + "existing vs. new contributor" fields, factored out of
- * `new-import-form.tsx` (Stage 5, docs/pdf-canva-import-plan.md) so the
+ * `new-import-form.tsx` (Stage 5, docs/pdf-import-plan.md) so the
  * blank-draft form and the new PDF-import form
  * (`pdf-import-picker.tsx`) render the exact same markup/`name` attributes
  * rather than two copies drifting apart. Both consumers read these fields

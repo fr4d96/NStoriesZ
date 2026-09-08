@@ -448,6 +448,48 @@ describe("MyStoriesView", () => {
       ).toBeInTheDocument();
     });
 
+    it("filters on the Tags axis, including a tag the contributor typed", async () => {
+      // list_my_stories() resolves each tag to either a lookup row's name or
+      // the contributor's own custom_label, so both filter identically here
+      // (20260907110000). "cherry picking" below stands for the self-typed
+      // kind, which is most of them on this product.
+      const user = userEvent.setup();
+      const vineyard = makeStory({
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab1",
+        title: "Marlborough vines",
+        tags: ["vineyard work", "seasonal"],
+      });
+      const orchard = makeStory({
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab2",
+        title: "Otago orchards",
+        tags: ["cherry picking"],
+      });
+      render(<MyStoriesView stories={[vineyard, orchard]} />);
+
+      const tagGroup = screen.getByRole("group", {
+        name: "Filter stories by tags",
+      });
+      await user.click(
+        within(tagGroup).getByRole("button", { name: "cherry picking" }),
+      );
+
+      expect(
+        screen.getByRole("link", { name: "Otago orchards" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Marlborough vines" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders no Tags row when the contributor has never tagged anything", () => {
+      // The same "an axis earns its row" rule the location axes follow -- a
+      // control that cannot split the list is not rendered at all.
+      render(<MyStoriesView stories={[otago, nelson]} />);
+      expect(
+        screen.queryByRole("group", { name: "Filter stories by tags" }),
+      ).not.toBeInTheDocument();
+    });
+
     it("renders no chip rows when every story shares one region", () => {
       render(
         <MyStoriesView
@@ -606,7 +648,10 @@ describe("MyStoriesView", () => {
 
     // lifecycle_status is still "published" -- that is what keeps the live
     // version live -- so the submitted revision is the only signal there is.
-    expect(screen.getByText("Published")).toBeInTheDocument();
+    // Scoped to the row: "Published" now names the collapsible section too,
+    // so an unscoped getByText matches twice.
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("Published")).toBeInTheDocument();
     expect(screen.getByText("Update in review")).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: /^Edit/ }),
@@ -638,76 +683,162 @@ describe("MyStoriesView", () => {
     );
   });
 
-  // A contributor's catalogue only grows, so the list is paged at
-  // STORIES_PER_PAGE (12) -- client-side, over the stories already loaded,
-  // so the Region/Destination filter chips still see the whole set.
-  function makeManyStories(count: number) {
-    return Array.from({ length: count }, (_, i) =>
+  // Stories are grouped into collapsible sections by status. The pager that
+  // used to live here went with the change: paging across groups is
+  // incoherent, and collapsing a group is the better length control.
+  function sectioned() {
+    return [
       makeStory({
-        id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
-        title: `Story ${String(i + 1).padStart(2, "0")}`,
+        id: "00000000-0000-4000-8000-000000000001",
+        title: "A draft",
+        lifecycle_status: "draft",
       }),
-    );
+      makeStory({
+        id: "00000000-0000-4000-8000-000000000002",
+        title: "Sent back",
+        lifecycle_status: "changes_requested",
+      }),
+      makeStory({
+        id: "00000000-0000-4000-8000-000000000003",
+        title: "With a moderator",
+        lifecycle_status: "pending_review",
+        draftRevisionStatus: "submitted",
+      }),
+      makeStory({
+        id: "00000000-0000-4000-8000-000000000004",
+        title: "Live one",
+        lifecycle_status: "published",
+        current_draft_revision_id: null,
+        published_revision_id: "44444444-4444-4444-8444-444444444444",
+      }),
+    ] as MyStoryWithCover[];
   }
 
-  it("shows nothing but the stories when they all fit on one page", () => {
-    render(<MyStoriesView stories={makeManyStories(12)} />);
+  function section(name: string) {
+    return screen.getByRole("group", { name: new RegExp(name) });
+  }
 
+  it("groups stories into Drafts, In review and Published, each with a count", () => {
+    render(<MyStoriesView stories={sectioned()} />);
+
+    expect(within(section("Drafts")).getByText("A draft")).toBeInTheDocument();
     expect(
-      screen.queryByRole("navigation", { name: "Story pages" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByRole("listitem")).toHaveLength(12);
+      within(section("Drafts")).getByText("Sent back"),
+    ).toBeInTheDocument();
+    expect(
+      within(section("In review")).getByText("With a moderator"),
+    ).toBeInTheDocument();
+    expect(
+      within(section("Published")).getByText("Live one"),
+    ).toBeInTheDocument();
+
+    // The count beside each label, so a collapsed section still says how much
+    // is inside it.
+    expect(within(section("Drafts")).getByText("2")).toBeInTheDocument();
+    expect(within(section("Published")).getByText("1")).toBeInTheDocument();
   });
 
-  it("pages a longer catalogue, keeping the running number continuous across pages", async () => {
-    const user = userEvent.setup();
-    render(<MyStoriesView stories={makeManyStories(15)} />);
+  it("gives a private story its own section, not the Not published one", () => {
+    // A private story's lifecycle_status is neither published, nor a review
+    // state, nor draft/changes_requested, so before it was handled
+    // explicitly it fell through to `closed` and appeared under
+    // "Not published — archived or not approved". That reads as something
+    // having gone wrong, when it is exactly what the contributor asked for.
+    render(
+      <MyStoriesView
+        stories={
+          [
+            ...sectioned(),
+            makeStory({
+              id: "00000000-0000-4000-8000-000000000005",
+              title: "Just for me",
+              lifecycle_status: "private",
+              published_revision_id: null,
+            }),
+          ] as MyStoryWithCover[]
+        }
+      />,
+    );
 
-    expect(screen.getAllByRole("listitem")).toHaveLength(12);
-    expect(screen.getByText("Story 01")).toBeInTheDocument();
-    expect(screen.queryByText("Story 13")).not.toBeInTheDocument();
-
-    const nav = screen.getByRole("navigation", { name: "Story pages" });
-    expect(within(nav).getByText("1–12 of 15")).toBeInTheDocument();
     expect(
-      within(nav).getByRole("button", { name: "Previous" }),
-    ).toBeDisabled();
-
-    await user.click(within(nav).getByRole("button", { name: "Next" }));
-
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
-    expect(screen.getByText("Story 13")).toBeInTheDocument();
-    expect(screen.queryByText("Story 01")).not.toBeInTheDocument();
-    expect(within(nav).getByText("13–15 of 15")).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: "Next" })).toBeDisabled();
-    // The list view's ordinal keeps counting rather than restarting at 01.
-    expect(screen.getByText("13")).toBeInTheDocument();
+      within(section("Private")).getByText("Just for me"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: /Not published/ }),
+    ).not.toBeInTheDocument();
   });
 
-  it("goes back to page 1 when the filter changes, instead of stranding you past the end", async () => {
-    const user = userEvent.setup();
-    const stories = makeManyStories(15).map((story, i) => ({
-      ...story,
-      // Only the last three carry Otago, so filtering to it leaves fewer
-      // stories than the page you are currently on.
-      regions:
-        i >= 12
-          ? [{ region_name: "Otago", destination_name: "Queenstown" }]
-          : [{ region_name: "Nelson", destination_name: "Motueka" }],
-    })) as MyStoryWithCover[];
-    render(<MyStoriesView stories={stories} />);
-
-    const nav = screen.getByRole("navigation", { name: "Story pages" });
-    await user.click(within(nav).getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Story 13")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Otago" }));
-
-    // Page 1 of a 3-story result, not an empty page 2.
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
-    expect(screen.getByText("Story 13")).toBeInTheDocument();
+  it("does not render a section with nothing in it", () => {
+    render(<MyStoriesView stories={sectioned()} />);
+    // Nothing here is rejected or archived, so the contributor is never told
+    // about a "Not published" group they have never had.
     expect(
-      screen.queryByRole("navigation", { name: "Story pages" }),
+      screen.queryByRole("group", { name: /Not published/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("lands with Drafts collapsed and everything else open", () => {
+    render(<MyStoriesView stories={sectioned()} />);
+
+    // Drafts is the pile that only ever grows, so it starts folded to keep
+    // Published above the fold. Folded, not hidden: the count is still there.
+    expect(section("Drafts")).not.toHaveAttribute("open");
+    expect(within(section("Drafts")).getByText("2")).toBeInTheDocument();
+
+    expect(section("In review")).toHaveAttribute("open");
+    expect(section("Published")).toHaveAttribute("open");
+  });
+
+  it("opens Drafts when you click it, without touching the other sections", async () => {
+    const user = userEvent.setup();
+    render(<MyStoriesView stories={sectioned()} />);
+
+    await user.click(screen.getByText("Drafts"));
+
+    // <details> keeps its content in the DOM; what changes is the open state,
+    // which is what a screen reader announces and what hides the rows.
+    expect(section("Drafts")).toHaveAttribute("open");
+    expect(section("Published")).toHaveAttribute("open");
+    expect(screen.getByText("Live one")).toBeVisible();
+
+    // And closing it again leaves its neighbours alone.
+    await user.click(screen.getByText("Drafts"));
+    expect(section("Drafts")).not.toHaveAttribute("open");
+    expect(section("Published")).toHaveAttribute("open");
+  });
+
+  it("keeps a published story with an update in review under Published", () => {
+    // Engineering Rule 11: the live version stays live for the whole review,
+    // so the story belongs where readers can still find it. The in-flight
+    // edit shows as a chip on the row instead.
+    render(
+      <MyStoriesView
+        stories={
+          [
+            makeStory({
+              lifecycle_status: "published",
+              published_revision_id: "44444444-4444-4444-8444-444444444444",
+              current_draft_revision_id: "55555555-5555-4555-8555-555555555555",
+              draftRevisionStatus: "submitted",
+            }),
+          ] as MyStoryWithCover[]
+        }
+      />,
+    );
+
+    expect(
+      within(section("Published")).getByText("Picking apples in Hawke's Bay"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: /In review/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Update in review")).toBeInTheDocument();
+  });
+
+  it("numbers rows within a section rather than across the whole list", () => {
+    render(<MyStoriesView stories={sectioned()} />);
+    // Drafts holds two rows and Published one, so a per-section ordinal means
+    // "01" appears in more than one place -- a continuous run would not.
+    expect(screen.getAllByText("01").length).toBeGreaterThan(1);
   });
 });

@@ -12,8 +12,10 @@ test("sign-in page renders the sign-in form with links to sign-up and forgot-pas
 }) => {
   const response = await page.goto("/sign-in");
   expect(response?.status()).toBeLessThan(400);
-  await expect(page.getByLabel(/email/i)).toBeVisible();
   const main = page.locator("#main-content");
+  // One field, both shapes -- see components/auth/sign-in-form.tsx. Scoped
+  // to <main> because the header renders its own sign-in modal form.
+  await expect(main.getByLabel("Email or username")).toBeVisible();
   await expect(
     main.getByRole("link", { name: /forgot your password/i }),
   ).toHaveAttribute("href", "/forgot-password");

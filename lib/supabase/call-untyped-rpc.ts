@@ -8,14 +8,17 @@ import type { Database } from "@/types/database";
  * `npm run supabase:types:linked` has not been re-run against the project
  * that migration was pushed to.
  *
- * NOTE (2026-08-31): this helper currently has ZERO call sites. The types
- * were regenerated from the linked project, so every RPC that used to need
- * it (list_user_accounts, get_user_account_detail, admin_set_user_role,
- * authorize_heic_transcode, record_heic_transcoded_original) is now fully
- * typed and called directly. It is kept only because the same gap reopens
- * every time a new migration lands ahead of a regeneration. The rule stays:
- * the moment real types exist for an RPC, its call site goes back to a
- * plain, fully-typed `supabase.rpc(...)` call.
+ * NOTE (2026-09-09): this helper is back to ZERO call sites. The types were
+ * regenerated from the linked project after the `usernames` migration was
+ * pushed, which also caught up the two RPCs that had drifted onto it in the
+ * meantime -- get_revision_selections (re-signed with an `expenses` output)
+ * and set_revision_expenses -- so both are fully typed and called directly
+ * again, as were list_user_accounts, get_user_account_detail,
+ * admin_set_user_role, authorize_heic_transcode and
+ * record_heic_transcoded_original before them. It is kept only because the
+ * same gap reopens every time a new migration lands ahead of a
+ * regeneration. The rule stays: the moment real types exist for an RPC, its
+ * call site goes back to a plain, fully-typed `supabase.rpc(...)` call.
  *
  * This is a narrow escape hatch from the generated types, not from runtime
  * safety: the underlying PostgREST call, and every RPC's own server-side

@@ -451,6 +451,32 @@ export const submitRevisionSchema = z.object({
 export type SubmitRevisionInput = z.infer<typeof submitRevisionSchema>;
 
 /**
+ * The OTHER destination the submit step offers: keep this story private
+ * (keep_revision_private(), backing
+ * app/(contributor)/stories/[id]/preview/actions.ts#keepStoryPrivateAction).
+ *
+ * Deliberately tiny next to submitRevisionSchema, and every omission is the
+ * point. There is no publicationConfirmed, no expectedTermsVersion, no
+ * imageRightsConfirmed and no identifiablePeopleState here because nothing
+ * is being published: those four fields all exist to record permission to
+ * put something, and someone's photograph, in front of the public
+ * (docs/content-governance.md). Collecting them for a story that stays
+ * private would put a permission on file that was never given.
+ *
+ * `expectedVersion` is the optimistic-concurrency token the client last
+ * saw, not an authorization input -- ownership, source_kind and publication
+ * state are all re-derived inside keep_revision_private(), which is the
+ * real boundary. `.positive()` for the same reason as every other schema
+ * here; see lib/validation/moderation.ts's "Server Action input schemas".
+ */
+export const keepStoryPrivateSchema = z.object({
+  revisionId: z.uuid(),
+  expectedVersion: z.number().int().positive(),
+});
+
+export type KeepStoryPrivateInput = z.infer<typeof keepStoryPrivateSchema>;
+
+/**
  * A contributor withdrawing their OWN published story
  * (revoke_publication_consent(), backing
  * app/(contributor)/my-stories/actions.ts#withdrawPublishedStoryAction).

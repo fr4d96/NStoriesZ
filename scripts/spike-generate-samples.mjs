@@ -1,8 +1,8 @@
 /**
- * THROWAWAY spike script -- Stage 0 of docs/pdf-canva-import-plan.md.
+ * THROWAWAY spike script -- Stage 0 of docs/pdf-import-plan.md.
  *
  * Generates fictional sample PDFs approximating the shapes we expect from
- * Canva PDF exports, so scripts/spike-pdf-extract.ts has something to test
+ * design-tool PDF exports, so scripts/spike-pdf-extract.ts has something to test
  * against. Not part of the shipped feature -- not imported by any
  * production code, not covered by npm run verify.
  *
@@ -32,7 +32,7 @@ function newDoc(file) {
 
 // ---------------------------------------------------------------------
 // Sample 1 -- "plain-doc-1": simple single-column document, simulating a
-// Canva "Doc" template export: title, headings, body paragraphs, in
+// design-tool "Doc" template export: title, headings, body paragraphs, in
 // document order, single font family, no columns.
 // ---------------------------------------------------------------------
 function buildPlainDoc1() {
@@ -158,7 +158,7 @@ function buildPlainDoc2() {
 }
 
 // ---------------------------------------------------------------------
-// Sample 3 -- "decorative-poster-1": simulates a Canva "social story" /
+// Sample 3 -- "decorative-poster-1": simulates a design-tool "social story" /
 // poster export -- two text columns placed by absolute x/y position, a
 // varied set of font sizes for decorative headline vs. caption text, and
 // an embedded raster image (a small solid-color PNG generated on the fly).
@@ -241,7 +241,7 @@ async function buildDecorativePoster1() {
 
 // ---------------------------------------------------------------------
 // Sample 4 -- "decorative-poster-2": three narrow columns, varied font
-// sizes throughout (mimicking a Canva infographic-style export), no
+// sizes throughout (mimicking a design-tool infographic-style export), no
 // images.
 // ---------------------------------------------------------------------
 function buildDecorativePoster2() {
@@ -294,15 +294,15 @@ function buildDecorativePoster2() {
 // Sample 5 -- "no-text-layer-scan-sim": approximates the flattened /
 // rasterized-text failure mode by rendering the page as a single full-page
 // raster image with NO real text objects at all -- the closest a
-// non-Canva tool can get to simulating Canva's "flatten to image" export
-// path without running Canva itself.
+// another tool can get to simulating a design tool's "flatten to image" export
+// path without running that tool itself.
 // ---------------------------------------------------------------------
 async function buildNoTextLayerScanSim() {
   const doc = newDoc("no-text-layer-scan-sim.pdf");
   doc.addPage({ size: [400, 300], margin: 0 });
   // A single flat-color image covering the whole page and nothing else --
   // no doc.text(...) calls at all, so there are zero text objects in the
-  // page's content stream, matching what a flattened/rasterized Canva
+  // page's content stream, matching what a flattened/rasterized design-tool
   // export or a scanned page would look like from an extractor's point
   // of view.
   doc.image(await makeTinyPng(), 0, 0, { width: 400, height: 300 });

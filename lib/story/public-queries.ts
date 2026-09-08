@@ -72,6 +72,28 @@ export async function getPublishedStoryMedia(storyId: string) {
 }
 
 /**
+ * A story's cover: the explicitly chosen photo if there is one, otherwise the
+ * first photo. Never reports "no cover" for a story that has any photo.
+ *
+ * This is the SAME rule the SQL readers use -- `order by is_cover desc,
+ * sort_order` in both list_published_stories() and, as of
+ * 20260908064045_cover_falls_back_to_first_photo.sql, list_my_stories(). It
+ * lives in a named function rather than inline at its one call site precisely
+ * because the rule has several homes and they have to agree: they did not
+ * before, which is why the public story index showed a photo while My Stories
+ * showed the NoImage placeholder for the very same story.
+ *
+ * Relies on get_published_story_media() returning rows in `sort_order`, which
+ * it does (20260803090800_story_public_reads.sql) -- so `[0]` is the first
+ * photo, the same one the SQL readers pick.
+ */
+export function coverOf<T extends { is_cover: boolean }>(
+  media: readonly T[],
+): T | null {
+  return media.find((item) => item.is_cover) ?? media[0] ?? null;
+}
+
+/**
  * Keyset-paginated. p_limit is clamped server-side regardless of what's
  * passed. Card-shaped rows include cover image path, regions, and tags in
  * the same query (Prompt 5) -- no per-card follow-up query.

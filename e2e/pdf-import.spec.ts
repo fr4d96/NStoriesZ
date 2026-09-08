@@ -2,8 +2,8 @@ import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * Real, browser-driven proof that the PDF/Canva import flow
- * (docs/pdf-canva-import-plan.md, Stages 1–5) actually RUNS inside a real
+ * Real, browser-driven proof that the PDF import flow
+ * (docs/pdf-import-plan.md, Stages 1–5) actually RUNS inside a real
  * Next.js server build — not just inside Vitest's module loader.
  *
  * Why this spec exists at all, and why it must never be reduced to a unit
@@ -89,16 +89,16 @@ function mainOf(page: Page) {
 async function signInAsEditorAndOpenPdfMode(page: Page) {
   await page.goto("/sign-in");
   const signIn = mainOf(page);
-  await signIn.getByLabel("Email").fill(EDITOR_EMAIL!);
+  await signIn.getByLabel("Email or username").fill(EDITOR_EMAIL!);
   await signIn.getByLabel("Password").fill(EDITOR_PASSWORD!);
   await signIn.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
 
   await page.goto("/editorial/new");
-  await mainOf(page).getByLabel("PDF / Canva file").check();
+  await mainOf(page).getByLabel("PDF file").check();
 }
 
-test.describe("PDF/Canva import (real Route Handlers, real Next server)", () => {
+test.describe("PDF import (real Route Handlers, real Next server)", () => {
   test.skip(
     !hasEditorCredentials,
     "Requires SUPABASE_RLS_TEST_EDITOR_EMAIL/PASSWORD in .env.test.local — see docs/architecture.md 'RLS integration test setup'.",

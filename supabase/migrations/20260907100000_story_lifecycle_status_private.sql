@@ -1,0 +1,26 @@
+-- Private stories, part 1 of 2: the enum value, and NOTHING else.
+--
+-- WHY THIS IS ITS OWN MIGRATION
+--
+-- `alter type ... add value` is legal inside a transaction from PG12
+-- onwards, but the value it adds cannot be USED in that same transaction.
+-- The Supabase CLI wraps each migration file in its own transaction, so the
+-- split is what makes the next file legal: 20260907100100 rewrites
+-- _revision_is_editable(), a `language sql` function whose body IS parsed
+-- and type-analysed at CREATE time -- an inline 'private' literal there
+-- would be rejected with "unsafe use of new value of enum type" if it
+-- shared a transaction with this statement.
+--
+-- (plpgsql bodies are stored as text and would not have tripped that. The
+-- one SQL-language function in the set is enough to force the split, and
+-- splitting is the rule regardless -- it does not depend on which language
+-- each future caller happens to use.)
+--
+-- POSITION IN THE ENUM. Added directly after 'draft' rather than appended,
+-- because enum sort order is declaration order and 'private' belongs beside
+-- the other "the contributor is still in charge of this" status, not after
+-- 'archived'. Nothing currently sorts by lifecycle_status; this keeps that
+-- cheap to start doing.
+--
+-- WHAT 'private' MEANS is documented on the column in part 2.
+alter type public.story_lifecycle_status add value if not exists 'private' after 'draft';

@@ -14,7 +14,7 @@ export {
 } from "@/lib/story/pdf-validation";
 
 /**
- * PDF-to-page-image import — Stage 1 of docs/pdf-canva-import-plan.md.
+ * PDF-to-page-image import — Stage 1 of docs/pdf-import-plan.md.
  *
  * This module gets a PDF file safely from raw upload bytes to a set of
  * rendered, preview-resolution page images, as a pure/testable server
@@ -48,7 +48,7 @@ export {
  * timing finding, resolution has only a modest effect on total render time
  * (dominated by vector/font rendering, not raster output size) — this is
  * chosen for picker-UI legibility, not as a performance knob. Computed
- * per-page from each page's own size (real Canva page sizes vary widely),
+ * per-page from each page's own size (real design-tool page sizes vary widely),
  * not a fixed DPI/scale.
  */
 const PREVIEW_TARGET_LONG_EDGE_PX = 1000;
@@ -240,7 +240,7 @@ async function loadPdfDocument(bytes: Buffer): Promise<LoadPdfResult> {
 
 /**
  * Renders one already-loaded page to a PNG at `targetLongEdgePx`, scaled
- * from that page's own base size (real Canva page sizes vary widely, so
+ * from that page's own base size (real design-tool page sizes vary widely, so
  * this is never a fixed DPI/scale).
  */
 async function renderPageToPng(

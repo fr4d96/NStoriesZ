@@ -280,11 +280,14 @@ export function HiddenEyeIcon(props: IconProps) {
 }
 
 /**
- * Download a copy — an arrow coming down into a tray. Used for the
- * contributor's own PDF export of a story
- * (app/(contributor)/stories/[id]/export). Deliberately not a page/document
- * glyph: what matters is the ACT of taking a copy away, not the file format,
- * and JournalIcon already stands for "a story" elsewhere in the same row.
+ * Download a copy — an arrow coming down into a tray. Used beside the
+ * "Download a copy" link on a contributor's private preview page, which is
+ * the only entry point to their own PDF export
+ * (app/(contributor)/stories/[id]/export).
+ *
+ * Deliberately not a page/document glyph: what matters is the ACT of taking a
+ * copy away, not the file format, and JournalIcon already stands for "a
+ * story" elsewhere in the app.
  */
 export function DownloadIcon(props: IconProps) {
   return (
@@ -292,6 +295,20 @@ export function DownloadIcon(props: IconProps) {
       <path d="M12 3.75v10.5" />
       <path d="M8.25 10.5 12 14.25l3.75-3.75" />
       <path d="M4.5 16.5v1.75c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V16.5" />
+    </svg>
+  );
+}
+
+/**
+ * A bare chevron, pointing right at rest. Used as the disclosure marker on
+ * My Stories' collapsible status sections, rotated 90° when the section is
+ * open. Separate from ArrowRightIcon (which has a shaft and reads as
+ * "go somewhere"): this one only ever means "there is more under here".
+ */
+export function ChevronIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M9.5 5.5 16 12l-6.5 6.5" />
     </svg>
   );
 }

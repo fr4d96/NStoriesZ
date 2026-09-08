@@ -1,8 +1,8 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
-import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 import type {
+  KeepStoryPrivateInput,
   RevisionInput,
   SubmitRevisionInput,
 } from "@/lib/validation/story";
@@ -147,6 +147,28 @@ export async function submitRevisionWithConsent(input: SubmitRevisionInput) {
     p_image_rights_confirmed: input.imageRightsConfirmed,
     p_identifiable_people_state: input.identifiablePeopleState,
     p_editorial_assistance_confirmed: input.editorialAssistanceConfirmed,
+  });
+  if (error) throw error;
+}
+
+/**
+ * The other half of the submit step: keep this story private instead of
+ * publishing it (keep_revision_private(),
+ * supabase/migrations/20260907100100_private_stories.sql).
+ *
+ * Notice how little it sends compared to submitRevisionWithConsent() above.
+ * That asymmetry IS the feature: there is no consent, no terms version and
+ * no image-rights answer to pass, because nothing is being published and
+ * so no permission is being given. The RPC records no
+ * story_publication_consents row at all.
+ *
+ */
+export async function keepRevisionPrivate(input: KeepStoryPrivateInput) {
+  await requireUser();
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("keep_revision_private", {
+    p_revision_id: input.revisionId,
+    p_expected_version: input.expectedVersion,
   });
   if (error) throw error;
 }
@@ -354,10 +376,6 @@ export async function setRevisionTags(
  * negative amount to 0, trims/truncates the note and dedupes by category,
  * so this wrapper carries no rules of its own -- it only renames the keys
  * to the snake_case the function reads.
- *
- * Routed through callUntypedRpc() because the migration has not been
- * pushed and types/database.ts therefore has no signature for it yet; put
- * it back on a plain, fully-typed `supabase.rpc(...)` call once it has.
  */
 export async function setRevisionExpenses(
   revisionId: string,
@@ -374,7 +392,7 @@ export async function setRevisionExpenses(
 ) {
   await requireUser();
   const supabase = await createClient();
-  await callUntypedRpc<null>(supabase, "set_revision_expenses", {
+  const { error } = await supabase.rpc("set_revision_expenses", {
     p_revision_id: revisionId,
     p_expected_version: expectedVersion,
     p_expenses: expenses.map((e) => ({
@@ -384,6 +402,7 @@ export async function setRevisionExpenses(
       note: e.note ?? null,
     })),
   });
+  if (error) throw error;
 }
 
 /**

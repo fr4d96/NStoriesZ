@@ -21,7 +21,7 @@ const attributionTypeSchema = z.enum([
  * Shared "pick an existing contributor or create a new unlinked one" logic,
  * factored out so `createEditorialImportAction` below and the PDF-import
  * Phase B Route Handler (app/(editor)/editorial/new/pdf-attach/route.ts,
- * Stage 4 of docs/pdf-canva-import-plan.md) parse the exact same
+ * Stage 4 of docs/pdf-import-plan.md) parse the exact same
  * `contributorMode`/`existingContributorId`/`newContributorDisplayName`/
  * `newContributorAttributionType` form fields identically, rather than two
  * copies of this validation drifting apart. Does NOT check editor/admin

@@ -36,11 +36,30 @@ describe("signUpSchema", () => {
 describe("signInSchema", () => {
   it("requires a non-empty password but does not enforce a minimum length", () => {
     expect(
-      signInSchema.safeParse({ email: "a@example.com", password: "" }).success,
+      signInSchema.safeParse({ identifier: "a@example.com", password: "" })
+        .success,
     ).toBe(false);
     expect(
-      signInSchema.safeParse({ email: "a@example.com", password: "x" }).success,
+      signInSchema.safeParse({ identifier: "a@example.com", password: "x" })
+        .success,
     ).toBe(true);
+  });
+
+  it("accepts a username as the identifier, not just an email", () => {
+    expect(
+      signInSchema.safeParse({ identifier: "casey-nz", password: "x" }).success,
+    ).toBe(true);
+  });
+
+  it("deliberately does not enforce any identifier shape beyond non-empty", () => {
+    // Shape is decided later by classifySignInIdentifier(), so the login box
+    // never answers "is this a valid username?" ahead of a credential check.
+    expect(
+      signInSchema.safeParse({ identifier: "!!!", password: "x" }).success,
+    ).toBe(true);
+    expect(
+      signInSchema.safeParse({ identifier: "   ", password: "x" }).success,
+    ).toBe(false);
   });
 });
 

@@ -7,7 +7,7 @@ import { MAX_IMAGES_PER_REVISION } from "@/lib/story/image-validation";
 
 /**
  * Upload-boundary validation for a PDF import (Stage 1,
- * docs/pdf-canva-import-plan.md). Mirrors this directory's existing
+ * docs/pdf-import-plan.md). Mirrors this directory's existing
  * "one schema per trust boundary, safeParse, never throw" convention
  * (lib/validation/moderation.ts) — this is a new trust boundary per the
  * Definition of Done, not an extension of an existing one.

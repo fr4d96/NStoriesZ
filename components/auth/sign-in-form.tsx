@@ -19,17 +19,29 @@ export function SignInForm({ next }: { next: string }) {
         <input type="hidden" name="next" value={next} />
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium">
-            Email
+          <label htmlFor="identifier" className="block text-sm font-medium">
+            Email or username
           </label>
+          {/*
+            type="text", not type="email" — the browser's built-in email
+            validation would reject a perfectly valid username before the
+            form ever submits. autoComplete="username" is correct for both
+            shapes: it is the standard token for "the account identifier",
+            not for "a username specifically", and password managers fill
+            a saved email into it happily.
+          */}
           <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
+            id="identifier"
+            name="identifier"
+            type="text"
+            autoComplete="username"
             required
             className="mt-1 w-full rounded-md border border-border-subtle px-3 py-2"
           />
+          <p className="mt-1 text-xs text-foreground/55">
+            Use your email, or a username if you&apos;ve set one in your
+            account.
+          </p>
         </div>
 
         <div>

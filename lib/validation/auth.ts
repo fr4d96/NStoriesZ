@@ -30,8 +30,17 @@ export const signUpSchema = z.object({
     .or(z.literal("")),
 });
 
+/**
+ * The sign-in field accepts an email OR a username, so it is deliberately
+ * validated as "not empty" and nothing more. Enforcing the username shape
+ * here would make the login box answer "is this even a valid username?"
+ * before any credential is checked — a free format oracle, and a tell that
+ * the field takes usernames at all. Anything that is neither shape is
+ * classified as unresolvable by lib/auth/sign-in-identifier.ts and folded
+ * into the same generic credential error as a wrong password.
+ */
 export const signInSchema = z.object({
-  email: emailSchema,
+  identifier: z.string().trim().min(1, "Enter your email or username."),
   password: z.string().min(1, "Password is required."),
 });
 

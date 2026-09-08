@@ -8,11 +8,13 @@ import type { Database } from "@/types/database";
  * table is in between "the migration is written" and "the migration is
  * pushed and `npm run supabase:types:linked` has been re-run".
  *
- * In use as of 2026-09-02 for `expense_categories`
- * (supabase/migrations/20260902110000_expense_categories.sql). The rule is
- * the same as the RPC helper's: the moment real types exist for a table,
- * its call site goes back to a plain, fully-typed `supabase.from(...)`
- * call and this stops being imported.
+ * NOTE (2026-09-09): ZERO call sites. Its one user, `expense_categories`
+ * in lib/story/active-lookups.ts, went back to a plain, fully-typed
+ * `supabase.from("expense_categories")` once types/database.ts was
+ * regenerated. Kept on the same terms as its RPC twin
+ * (lib/supabase/call-untyped-rpc.ts): the gap reopens every time a
+ * migration lands ahead of a regeneration, and the rule stays that a call
+ * site returns to plain typed access the moment real types exist.
  *
  * This is an escape hatch from the GENERATED TYPES only, never from
  * runtime safety. The PostgREST request, this table's RLS policies, and

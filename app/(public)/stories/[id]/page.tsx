@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   getPublishedStoryBySlugCached,
   getPublishedStoryMedia,
+  coverOf,
   listPublishedStories,
   listPublicRegions,
 } from "@/lib/story/public-queries";
@@ -75,9 +76,12 @@ export async function generateMetadata({
   const story = await getPublishedStoryBySlugCached(slug);
   if (!story) return {};
 
+  // coverOf(), not `.find(is_cover)`: a story whose contributor never opened
+  // the per-photo Details panel had no cover at all, so it shipped no
+  // og:image and shared as a bare text card. See that helper for the rule,
+  // which the SQL readers now share.
   const coverUrl = getPublicImageUrl(
-    (await getPublishedStoryMedia(story.story_id)).find((m) => m.is_cover)
-      ?.public_url ?? null,
+    coverOf(await getPublishedStoryMedia(story.story_id))?.public_url ?? null,
   );
 
   return {

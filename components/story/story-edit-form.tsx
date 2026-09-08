@@ -411,6 +411,12 @@ export function StoryEditForm({
     initialContributorNote,
   );
   const [locations, setLocations] = useState(initialLocations);
+  // A manually-added row carries no region until the contributor picks one.
+  // Such a row must not tick the "Places" step or satisfy the submit gate --
+  // it is not a location yet, and saveLocations() does not persist it either.
+  // Everything that asks "how many locations are there" means this, not
+  // locations.length.
+  const completeLocationCount = locations.filter((l) => l.regionId).length;
   const [locationSearchNotice, setLocationSearchNotice] = useState<
     string | null
   >(null);
@@ -888,6 +894,31 @@ export function StoryEditForm({
     saveLocations(next);
   }
 
+  /**
+   * The other way in. Until this existed the ONLY way to create a location
+   * row was a successful search match, so a contributor whose place the map
+   * could not find had nothing to type into -- and the search's own failure
+   * notice told them to "pick manually below", pointing at a list that was
+   * empty in exactly that case.
+   *
+   * Deliberately starts with no region rather than defaulting to the first
+   * one: a silent default would save "Auckland" for someone who never chose
+   * it, and a wrong region recorded confidently is worse than an obviously
+   * unfinished row. saveLocations() holds the row back until it is real.
+   */
+  function addManualLocation() {
+    setLocationSearchNotice(null);
+    setLocations([
+      ...locations,
+      {
+        regionId: "",
+        destinationId: null,
+        customDestinationLabel: null,
+        sortOrder: locations.length,
+      },
+    ]);
+  }
+
   function removeLocation(index: number) {
     const next = locations
       .filter((_, i) => i !== index)
@@ -896,13 +927,24 @@ export function StoryEditForm({
     saveLocations(next);
   }
 
+  /**
+   * A manually-added row starts with NO region (see addManualLocation), and
+   * revisionLocationSchema requires `regionId: z.uuid()` -- so a half-filled
+   * row would fail validation and take the whole autosave down with it.
+   * Incomplete rows are therefore held in local state only and dropped here,
+   * with sortOrder renumbered over what actually gets sent so the saved
+   * order has no gaps. The row becomes real the moment a region is chosen.
+   */
   function saveLocations(next: typeof locations) {
+    const complete = next
+      .filter((l) => l.regionId)
+      .map((l, i) => ({ ...l, sortOrder: i }));
     setSaving(true);
     queue.enqueue("locations", async () => {
       const result = await setLocationsAction(
         revisionId,
         versionRef.current,
-        next,
+        complete,
       );
       if (result.ok) {
         versionRef.current += 1;
@@ -918,8 +960,8 @@ export function StoryEditForm({
     if (!match) {
       setLocationSearchNotice(
         label
-          ? `No matching region found for "${label}" — pick manually below.`
-          : "No matching region found — pick manually below.",
+          ? `We could not match "${label}" to a New Zealand region — use "Add a location manually" below.`
+          : 'We could not match that place to a New Zealand region — use "Add a location manually" below.',
       );
       return;
     }
@@ -1009,7 +1051,7 @@ export function StoryEditForm({
       [initialMedia.length > 0, "photos"],
       [tripFilled, "trip"],
       [expensesFilled, "expenses"],
-      [locations.length > 0 && selectedTags.length > 0, "places"],
+      [completeLocationCount > 0 && selectedTags.length > 0, "places"],
     ] as const
   )
     .filter(([filled]) => filled)
@@ -1021,7 +1063,7 @@ export function StoryEditForm({
   const missingRequirements = missingStoryRequirements({
     title,
     hasContent: contentFilled,
-    locationCount: locations.length,
+    locationCount: completeLocationCount,
     tagCount: selectedTags.length,
   });
   const canReview = missingRequirements.length === 0;
@@ -1483,6 +1525,13 @@ export function StoryEditForm({
                       }
                       className="rounded-md border border-border-subtle px-2 py-1.5 text-sm dark:bg-transparent"
                     >
+                      {/* Only present while the row has no region -- a
+                          manually-added one. It disappears once a real
+                          region is chosen, so it can never be re-selected
+                          to un-set a saved location (Remove does that). */}
+                      {!loc.regionId && (
+                        <option value="">Choose a region…</option>
+                      )}
                       {regions.map((r) => (
                         <option key={r.id} value={r.id}>
                           {r.name}
@@ -1529,6 +1578,19 @@ export function StoryEditForm({
                   </div>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={addManualLocation}
+                className="mt-2 rounded-md border border-border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted"
+              >
+                Add a location manually
+              </button>
+              {locations.length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Search for a place above, or add one yourself — pick the
+                  region and type the town however you write it.
+                </p>
+              )}
             </fieldset>
 
             <TagEditor

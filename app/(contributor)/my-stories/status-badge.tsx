@@ -1,5 +1,9 @@
 const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
+  // The contributor finished this one and chose to keep it to themselves.
+  // "Private", not "Saved" or "Unpublished": it says who can see it, which
+  // is the only thing they actually chose.
+  private: "Private",
   awaiting_contributor_approval: "Awaiting your approval",
   pending_review: "In review",
   changes_requested: "Changes requested",
@@ -10,6 +14,9 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-surface-muted text-foreground/65",
+  // Same quiet treatment as Draft rather than a warning colour -- keeping a
+  // story private is a normal, finished outcome, not a problem state.
+  private: "bg-surface-muted text-foreground/65",
   awaiting_contributor_approval: "bg-accent/15 text-accent",
   pending_review: "bg-tag-background text-tag-foreground",
   changes_requested: "bg-accent/15 text-accent",
