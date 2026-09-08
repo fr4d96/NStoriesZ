@@ -1349,6 +1349,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      usernames: {
+        Row: {
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+          username: string;
+        };
+        Insert: {
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+          username: string;
+        };
+        Update: {
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+          username?: string;
+        };
+        Relationships: [];
+      };
       work_types: {
         Row: {
           active: boolean;
@@ -2042,6 +2063,7 @@ export type Database = {
           slug: string;
           source_kind: Database["public"]["Enums"]["story_source_kind"];
           submitted_at: string;
+          tags: Json;
           title: string;
           updated_at: string;
           version: number;

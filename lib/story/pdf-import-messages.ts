@@ -7,7 +7,7 @@ import type { PdfPageAttachError } from "@/lib/story/pdf-page-attachment";
 /**
  * Shared error -> editor-facing copy mapping for both Phase A
  * (pdf-preview/route.ts) and Phase B (pdf-attach/route.ts) of Stage 4,
- * docs/pdf-canva-import-plan.md -- kept in one place, outside either
+ * docs/pdf-import-plan.md -- kept in one place, outside either
  * route.ts file, since a Next.js Route Handler module may only export HTTP
  * method handlers and the small set of reserved route-segment config names
  * (`runtime`, `dynamic`, etc.); any other export is a build-time error.

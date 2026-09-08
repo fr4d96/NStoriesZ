@@ -3,7 +3,7 @@
 // server-only's package code throws unconditionally outside Next's own
 // bundler -- same reasoning/mock as lib/story/pdf-import.test.ts and
 // lib/story/pdf-page-attachment.test.ts. This exercises Phase A of Stage 4
-// (docs/pdf-canva-import-plan.md) as a real Route Handler: constructs an
+// (docs/pdf-import-plan.md) as a real Route Handler: constructs an
 // actual multipart NextRequest and calls the exported POST() directly,
 // rather than testing renderPagePreviews() again (already covered by
 // lib/story/pdf-import.test.ts) -- this test is about the wiring (auth,

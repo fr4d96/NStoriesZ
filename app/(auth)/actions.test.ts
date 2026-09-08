@@ -29,6 +29,16 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+// lib/auth/username-login.ts is the one module allowed to use the
+// service-role client, so it is mocked at the import boundary here exactly
+// like the Supabase client itself — these tests are about signInAction's
+// own routing and error rules, never about a live privileged lookup.
+const mockResolveEmailForUsername = vi.fn();
+vi.mock("@/lib/auth/username-login", () => ({
+  resolveEmailForUsername: (username: string) =>
+    mockResolveEmailForUsername(username),
+}));
+
 const mockGetCurrentUserRole = vi.fn();
 vi.mock("@/lib/auth/roles", () => ({
   getCurrentUserRole: () => mockGetCurrentUserRole(),
@@ -72,6 +82,7 @@ beforeEach(() => {
   mockResetPasswordForEmail.mockReset().mockResolvedValue({ error: null });
   mockGetUser.mockReset();
   mockUpdateUser.mockReset();
+  mockResolveEmailForUsername.mockReset().mockResolvedValue(null);
   mockGetCurrentUserRole.mockReset().mockResolvedValue(null);
   mockHasContributorIdentity.mockReset().mockResolvedValue(true);
 });
@@ -128,7 +139,7 @@ describe("signInAction", () => {
       signInAction(
         {},
         formData({
-          email: "a@example.com",
+          identifier: "a@example.com",
           password: "password123",
           next: "/my-stories",
         }),
@@ -141,7 +152,7 @@ describe("signInAction", () => {
       signInAction(
         {},
         formData({
-          email: "a@example.com",
+          identifier: "a@example.com",
           password: "password123",
           next: "https://evil.example.com",
         }),
@@ -156,10 +167,10 @@ describe("signInAction", () => {
 
     const result = await signInAction(
       {},
-      formData({ email: "a@example.com", password: "wrong" }),
+      formData({ identifier: "a@example.com", password: "wrong" }),
     );
 
-    expect(result.error).toBe("Incorrect email or password.");
+    expect(result.error).toBe("Incorrect email/username or password.");
   });
 
   it("with no explicit next, sends an ordinary user to My Stories", async () => {
@@ -168,7 +179,7 @@ describe("signInAction", () => {
     await expect(
       signInAction(
         {},
-        formData({ email: "a@example.com", password: "password123" }),
+        formData({ identifier: "a@example.com", password: "password123" }),
       ),
     ).rejects.toThrow("REDIRECT:/my-stories");
   });
@@ -180,7 +191,7 @@ describe("signInAction", () => {
     await expect(
       signInAction(
         {},
-        formData({ email: "a@example.com", password: "password123" }),
+        formData({ identifier: "a@example.com", password: "password123" }),
       ),
     ).rejects.toThrow("REDIRECT:/account#contributor-identity");
   });
@@ -191,7 +202,7 @@ describe("signInAction", () => {
     await expect(
       signInAction(
         {},
-        formData({ email: "a@example.com", password: "password123" }),
+        formData({ identifier: "a@example.com", password: "password123" }),
       ),
     ).rejects.toThrow("REDIRECT:/moderation");
   });
@@ -202,7 +213,7 @@ describe("signInAction", () => {
     await expect(
       signInAction(
         {},
-        formData({ email: "a@example.com", password: "password123" }),
+        formData({ identifier: "a@example.com", password: "password123" }),
       ),
     ).rejects.toThrow("REDIRECT:/admin");
   });
@@ -213,7 +224,7 @@ describe("signInAction", () => {
     await expect(
       signInAction(
         {},
-        formData({ email: "a@example.com", password: "password123" }),
+        formData({ identifier: "a@example.com", password: "password123" }),
       ),
     ).rejects.toThrow("REDIRECT:/editorial");
   });
@@ -225,13 +236,99 @@ describe("signInAction", () => {
       signInAction(
         {},
         formData({
-          email: "a@example.com",
+          identifier: "a@example.com",
           password: "password123",
           next: "/my-stories",
         }),
       ),
     ).rejects.toThrow("REDIRECT:/my-stories");
     expect(mockGetCurrentUserRole).not.toHaveBeenCalled();
+  });
+  it("resolves a username to its email and signs in with that", async () => {
+    mockResolveEmailForUsername.mockResolvedValue("casey@example.com");
+
+    await expect(
+      signInAction(
+        {},
+        formData({ identifier: "casey-nz", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/my-stories");
+
+    expect(mockResolveEmailForUsername).toHaveBeenCalledWith("casey-nz");
+    expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: "casey@example.com",
+      password: "password123",
+    });
+  });
+
+  it("lower-cases a username before looking it up", async () => {
+    mockResolveEmailForUsername.mockResolvedValue("casey@example.com");
+
+    await expect(
+      signInAction(
+        {},
+        formData({ identifier: "  Casey-NZ  ", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/my-stories");
+
+    expect(mockResolveEmailForUsername).toHaveBeenCalledWith("casey-nz");
+  });
+
+  it("never looks a username up when the identifier is an email", async () => {
+    await expect(
+      signInAction(
+        {},
+        formData({ identifier: "a@example.com", password: "password123" }),
+      ),
+    ).rejects.toThrow("REDIRECT:/my-stories");
+
+    expect(mockResolveEmailForUsername).not.toHaveBeenCalled();
+  });
+
+  it("gives an unknown username the exact same error as a wrong password", async () => {
+    mockResolveEmailForUsername.mockResolvedValue(null);
+
+    const unknownUsername = await signInAction(
+      {},
+      formData({ identifier: "nobody-here", password: "password123" }),
+    );
+
+    mockSignInWithPassword.mockResolvedValue({
+      error: { message: "Invalid login credentials" },
+    });
+    const wrongPassword = await signInAction(
+      {},
+      formData({ identifier: "a@example.com", password: "wrong" }),
+    );
+
+    expect(unknownUsername.error).toBe(wrongPassword.error);
+    expect(unknownUsername.error).toBe("Incorrect email/username or password.");
+  });
+
+  it("never reaches Supabase when the identifier is neither an email nor a valid username", async () => {
+    const result = await signInAction(
+      {},
+      formData({ identifier: "no", password: "password123" }),
+    );
+
+    expect(result.error).toBe("Incorrect email/username or password.");
+    expect(mockResolveEmailForUsername).not.toHaveBeenCalled();
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("treats a failed service-role lookup as a normal failed sign-in, not a crash", async () => {
+    // resolveEmailForUsername swallows its own errors and returns null (a
+    // missing SUPABASE_SERVICE_ROLE_KEY throws inside getAdminEnv()), so a
+    // broken lookup must look identical to a wrong password here.
+    mockResolveEmailForUsername.mockResolvedValue(null);
+
+    const result = await signInAction(
+      {},
+      formData({ identifier: "casey-nz", password: "password123" }),
+    );
+
+    expect(result.error).toBe("Incorrect email/username or password.");
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
   });
 });
 

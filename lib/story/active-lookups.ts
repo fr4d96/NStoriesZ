@@ -1,6 +1,5 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { untypedFrom } from "@/lib/supabase/call-untyped-table";
 
 // Regions/destinations/tags all carry an `active` boolean
 // (supabase/migrations/... regions/destinations/tags tables) so an entry can
@@ -87,27 +86,19 @@ export type ActiveExpenseCategory = {
  * Ordered by the table's own `sort_order`, not alphabetically: the editor
  * lists these in trip order (flights, visa, insurance, then on-the-ground
  * costs), with "Other" deliberately last. Name breaks ties.
- *
- * Routed through untypedFrom() only because types/database.ts has not been
- * regenerated since this table's migration was written -- swap it for a
- * plain `supabase.from("expense_categories")` the moment it has.
  */
 export async function listActiveExpenseCategories(): Promise<
   ActiveExpenseCategory[]
 > {
   const supabase = await createClient();
-  const { data, error } = await untypedFrom(supabase, "expense_categories")
+  const { data, error } = await supabase
+    .from("expense_categories")
     .select("id, name, slug, description")
     .eq("active", true)
     .order("sort_order")
     .order("name");
   if (error) throw error;
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    name: String(row.name),
-    slug: String(row.slug),
-    description: (row.description as string | null) ?? null,
-  }));
+  return data ?? [];
 }
 
 export async function listActiveTags(): Promise<ActiveTag[]> {

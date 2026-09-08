@@ -20,7 +20,7 @@ type PreviewPage = {
 const MAX_MB = Math.round(MAX_PDF_IMPORT_INPUT_BYTES / (1024 * 1024));
 
 /**
- * Stage 5 (docs/pdf-canva-import-plan.md): the PDF/Canva-file mode of the
+ * Stage 5 (docs/pdf-import-plan.md): the PDF-file mode of the
  * editorial "new import" page, alongside the existing blank-draft form
  * (`new-import-form.tsx`). Drives the two-phase flow Stage 4 already built:
  *

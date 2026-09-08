@@ -31,7 +31,7 @@ const MAX_TITLE_LENGTH = 200;
  * makes a double-submit impossible: `pending` disables the button, and
  * there is no Strict-Mode double-invoke to guard with a ref any more.
  *
- * The PDF/Canva import option still lives at /stories/new/import
+ * The PDF import option still lives at /stories/new/import
  * (pdf-import-picker.tsx), which has always asked for a title first too --
  * the two entry points now behave the same way.
  */
@@ -99,7 +99,7 @@ export function StartNewStory() {
         </button>
 
         <p className="text-sm text-muted-foreground">
-          Have it as a PDF or Canva export?{" "}
+          Have it as a PDF?{" "}
           <Link
             href="/stories/new/import"
             className="underline underline-offset-2"

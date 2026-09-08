@@ -17,7 +17,7 @@ import {
 } from "@/lib/story/pdf-import";
 
 /**
- * Stage 2 of docs/pdf-canva-import-plan.md: takes a PDF and a caller-
+ * Stage 2 of docs/pdf-import-plan.md: takes a PDF and a caller-
  * supplied list of page numbers (Stage 4's page-picker UI will supply
  * these — not built yet), renders them at full/publish quality, and
  * attaches each one to a revision through the EXISTING, unmodified

@@ -14,7 +14,11 @@ import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ALL, FilterRow } from "@/components/story/filter-row";
 import { StartRevisionButton } from "@/components/story/start-revision-button";
-import { destinationNames, regionNames } from "@/lib/story/card-fields";
+import {
+  destinationNames,
+  regionNames,
+  stringList,
+} from "@/lib/story/card-fields";
 import { isPrivateStory } from "@/lib/story/story-visibility";
 import {
   ChevronIcon,
@@ -41,8 +45,8 @@ const VIEW_STORAGE_KEY = "kaki-my-stories-view";
  * list view to roughly one screen of scrolling.
  *
  * Paged CLIENT-side, over the stories this page already loaded, because the
- * Region/Destination filter axes above the list are built from the whole set
- * (buildLocationAxes) -- server-side paging would rebuild those chips from
+ * Region/Destination/Tags filter axes above the list are built from the whole
+ * set (buildFilterAxes) -- server-side paging would rebuild those chips from
  * whatever 12 stories happened to be on screen, so a filter could vanish
  * just because you turned the page. list_my_stories() returns a single
  * contributor's own stories in one round trip, which is a few dozen rows at
@@ -531,31 +535,40 @@ function ListIcon() {
   );
 }
 
-// Client-side location filtering over the contributor's already-loaded
-// stories -- the same shape as the landing page's catalogue index
+// Client-side filtering over the contributor's already-loaded stories --
+// the same shape as the landing page's catalogue index
 // (components/home/story-index.tsx): each axis is built only from values
 // present in this list, and an axis earns its row only if it can actually
 // split the list (more than one value, or a single value that not every
 // story carries), so a chip can never lead to an empty result and a
 // do-nothing control is never rendered.
-type LocationAxis = {
-  key: "region" | "destination";
+//
+// That "earns its row" rule is why adding an axis is cheap: a contributor
+// who has never tagged anything simply does not get a Tags row.
+type FilterAxis = {
+  key: "region" | "destination" | "tag";
   label: string;
   read: (story: MyStoryWithCover) => string[];
   options: string[];
 };
 
-function buildLocationAxes(stories: MyStoryWithCover[]): LocationAxis[] {
-  const defs: Array<Pick<LocationAxis, "key" | "label" | "read">> = [
+function buildFilterAxes(stories: MyStoryWithCover[]): FilterAxis[] {
+  const defs: Array<Pick<FilterAxis, "key" | "label" | "read">> = [
     { key: "region", label: "Region", read: (s) => regionNames(s.regions) },
     {
       key: "destination",
       label: "Destination",
       read: (s) => destinationNames(s.regions),
     },
+    // list_my_stories()'s `tags` is already a flat array of resolved names
+    // (20260907110000), each one either a `tags` lookup row's name or the
+    // label the contributor typed themselves -- so a self-authored tag
+    // filters exactly like a seeded one, which on this product is most of
+    // them.
+    { key: "tag", label: "Tags", read: (s) => stringList(s.tags) },
   ];
 
-  const axes: LocationAxis[] = [];
+  const axes: FilterAxis[] = [];
   for (const def of defs) {
     const counts = new Map<string, number>();
     for (const story of stories) {
@@ -848,7 +861,7 @@ export function MyStoriesView({
     getServerViewSnapshot,
   );
 
-  const axes = useMemo(() => buildLocationAxes(stories), [stories]);
+  const axes = useMemo(() => buildFilterAxes(stories), [stories]);
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>(
     {},
   );
@@ -964,7 +977,7 @@ export function MyStoriesView({
             href="/stories/new/import"
             className="journiq-button border border-border-subtle bg-transparent text-foreground"
           >
-            Import PDF / Canva
+            Import
           </Link>
           <Link
             href="/stories/new"
@@ -989,7 +1002,7 @@ export function MyStoriesView({
             href="/stories/new/import"
             className="text-accent underline underline-offset-2"
           >
-            import a PDF/Canva export
+            import a PDF
           </Link>
           .
         </p>

@@ -8,10 +8,14 @@ import type { Page } from "@playwright/test";
  * submit button, which fails Playwright strict mode. Scoping to <main>
  * makes these locators unambiguous regardless of how the header evolves.
  */
-export async function signInUi(page: Page, email: string, password: string) {
+export async function signInUi(
+  page: Page,
+  emailOrUsername: string,
+  password: string,
+) {
   await page.goto("/sign-in");
   const main = page.getByRole("main");
-  await main.getByLabel("Email").fill(email);
+  await main.getByLabel("Email or username").fill(emailOrUsername);
   await main.getByLabel("Password").fill(password);
   await main.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));

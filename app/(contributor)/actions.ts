@@ -8,6 +8,7 @@ import {
   createOwnContributorSchema,
   type CreateOwnContributorInput,
 } from "@/lib/validation/profile";
+import { setUsernameSchema } from "@/lib/validation/username";
 
 export type AccountFormState = {
   error?: string;
@@ -97,6 +98,61 @@ export async function updateProfileAction(
 
   revalidatePath("/account");
   return { success: "Profile updated." };
+}
+
+/**
+ * Claims or changes the caller's optional sign-in username.
+ *
+ * Lives on its own table (supabase/migrations/20260909090000_usernames.sql)
+ * rather than as a profiles column, so it is a separate action and a
+ * separate write rather than another field folded into
+ * updateProfileAction — see that migration's header for why the column
+ * cannot live on profiles.
+ *
+ * user_id is taken from the server-known session and never from the form
+ * (Engineering Rule 2); the table's own "usernames: owner claims own
+ * username" / "owner updates own username" policies independently reject
+ * anything else regardless.
+ */
+export async function setUsernameAction(
+  _prevState: AccountFormState,
+  formData: FormData,
+): Promise<AccountFormState> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { error: "You must be signed in." };
+  }
+
+  const parsed = setUsernameSchema.safeParse({
+    username: formData.get("username"),
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const supabase = await createClient();
+  // Deliberately no "is this taken?" pre-check: two people claiming the
+  // same username at the same moment would both pass it and one would
+  // still fail on insert. The unique index is the only thing that can
+  // actually decide, so the 23505 it raises is the answer — same pattern
+  // as updateProfileAction's public_slug handling above.
+  const { error } = await supabase
+    .from("usernames")
+    .upsert(
+      { user_id: user.id, username: parsed.data.username },
+      { onConflict: "user_id" },
+    );
+
+  if (error) {
+    if (error.code === "23505") {
+      return { error: "That username is already taken." };
+    }
+    return { error: "Could not save your username. Please try again." };
+  }
+
+  revalidatePath("/account");
+  return { success: "Username saved. You can now sign in with it." };
 }
 
 export async function createOwnContributorAction(

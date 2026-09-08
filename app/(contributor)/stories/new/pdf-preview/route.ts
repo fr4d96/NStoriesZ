@@ -13,13 +13,13 @@ export const runtime = "nodejs";
  * Contributor-facing twin of app/(editor)/editorial/new/pdf-preview/route.ts
  * — same Phase A (upload -> render page thumbnails, nothing persisted)
  * behavior, gated on "signed in" rather than "editor/admin", so a
- * contributor drafting their own story gets the same PDF/Canva-export import
+ * contributor drafting their own story gets the same PDF import
  * option editors already have for editorial imports.
  *
  * POST /stories/new/pdf-preview -- multipart form field: `file` (the raw
  * PDF). Renders every page (up to MAX_PDF_IMPORT_PAGES) to a preview PNG and
  * returns them as base64 data URLs -- never written to a bucket, table, or
- * log (Ground Rule 6, docs/pdf-canva-import-plan.md).
+ * log (Ground Rule 6, docs/pdf-import-plan.md).
  */
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();

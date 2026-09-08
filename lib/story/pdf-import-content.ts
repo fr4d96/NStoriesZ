@@ -1,5 +1,5 @@
 /**
- * Stage 3 of docs/pdf-canva-import-plan.md: assembles the minimal
+ * Stage 3 of docs/pdf-import-plan.md: assembles the minimal
  * `content_json` document and default title for a PDF import, from the
  * mediaIds Stage 2 (`lib/story/pdf-page-attachment.ts`) already attached to
  * a revision -- nothing here reads the PDF itself. Per the plan's pivot

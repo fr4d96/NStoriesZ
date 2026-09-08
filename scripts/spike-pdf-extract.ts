@@ -1,8 +1,8 @@
 /**
- * THROWAWAY spike script -- Stage 0 of docs/pdf-canva-import-plan.md.
+ * THROWAWAY spike script -- Stage 0 of docs/pdf-import-plan.md.
  *
  * De-risks whether pdfjs-dist can extract usable structure (text, reading
- * order, font-size metadata, embedded raster images) from Canva-shaped PDF
+ * order, font-size metadata, embedded raster images) from design-tool-shaped PDF
  * exports before any production code (Stage 1+) is written.
  *
  * NOT part of the shipped feature. Not imported by production code. Not

@@ -6,7 +6,7 @@ import prettierConfig from "eslint-config-prettier";
 const restrictedAdminClientImport = {
   name: "@/lib/supabase/admin",
   message:
-    "lib/supabase/admin.ts (the service-role client) may only be imported from lib/story/image-pipeline.ts — the one narrow module that owns the image-processing/promotion trust boundary. Add the function you need there instead of importing the admin client directly.",
+    "lib/supabase/admin.ts (the service-role client) may only be imported from the two narrow modules that own a genuine privileged boundary: lib/story/image-pipeline.ts (image processing/promotion) and lib/auth/username-login.ts (username-to-email resolution at sign-in, which has no anon-safe alternative — see that file's header). Add the function you need to one of them instead of importing the admin client directly.",
 };
 
 const eslintConfig = defineConfig([
@@ -22,7 +22,10 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["lib/story/image-pipeline.ts"],
+    // The service-role allowlist. Adding a file here widens the platform's
+    // single most privileged boundary (Engineering Rule 1) — each entry
+    // must justify itself in its own header comment.
+    files: ["lib/story/image-pipeline.ts", "lib/auth/username-login.ts"],
     rules: {
       "no-restricted-imports": "off",
     },

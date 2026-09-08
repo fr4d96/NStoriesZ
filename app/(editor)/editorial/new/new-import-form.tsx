@@ -12,7 +12,7 @@ import { PdfImportPicker } from "./pdf-import-picker";
 const initialState: NewImportFormState = {};
 
 /**
- * Stage 5 (docs/pdf-canva-import-plan.md) added the "PDF/Canva file" mode
+ * Stage 5 (docs/pdf-import-plan.md) added the "PDF file" mode
  * below, alongside the pre-existing blank-draft path (title + contributor,
  * then paste/import the body text later inside the editor via
  * components/story/content-import-panel.tsx). The two modes end up in
@@ -55,7 +55,7 @@ export function NewImportForm({
               checked={importMode === "pdf"}
               onChange={() => setImportMode("pdf")}
             />
-            PDF / Canva file
+            PDF file
           </label>
         </div>
       </fieldset>

@@ -24,7 +24,7 @@ import { logAppEvent } from "@/lib/log";
 export const runtime = "nodejs";
 
 /**
- * Phase B of docs/pdf-canva-import-plan.md's Stage 4.
+ * Phase B of docs/pdf-import-plan.md's Stage 4.
  *
  * POST /editorial/new/pdf-attach -- multipart form fields:
  *   file                     the SAME raw PDF bytes Phase A rendered

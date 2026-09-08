@@ -182,6 +182,76 @@ nav, page, actions, verify-form), `lib/story/readiness.ts`, `lib/validation/read
   unit-tested without importing `"server-only"` (the same reason `contributor-guard.ts` is separate
   from `get-current-user.ts`).
 
+## Username sign-in (2026-09-09)
+
+Sign-in accepts **an email or an optional username** in one field. Email sign-in is unchanged;
+usernames are purely additive.
+
+**Why the username is its own table.** `public.usernames` (one row per account,
+`supabase/migrations/20260909090000_usernames.sql`), _not_ a `profiles.username` column. `profiles`
+carries the policy "profiles: public can read opted-in profiles", which grants `anon` a row-level
+SELECT — and **RLS filters rows, not columns**. A username column on `profiles` would be readable
+by any anonymous caller holding the public anon key via `GET /rest/v1/profiles?select=username`,
+handing out the login handle of every public-profile account. That is precisely the gap already
+root-caused and closed for `contributors` in
+`20260805100000_revoke_anon_contributors_table_grants.sql`. `usernames` has owner-only policies, no
+anon policy at all, and `revoke all ... from anon` on top (Engineering Rule 16).
+
+**Why the sign-in path needs the service-role client.** Supabase's `signInWithPassword` accepts an
+email or a phone number and nothing else, so username sign-in is unavoidably "resolve the email
+first, then sign in normally". At that moment the caller is **anonymous** — no session yet — and
+emails live in `auth.users`, which the anon key cannot read. The usual answer in this codebase (a
+`SECURITY DEFINER` function granted to `anon`) is unsafe here specifically: such a function is
+callable directly over PostgREST by anyone holding the public anon key, which makes it a bulk
+username-to-email harvester. There is no way to expose it to the sign-in form without exposing it
+to everyone.
+
+So `lib/auth/username-login.ts` is the **second and only other module** permitted to import
+`lib/supabase/admin.ts` (the `no-restricted-imports` allowlist in `eslint.config.mjs`, alongside
+`lib/story/image-pipeline.ts`). It is deliberately tiny: it takes no user id, role, or ownership
+claim from the caller, it returns an email to server-side code only, and it never returns anything
+to the browser. Every failure — unknown username, missing account, a missing
+`SUPABASE_SERVICE_ROLE_KEY` (which makes `getAdminEnv()` throw, hence the whole body is wrapped) —
+returns `null`.
+
+**Telling the two shapes apart is a decision, not a guess.** `lib/auth/sign-in-identifier.ts` is a
+pure, directly-tested classifier in the same spirit as `post-login-redirect.ts`. A username may not
+contain `@` (`usernames_format` CHECK, mirrored in `lib/validation/username.ts`); an email must. So
+no input can resolve two different ways. `signInSchema` validates the field as non-empty **and
+nothing more** — enforcing the username shape at the login box would make it answer "is this even a
+valid username?" before any credential check, which is a free format oracle. Anything unresolvable
+folds into `GENERIC_SIGN_IN_ERROR` — the identical message a wrong password gets, asserted by test.
+
+**Product shape, deliberately minimal.** Nullable and opt-in: nobody is backfilled, sign-up does
+not ask, and an account with no row signs in by email exactly as before. Forgot-password remains
+email-only. Setting a username lives in the "Sign-in" section of `/account`
+(`username-form.tsx` → `setUsernameAction`), a separate form and a separate write from
+`ProfileForm` because it targets a different table with different RLS. `user_id` always comes from
+the server-known session, never the form (Rule 2). There is no "is it taken?" pre-check — the
+unique index is the only thing that can actually decide a race, so its `23505` is the answer, same
+pattern as `public_slug` in `updateProfileAction`.
+
+**Known gap:** there is no rate limiting on `signInAction`, before or after this change. Username
+sign-in does not create the gap but does make it more attractive (a guessable handle is a better
+credential-stuffing target than an unknown email). Worth closing before this is exercised at any
+volume.
+
+**Applied 2026-09-09.** `20260909090000_usernames` is pushed and live, `types/database.ts` is
+regenerated, and every call site is a plain typed `supabase.from("usernames")` — the temporary
+`untypedTable()` scaffolding is gone. Verified against the live project: RLS enabled, 3 policies,
+and `anon` holds neither SELECT nor INSERT on the table.
+
+Pushing it surfaced a real migration-history gap worth remembering: `db push` **aborts before
+applying anything** when the remote history contains a version with no matching local file, so the
+first attempt silently changed nothing. The cause was
+`20260908064045_cover_falls_back_to_first_photo` — applied through the Supabase MCP, which stamps
+its own timestamp from the clock at apply time rather than using the filename, while the local file
+was named `20260908090000`. The two conventions drift apart whenever both paths are used. Content
+was proven identical (md5 of the live `list_my_stories()` body against the local file's: 1890
+bytes, `30387ac25293abc53a0eec4747925e6e`), so the local file was renamed to match the deployed
+version rather than repairing remote history. **Prefer one path or the other for a given project;
+mixing `db push` and MCP `apply_migration` is what creates this.**
+
 ## Staff routes (Editorial / Moderation / Admin) — role-gated, still fail closed
 
 `/moderation` and `/admin` are still **Route Handlers** (`route.ts`), not pages, performing a real
@@ -763,11 +833,11 @@ Rules, enforced by convention (no script does these automatically):
   coverage — Vitest cannot substitute, and a green `next build` proves nothing.** Vitest imports
   such a module directly in plain Node and never touches Next's bundler at all; `next build` can
   compile cleanly while the emitted chunk fails the moment a request actually reaches it. This is
-  not hypothetical: the PDF/Canva importer shipped with 384 passing Vitest tests and a green build
+  not hypothetical: the PDF importer shipped with 384 passing Vitest tests and a green build
   while both of its Route Handlers threw at runtime under Turbopack, because
   `require.resolve("pdfjs-dist/package.json")` is a bundler-visible call that Turbopack rewrites to
   its own module identifier instead of a filesystem path (full account in
-  [docs/implementation-status.md](implementation-status.md), "2026-08-18 — PDF/Canva import:
+  [docs/implementation-status.md](implementation-status.md), "2026-08-18 — PDF import:
   Turbopack fix"). Playwright is the only layer here that runs the real production build, so it is
   the only layer that can catch this class of bug. `e2e/pdf-import.spec.ts` is the pattern to copy:
   it asserts a real `200` and real rendered bytes from the route, and it was verified to fail when

@@ -23,9 +23,9 @@ const SERVER_ACTION_BODY_SIZE_LIMIT = "2.5mb";
 // proxy.ts's matcher includes "/editorial/:path*", which covers both PDF
 // import Route Handlers (pdf-preview, pdf-attach). Those accept files up to
 // MAX_PDF_IMPORT_INPUT_BYTES (75 MiB, lib/story/pdf-validation.ts, sized
-// against a real ~57 MB 151-page Canva export -- see
+// against a real ~57 MB 151-page design-tool export -- see
 // docs/pdf-import-spike-findings.md). Left at the default, every genuinely
-// large Canva export would arrive truncated and be rejected as a corrupt
+// large design-tool export would arrive truncated and be rejected as a corrupt
 // PDF: a confusing, wrong error for a perfectly valid file. 80 MB is
 // 75 MiB (78.6 MB) plus a small margin for multipart framing/boundaries,
 // mirroring how SERVER_ACTION_BODY_SIZE_LIMIT above is sized above its own
@@ -41,7 +41,7 @@ const nextConfig: NextConfig = {
     },
     proxyClientMaxBodySize: PROXY_CLIENT_MAX_BODY_SIZE,
   },
-  // lib/story/pdf-import.ts's PDF-page rasterizer (docs/pdf-canva-import-plan.md
+  // lib/story/pdf-import.ts's PDF-page rasterizer (docs/pdf-import-plan.md
   // Stage 1) depends on @napi-rs/canvas (a native-binary Node addon) and
   // pdfjs-dist (a large module graph not meant to run through webpack's
   // browser-oriented transforms). Both must be excluded from Next's server

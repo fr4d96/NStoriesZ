@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
-import { getCurrentUserRole } from "@/lib/auth/roles";
+import { AccountTabs } from "@/app/(contributor)/account/account-tabs";
 import { ProfileForm } from "@/app/(contributor)/account/profile-form";
+import { UsernameForm } from "@/app/(contributor)/account/username-form";
 import { ContributorForm } from "@/app/(contributor)/account/contributor-form";
 import { SignOutButton } from "@/app/(contributor)/account/sign-out-button";
 
@@ -22,40 +23,47 @@ export default async function AccountPage() {
   }
 
   const supabase = await createClient();
-  const [{ data: profile }, { data: contributor }, role] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select(
-        "display_name, bio, home_country_code, public_profile_enabled, public_slug, avatar_emoji",
-      )
-      .eq("id", user.id)
-      .single(),
-    supabase
-      .from("contributors")
-      .select("display_name, attribution_type, public_status, public_slug")
-      .eq("linked_user_id", user.id)
-      .maybeSingle(),
-    getCurrentUserRole(),
-  ]);
+  const [{ data: profile }, { data: contributor }, { data: usernameRow }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select(
+          "display_name, bio, home_country_code, public_profile_enabled, public_slug, avatar_emoji",
+        )
+        .eq("id", user.id)
+        .single(),
+      supabase
+        .from("contributors")
+        .select("display_name, attribution_type, public_status, public_slug")
+        .eq("linked_user_id", user.id)
+        .maybeSingle(),
+      // The caller's OWN username row only. RLS ("usernames: owner reads
+      // own username") scopes this to auth.uid() regardless of the filter,
+      // and the table has no anon grant at all, so nobody else's username
+      // is reachable from here or anywhere else.
+      supabase
+        .from("usernames")
+        .select("username")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+
+  const currentUsername = usernameRow?.username ?? "";
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="flex items-center justify-between gap-4">
         <h1 className="journiq-heading text-[2.4rem]">Account</h1>
         <SignOutButton />
       </div>
 
-      {role && (
-        <p className="mt-2 text-sm text-foreground/60">
-          Role: <span className="font-bold">{role}</span>
-        </p>
-      )}
-
       {/* A brand new account has no contributor identity yet, and the first
           sign-in is routed straight here for that reason (see
           lib/auth/post-login-redirect.ts). The prompt is driven by the real
           absence of the row, not by a one-shot query parameter, so it also
-          catches anyone who skipped the step and came back later. */}
+          catches anyone who skipped the step and came back later. The link
+          stays a plain #hash anchor: AccountTabs watches hashchange, so it
+          opens the tab rather than needing to reach into its state. */}
       {!contributor && (
         <div className="mt-6 rounded-md border border-border-subtle bg-surface-muted p-4 text-sm">
           <p className="font-medium">Set your contributor identity to start</p>
@@ -66,52 +74,60 @@ export default async function AccountPage() {
               href="#contributor-identity"
               className="underline underline-offset-2"
             >
-              Set it up below
+              Open the Contributor identity tab
             </a>
             .
           </p>
         </div>
       )}
 
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold tracking-tight">Profile</h2>
-        <p className="mt-1 text-sm text-foreground/65">
-          Nothing here is public unless you enable it below.
-        </p>
-        <ProfileForm
-          displayName={profile?.display_name ?? ""}
-          bio={profile?.bio ?? ""}
-          homeCountryCode={profile?.home_country_code ?? "MY"}
-          publicProfileEnabled={profile?.public_profile_enabled ?? false}
-          publicSlug={profile?.public_slug ?? ""}
-          avatarEmoji={profile?.avatar_emoji ?? ""}
-        />
-      </section>
-
-      <section
-        id="contributor-identity"
-        className="mt-10 scroll-mt-24 border-t border-border-subtle pt-10"
-      >
-        <h2 className="text-xl font-semibold tracking-tight">
-          Contributor identity
-        </h2>
-        <p className="mt-1 text-sm text-foreground/65">
-          This is how you&apos;ll be attributed on any story you write. You
-          choose this — it&apos;s never inferred from your account.
-        </p>
-        <ContributorForm
-          existing={
-            contributor
-              ? {
-                  displayName: contributor.display_name,
-                  attributionType: contributor.attribution_type,
-                  publicProfileEnabled: contributor.public_status === "public",
-                  publicSlug: contributor.public_slug ?? "",
+      <AccountTabs
+        tabs={[
+          {
+            id: "profile",
+            label: "Profile",
+            description: "Nothing here is public unless you enable it below.",
+            panel: (
+              <ProfileForm
+                displayName={profile?.display_name ?? ""}
+                bio={profile?.bio ?? ""}
+                homeCountryCode={profile?.home_country_code ?? "MY"}
+                publicProfileEnabled={profile?.public_profile_enabled ?? false}
+                publicSlug={profile?.public_slug ?? ""}
+                avatarEmoji={profile?.avatar_emoji ?? ""}
+              />
+            ),
+          },
+          {
+            id: "sign-in",
+            label: "Sign-in",
+            description:
+              "Optional. Set a username and you can sign in with either it or your email — your email keeps working either way.",
+            panel: <UsernameForm username={currentUsername} />,
+          },
+          {
+            id: "contributor-identity",
+            label: "Contributor identity",
+            description:
+              "This is how you'll be attributed on any story you write. You choose this — it's never inferred from your account.",
+            panel: (
+              <ContributorForm
+                existing={
+                  contributor
+                    ? {
+                        displayName: contributor.display_name,
+                        attributionType: contributor.attribution_type,
+                        publicProfileEnabled:
+                          contributor.public_status === "public",
+                        publicSlug: contributor.public_slug ?? "",
+                      }
+                    : null
                 }
-              : null
-          }
-        />
-      </section>
+              />
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

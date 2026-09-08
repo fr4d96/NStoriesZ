@@ -448,6 +448,48 @@ describe("MyStoriesView", () => {
       ).toBeInTheDocument();
     });
 
+    it("filters on the Tags axis, including a tag the contributor typed", async () => {
+      // list_my_stories() resolves each tag to either a lookup row's name or
+      // the contributor's own custom_label, so both filter identically here
+      // (20260907110000). "cherry picking" below stands for the self-typed
+      // kind, which is most of them on this product.
+      const user = userEvent.setup();
+      const vineyard = makeStory({
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab1",
+        title: "Marlborough vines",
+        tags: ["vineyard work", "seasonal"],
+      });
+      const orchard = makeStory({
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaab2",
+        title: "Otago orchards",
+        tags: ["cherry picking"],
+      });
+      render(<MyStoriesView stories={[vineyard, orchard]} />);
+
+      const tagGroup = screen.getByRole("group", {
+        name: "Filter stories by tags",
+      });
+      await user.click(
+        within(tagGroup).getByRole("button", { name: "cherry picking" }),
+      );
+
+      expect(
+        screen.getByRole("link", { name: "Otago orchards" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Marlborough vines" }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders no Tags row when the contributor has never tagged anything", () => {
+      // The same "an axis earns its row" rule the location axes follow -- a
+      // control that cannot split the list is not rendered at all.
+      render(<MyStoriesView stories={[otago, nelson]} />);
+      expect(
+        screen.queryByRole("group", { name: "Filter stories by tags" }),
+      ).not.toBeInTheDocument();
+    });
+
     it("renders no chip rows when every story shares one region", () => {
       render(
         <MyStoriesView

@@ -1,7 +1,7 @@
 /**
- * THROWAWAY spike script -- Stage 0 of docs/pdf-canva-import-plan.md.
+ * THROWAWAY spike script -- Stage 0 of docs/pdf-import-plan.md.
  *
- * Variant of scripts/spike-pdf-extract.ts that points at a REAL Canva PDF
+ * Variant of scripts/spike-pdf-extract.ts that points at a REAL design-tool PDF
  * export living outside the repo (the user's own personal document, not
  * Kakinotes contributor content). Reads it from its original location on
  * disk, extracts the same signals as the fictional-sample spike, and
@@ -93,7 +93,7 @@ async function main() {
   }
 
   fs.mkdirSync(outDir, { recursive: true });
-  const outPath = path.join(outDir, "real-canva-extract-summary.txt");
+  const outPath = path.join(outDir, "real-design-tool-extract-summary.txt");
   const lines: string[] = [];
   const log = (s: string) => {
     lines.push(s);

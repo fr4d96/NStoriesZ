@@ -1,10 +1,10 @@
-# Plan — PDF / Canva-export import as page images
+# Plan — PDF-export import as page images
 
 Status: **shipped (2026-08-18)**. All stages (0.5 through 5) are implemented and verified, and the
 Turbopack/`pdfjs-dist` gap found during Stage 5's live verification has since been **fixed** — the
 feature now works on this repo's default bundler in both `npm run dev` and
 `npm run build && npm run start`, with no special flags. See `docs/implementation-status.md`'s
-"2026-08-18 — PDF/Canva import: Turbopack fix" entry for the root cause (a bundler-visible
+"2026-08-18 — PDF import: Turbopack fix" entry for the root cause (a bundler-visible
 `require.resolve()`), the fix, and the new `e2e/pdf-import.spec.ts` coverage that can catch this
 class of bug. No library swap was needed; nothing about how the feature works changed. This is a
 staged implementation plan that was executed by Claude Code one stage at a time, each stage
@@ -14,7 +14,7 @@ independently mergeable and independently verifiable via `npm run verify`.
 
 - **2026-08-17, pivot.** Original plan (still visible in git history) attempted to extract PDF text
   into structured Markdown (`content_json`) and treat embedded images as a separate asset pool.
-  Stage 0's spike against a real Canva export (`docs/pdf-import-spike-findings.md`) found that
+  Stage 0's spike against a real design-tool export (`docs/pdf-import-spike-findings.md`) found that
   `pdfjs-dist` text extraction **silently drops CJK text** even though the glyphs genuinely render —
   a page can show a plausible non-zero text-run count while its actual content (majority-Chinese, in
   the real sample) is missing. Given Kakinotes' stated primary market is Malaysian WHV travellers,
@@ -95,7 +95,7 @@ text extraction. Produces no shipped feature code.
 - [x] Evaluate 2–3 server-side PDF-to-raster-image approaches against both the fictional samples
       from the old spike (`scratch/pdf-samples/`, if still present — regenerate via
       `scripts/spike-generate-samples.mjs` if not) and, if the user provides another real sample,
-      a real Canva export. Candidates considered, in preference order: (1) `pdfjs-dist`'s canvas
+      a real design-tool export. Candidates considered, in preference order: (1) `pdfjs-dist`'s canvas
       rendering path (needs a Node canvas implementation — `@napi-rs/canvas` or `skia-canvas` tend
       to be more reliable to install than legacy `canvas`; confirm which builds cleanly in this
       environment before committing to one); (2) shelling out to `pdftoppm`/`pdftocairo` (Poppler
@@ -109,13 +109,13 @@ text extraction. Produces no shipped feature code.
       worked cleanly on the first try — no fallback needed. See
       `docs/pdf-import-spike-findings.md`'s "Stage 0.5" section for full detail.
 - [x] For each candidate, record: rendering correctness (does the page look right, including CJK
-      glyphs, embedded fonts, gradients/backgrounds typical of Canva templates?), output resolution
+      glyphs, embedded fonts, gradients/backgrounds typical of design-tool templates?), output resolution
       control (need roughly 2x the eventual display size for retina, then let the existing sharp
       pipeline downsize/generate responsive derivatives — don't over-render), and **timing** for a
       151-page-class document specifically (does rendering all pages' thumbnails fit inside a
       reasonable request/response cycle, or does this need a background/async approach?).
       **Result**: rendering correctness confirmed against fictional fixtures AND the real 30-page
-      Canva sample (including a bilingual Chinese/English photo-grid page that Stage 0's text
+      design-tool sample (including a bilingual Chinese/English photo-grid page that Stage 0's text
       extraction had specifically flagged as CJK-lossy — renders perfectly as an image). Timing:
       ~270-290ms/page for the real document at preview resolution; a full 151-page document would
       take ~41s, too long for one synchronous request — this drove the page-count ceiling below.
@@ -164,7 +164,7 @@ pure/testable server module. No editorial workflow wiring yet.
       magic-byte check stay safe to import from `lib/validation/`), re-exported from
       `lib/story/pdf-import.ts`.
 - [x] Size ceiling as its own constant, separate from `MAX_IMPORT_INPUT_BYTES` (the 2MB text-import
-      limit is irrelevant here — PDFs, especially photo-heavy Canva exports, are much larger). Wire
+      limit is irrelevant here — PDFs, especially photo-heavy design-tool exports, are much larger). Wire
       into `next.config.ts`'s Server Action body-size limit the same way the existing constant is
       cross-referenced there.
       **Done, with a deliberate deviation:** `MAX_PDF_IMPORT_INPUT_BYTES` (75 MiB) added, but NOT
@@ -392,7 +392,7 @@ editor needs to _see and choose_ pages first.
 
 **Goal:** a contributor/editor-facing surface for the two-phase flow above.
 
-- [x] Extend `content-import-panel.tsx` / `new-import-form.tsx` with a "PDF/Canva file" mode
+- [x] Extend `content-import-panel.tsx` / `new-import-form.tsx` with a "PDF file" mode
       alongside the existing paste-text/HTML mode.
       **Done, with a scope correction confirmed by reading the actual code first:**
       `content-import-panel.tsx` turned out to be a different, post-draft-creation tool (used
@@ -475,7 +475,7 @@ editor needs to _see and choose_ pages first.
   _different_ plan, not silently folded into this one.
 - Persisting the original uploaded PDF anywhere, in any bucket or table — per the retention
   decision above.
-- Any non-PDF Canva export format (e.g. Canva's own "share as link" web export) — file-based PDF
+- Any non-PDF design-tool export format (e.g. a design tool's own "share as link" web export) — file-based PDF
   import only.
 - Editing the PDF import pipeline to skip the mandatory human-review step for any reason — this
   plan's importer output is always a draft, never an auto-published revision (Engineering Rule 11

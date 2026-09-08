@@ -17,9 +17,9 @@
 /**
  * Raw-upload size ceiling for a PDF import. Its own constant, deliberately
  * separate from lib/story/content-import.ts's MAX_IMPORT_INPUT_BYTES
- * (2 MB, sized for pasted text/HTML) — PDFs, especially photo-heavy Canva
+ * (2 MB, sized for pasted text/HTML) — PDFs, especially photo-heavy design-tool
  * scrapbook exports, are two orders of magnitude larger. 75 MiB gives
- * headroom above the one real Canva sample measured during the Stage 0.5
+ * headroom above the one real design-tool sample measured during the Stage 0.5
  * spike (a 151-page personal scrapbook export, ~57 MB) while still being a
  * bounded rejection point, not unlimited. See
  * docs/pdf-import-spike-findings.md's Stage 0.5 section for the full
@@ -56,7 +56,7 @@ const PDF_MAGIC = Uint8Array.from(
  * module's (and the plan's) chosen check — a stricter, safer check than
  * the PDF spec's permitted "small amount of leading junk before %PDF-",
  * satisfied by every PDF this product actually needs to accept (a fresh
- * Canva export).
+ * design-tool export).
  */
 export function isPdfMagicBytes(bytes: Uint8Array): boolean {
   if (bytes.length < PDF_MAGIC.length) return false;

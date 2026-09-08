@@ -10,7 +10,7 @@ import { pdfImportErrorMessage } from "@/lib/story/pdf-import-messages";
 export const runtime = "nodejs";
 
 /**
- * Phase A of docs/pdf-canva-import-plan.md's Stage 4 (two-phase PDF/Canva
+ * Phase A of docs/pdf-import-plan.md's Stage 4 (two-phase PDF
  * import: preview -> select -> attach).
  *
  * POST /editorial/new/pdf-preview -- multipart form field: `file` (the raw

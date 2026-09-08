@@ -2,7 +2,6 @@ import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/get-current-user";
-import { callUntypedRpc } from "@/lib/supabase/call-untyped-rpc";
 
 // Every function here derives the caller from the session internally — none
 // accept a userId parameter (the RPCs themselves also re-derive auth.uid()
@@ -228,25 +227,15 @@ export type RevisionSelections = {
  * The RPC still returns a `work_types` payload for already-recorded rows;
  * it is deliberately ignored here, since work types are retired from every
  * authoring surface (2026-08-16).
- *
- * Routed through callUntypedRpc() as of 2026-09-02: the function was
- * re-signed with an added `expenses` output column
- * (supabase/migrations/20260902110400_get_revision_selections_expenses.sql)
- * and types/database.ts has not been regenerated since. Put it back on a
- * plain, fully-typed `supabase.rpc(...)` call the moment it has.
  */
 export async function getRevisionSelections(
   revisionId: string,
 ): Promise<RevisionSelections> {
   const supabase = await createClient();
-  const data = await callUntypedRpc<
-    Array<{
-      locations: unknown;
-      work_types: unknown;
-      tags: unknown;
-      expenses: unknown;
-    }>
-  >(supabase, "get_revision_selections", { p_revision_id: revisionId });
+  const { data, error } = await supabase.rpc("get_revision_selections", {
+    p_revision_id: revisionId,
+  });
+  if (error) throw error;
   const row = data?.[0];
   const locations =
     (row?.locations as Array<{

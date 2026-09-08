@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 /**
- * Contributor-facing entry point for the PDF/Canva import flow — the same
+ * Contributor-facing entry point for the PDF import flow — the same
  * feature editors already have at /editorial/new (see
  * app/(editor)/editorial/new/pdf-import-picker.tsx), now available to any
  * signed-in contributor for their own story rather than staff-only.
@@ -22,11 +22,12 @@ export default function NewStoryImportPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-        Import from PDF or Canva
+        Import from PDF
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Upload a PDF (including a Canva export) and pick the pages to use as
-        photos. Your story text is added afterwards in the editor.{" "}
+        Upload a PDF (including one exported from a design tool) and pick the
+        pages to use as photos. Your story text is added afterwards in the
+        editor.{" "}
         <Link href="/stories/new" className="underline underline-offset-2">
           Start a blank story instead
         </Link>
