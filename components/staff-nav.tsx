@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
 import type { AppRole } from "@/lib/auth/staff-guard";
 
@@ -39,7 +40,16 @@ export function StaffNav({
   return (
     <header className="border-b border-border-subtle">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-3 px-4 py-4 sm:flex-nowrap sm:px-6">
-        <Link href="/" className="mr-auto text-lg font-semibold tracking-tight">
+        {/* The logo sits beside the wordmark here for the same reason it does
+            in site-header, contributor-nav and site-footer: these four staff
+            dashboards were the only place the brand appeared as bare text.
+            alt="" is deliberate -- the wordmark is right beside it, so a
+            screen reader announcing both would just say it twice. */}
+        <Link
+          href="/"
+          className="mr-auto flex items-center gap-2.5 text-lg font-semibold tracking-tight"
+        >
+          <BrandLogo className="border border-border-subtle" />
           {title}
         </Link>
         <nav
