@@ -19,6 +19,8 @@ import {
   rateLimitedMessage,
   checkPasswordResetRateLimit,
   recordPasswordResetRequest,
+  checkSignUpRateLimit,
+  recordSignUpAttempt,
 } from "@/lib/auth/rate-limit";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -49,6 +51,27 @@ export async function signUpAction(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
+
+  // A throttled signup is TOLD, unlike a throttled password reset, which is
+  // answered with the ordinary generic string and silently dropped.
+  //
+  // The rule that separates them: staying silent is only honest when the
+  // person already has what they asked for. A throttled reset user has
+  // already been sent their email. A throttled signup user would have no
+  // account AND no email, left waiting on a "check your inbox" message that
+  // was simply untrue. Saying so leaks nothing either -- it is reachable by
+  // typing any address into this form often enough, and says nothing about
+  // whether that address is registered.
+  const verdict = await checkSignUpRateLimit(parsed.data.email);
+  if (!verdict.allowed) {
+    return { error: rateLimitedMessage(verdict.retryAfterSeconds, "sign-up") };
+  }
+
+  // Counts every request, not just failures: the confirmation email and the
+  // auth.users row (plus everything handle_new_user creates behind it) are
+  // what a successful call produces, so success is exactly what needs
+  // counting.
+  await recordSignUpAttempt(parsed.data.email);
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signUp({

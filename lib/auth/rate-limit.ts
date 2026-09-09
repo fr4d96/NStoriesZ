@@ -85,7 +85,13 @@ async function clientIp(): Promise<string | null> {
   }
 }
 
-type Bucket = "ip" | "identifier" | "reset_ip" | "reset_email";
+type Bucket =
+  | "ip"
+  | "identifier"
+  | "reset_ip"
+  | "reset_email"
+  | "signup_ip"
+  | "signup_email";
 
 async function checkBucket(
   scope: Bucket,
@@ -190,9 +196,12 @@ export async function recordSignInFailure(
  * identifier names a real account -- it is reachable by typing gibberish
  * into the field nine times.
  */
-export function rateLimitedMessage(retryAfterSeconds: number): string {
+export function rateLimitedMessage(
+  retryAfterSeconds: number,
+  label: "sign-in" | "sign-up" = "sign-in",
+): string {
   const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  return `Too many sign-in attempts. Try again in about ${minutes} minute${
+  return `Too many ${label} attempts. Try again in about ${minutes} minute${
     minutes === 1 ? "" : "s"
   }.`;
 }
@@ -266,5 +275,75 @@ export async function recordPasswordResetRequest(
     ]);
   } catch {
     // Fail open, same as the sign-in counters.
+  }
+}
+
+/**
+ * Signup limits. The last unthrottled auth entry point.
+ *
+ * Counts EVERY request, not every failure -- the harm here (a confirmation
+ * email sent, an auth.users row plus everything handle_new_user creates
+ * behind it) happens when the call SUCCEEDS. Same reasoning as password
+ * reset, the opposite of sign-in.
+ *
+ * The per-IP limit is the defence against mass account creation; the
+ * per-email limit is the defence against signing up repeatedly with someone
+ * else's address to mail them confirmations they never asked for.
+ *
+ * Limits are generous for what is a once-ever action, purely to absorb a
+ * shared NAT -- a hostel, campus or cafe, very much this platform's
+ * audience -- and the honest retry when a confirmation mail does not land.
+ */
+export const SIGN_UP_WINDOW_SECONDS = 60 * 60;
+export const SIGN_UP_IP_LIMIT = 10;
+export const SIGN_UP_EMAIL_LIMIT = 3;
+
+export async function checkSignUpRateLimit(
+  rawEmail: string,
+): Promise<RateLimitVerdict> {
+  try {
+    const ip = await clientIp();
+    if (ip) {
+      const verdict = await checkBucket(
+        "signup_ip",
+        hashKey("signup_ip", ip),
+        SIGN_UP_IP_LIMIT,
+        SIGN_UP_WINDOW_SECONDS,
+      );
+      if (!verdict.allowed) return verdict;
+    }
+
+    return await checkBucket(
+      "signup_email",
+      hashKey("signup_email", normalizeIdentifier(rawEmail)),
+      SIGN_UP_EMAIL_LIMIT,
+      SIGN_UP_WINDOW_SECONDS,
+    );
+  } catch {
+    return ALLOWED;
+  }
+}
+
+export async function recordSignUpAttempt(rawEmail: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const ip = await clientIp();
+
+    const record = (scope: Bucket, keyHash: string) =>
+      supabase.rpc("record_auth_attempt", {
+        p_scope: scope,
+        p_key_hash: keyHash,
+        p_window_seconds: SIGN_UP_WINDOW_SECONDS,
+      });
+
+    await Promise.all([
+      ...(ip ? [record("signup_ip", hashKey("signup_ip", ip))] : []),
+      record(
+        "signup_email",
+        hashKey("signup_email", normalizeIdentifier(rawEmail)),
+      ),
+    ]);
+  } catch {
+    // Fail open, same as every other counter here.
   }
 }

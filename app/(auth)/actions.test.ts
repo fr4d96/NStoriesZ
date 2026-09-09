@@ -48,6 +48,8 @@ const mockCheckSignInRateLimit = vi.fn();
 const mockRecordSignInFailure = vi.fn();
 const mockCheckPasswordResetRateLimit = vi.fn();
 const mockRecordPasswordResetRequest = vi.fn();
+const mockCheckSignUpRateLimit = vi.fn();
+const mockRecordSignUpAttempt = vi.fn();
 vi.mock("@/lib/auth/rate-limit", () => ({
   checkSignInRateLimit: (identifier: string) =>
     mockCheckSignInRateLimit(identifier),
@@ -58,6 +60,8 @@ vi.mock("@/lib/auth/rate-limit", () => ({
     mockCheckPasswordResetRateLimit(email),
   recordPasswordResetRequest: (email: string) =>
     mockRecordPasswordResetRequest(email),
+  checkSignUpRateLimit: (email: string) => mockCheckSignUpRateLimit(email),
+  recordSignUpAttempt: (email: string) => mockRecordSignUpAttempt(email),
 }));
 
 const mockGetCurrentUserRole = vi.fn();
@@ -110,6 +114,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ allowed: true });
   mockRecordPasswordResetRequest.mockReset().mockResolvedValue(undefined);
+  mockCheckSignUpRateLimit.mockReset().mockResolvedValue({ allowed: true });
+  mockRecordSignUpAttempt.mockReset().mockResolvedValue(undefined);
   mockGetCurrentUserRole.mockReset().mockResolvedValue(null);
   mockHasContributorIdentity.mockReset().mockResolvedValue(true);
 });
@@ -157,6 +163,68 @@ describe("signUpAction", () => {
     );
 
     expect(result.error).toBe("Something went wrong");
+  });
+});
+
+describe("signUpAction rate limiting", () => {
+  const form = (email = "new@example.com") => {
+    const data = new FormData();
+    data.set("email", email);
+    data.set("password", "hunter22");
+    return data;
+  };
+
+  it("creates the account and counts the request when under the limit", async () => {
+    await signUpAction({}, form());
+
+    expect(mockSignUp).toHaveBeenCalled();
+    expect(mockRecordSignUpAttempt).toHaveBeenCalledWith("new@example.com");
+  });
+
+  it("counts a SUCCESSFUL signup", async () => {
+    // The harm here -- a confirmation email sent, an auth.users row and
+    // everything handle_new_user creates behind it -- is what a successful
+    // call produces. Counting only failures would count nothing that matters.
+    mockSignUp.mockResolvedValue({ error: null });
+    await signUpAction({}, form());
+    expect(mockRecordSignUpAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates nothing when throttled", async () => {
+    mockCheckSignUpRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 2400,
+    });
+
+    await signUpAction({}, form());
+
+    expect(mockSignUp).not.toHaveBeenCalled();
+    expect(mockRecordSignUpAttempt).not.toHaveBeenCalled();
+  });
+
+  it("TELLS the user it is throttled, rather than a false success", async () => {
+    // The opposite of forgotPasswordAction, deliberately. Staying silent is
+    // only honest when someone already has what they asked for; a throttled
+    // signup would leave them with no account AND no email, waiting on a
+    // "check your inbox" message that was untrue.
+    mockCheckSignUpRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 2400,
+    });
+
+    const state = await signUpAction({}, form());
+
+    expect(state.error).toBe("RATE_LIMITED:2400");
+    expect(state.success).toBeUndefined();
+  });
+
+  it("does not count input that failed validation", async () => {
+    // Nothing is sent and nothing is created for an unparseable payload, so
+    // there is nothing to throttle.
+    await signUpAction({}, form("not-an-email"));
+
+    expect(mockRecordSignUpAttempt).not.toHaveBeenCalled();
+    expect(mockSignUp).not.toHaveBeenCalled();
   });
 });
 

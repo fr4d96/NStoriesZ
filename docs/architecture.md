@@ -304,8 +304,32 @@ Three things differ from sign-in, each deliberately:
 silently drops that person's own genuine reset request for the rest of the window. Inherent to
 per-target limiting; the window self-heals.
 
-**Still not covered:** `signUpAction`. Lower priority — it does not mail an arbitrary third party
-on demand — but it is the last unthrottled auth entry point.
+### Signup (added same day) — the set is now complete
+
+`signUpAction` gets `signup_ip` (10) and `signup_email` (3) over 60 minutes. Two abuses, one bucket
+each: mass account creation from one source (every signup fires `handle_new_user`, so a junk row in
+`auth.users` drags `profiles` and `user_roles` with it, plus a confirmation email per attempt), and
+signing up repeatedly with **someone else's** address to mail them confirmations they never asked
+for.
+
+**A throttled signup is TOLD, unlike a throttled password reset.** This is the rule that decides
+which of the two behaviours any future auth action should copy: _staying silent is only honest when
+the person already has what they asked for._ A throttled reset user has already been sent their
+email; a throttled signup user would have no account **and** no email, left waiting on a "check your
+inbox" message that was simply untrue. Saying so leaks nothing — it is reachable by typing any
+address into the form often enough, and says nothing about whether that address is registered.
+
+**It counts every request, like reset and unlike sign-in**, because the harm — an email sent, an
+account row created — is what a _successful_ call produces. A refused attempt is not counted: it
+produces nothing, so there is nothing to throttle.
+
+All three forms key the same address differently (the hash is salted with the scope name), so no
+auth form can spend another's allowance — signing up must never be able to lock someone out of
+signing in. A test asserts the three keys are distinct.
+
+`auth_rate_limits_scope_known` stays a closed list rather than an open pattern: a typo in a scope
+name should fail loudly, not silently create an empty bucket that limits nothing. That was the third
+migration widening it, and with signup covered there is no fourth entry point, so the churn stops.
 
 **Applied 2026-09-09.** `20260909090000_usernames` is pushed and live, `types/database.ts` is
 regenerated, and every call site is a plain typed `supabase.from("usernames")` — the temporary

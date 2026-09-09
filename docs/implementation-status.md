@@ -82,8 +82,26 @@ rename** by submitting a real sign-in afterwards — `identifier` and `ip` rows 
 the expected hash, so renaming a live function did not break the path depending on it. All test
 rows deleted; table back to zero.
 
-**Still unthrottled:** `signUpAction` only. Lower priority — it does not mail an arbitrary third
-party on demand — but it is the last unthrottled auth entry point.
+**Signup throttled too (same day) — every auth entry point is now covered.**
+`20260909120000_signup_rate_limits.sql`: `signup_ip` (10) / `signup_email` (3) over 60 minutes.
+
+**The rule that decides silent-vs-told, worth keeping for any future auth action:** staying silent
+is only honest when the person already has what they asked for. A throttled password reset is
+answered with the ordinary generic string and dropped, because they already got their email. A
+throttled signup is TOLD, because they would otherwise have no account AND no email while reading
+"check your inbox".
+
+Counts every request (the harm is what a _successful_ call produces), but not a refused one, which
+produces nothing. All three forms salt the key hash with the scope name, so no form can spend
+another's allowance — a test asserts one address gets three distinct keys.
+
+**Verified without creating anything.** Rather than submit a real signup (which would have made a
+live `auth.users` row and everything `handle_new_user` builds behind it), the `signup_email` bucket
+was pre-burned to its limit using a hash computed independently in Node, then the real form was
+submitted with that address. It rendered "Too many sign-up attempts. Try again in about 60
+minutes."; `auth.users` stayed at 20; the counter stayed at 3. **The refusal is itself proof the
+app's hashing matches** — a one-byte disagreement would have keyed a different, empty bucket and
+sailed straight through. All test rows deleted afterwards.
 
 **2026-09-09 — /account is left-hand tabs, not one long scroll.**
 
