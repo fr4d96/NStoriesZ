@@ -1,6 +1,7 @@
 import "server-only";
 import path from "node:path";
 import PDFDocument from "pdfkit";
+import sharp from "sharp";
 import * as fontkit from "fontkit";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
@@ -173,6 +174,45 @@ function fontPath(key: FontKey): string {
  */
 function fallbackFontPath(key: FallbackKey): string {
   return path.join(process.cwd(), "assets", "fonts", FALLBACK_FONT_FILES[key]);
+}
+
+/**
+ * The brand mark for the letterhead, as bytes pdfkit can embed.
+ *
+ * SHRUNK FIRST, DELIBERATELY. public/kakinotes-icon.png is 650x480 and
+ * 495 KB -- pdfkit embeds a PNG as-is rather than recompressing it, so
+ * handing it the original would turn a 37 KB story export into a ~530 KB
+ * one for a mark drawn 18pt wide. sharp crops it to a centred square (the
+ * same `object-cover` the site's BrandLogo does) and scales it to 128px,
+ * which costs a few KB instead.
+ *
+ * Read from process.cwd(), matching fallbackFontPath() rather than
+ * import.meta.url, for the reason documented there. That also means
+ * @vercel/nft cannot see it: next.config.ts's outputFileTracingIncludes
+ * entry for `/stories/*\/export` names this file explicitly, exactly like
+ * the fonts beside it.
+ *
+ * RETURNS NULL RATHER THAN THROWING on any failure. A missing or unreadable
+ * logo must not 500 a contributor's download of their own writing -- the
+ * letterhead is simply omitted. The trade is that a deployment which forgot
+ * the trace entry would lose the mark silently, which is why there is a test
+ * asserting the bytes are embedded, and why that config entry's own comment
+ * prescribes checking the built .nft.json.
+ */
+let brandMarkCache: Buffer | null | undefined;
+
+async function brandMarkBytes(): Promise<Buffer | null> {
+  if (brandMarkCache !== undefined) return brandMarkCache;
+  try {
+    const source = path.join(process.cwd(), "public", "kakinotes-icon.png");
+    brandMarkCache = await sharp(source)
+      .resize(128, 128, { fit: "cover", position: "centre" })
+      .png()
+      .toBuffer();
+  } catch {
+    brandMarkCache = null;
+  }
+  return brandMarkCache;
 }
 
 /**
@@ -523,6 +563,12 @@ function fontKeyFor(run: Run, options: WriteOptions): FontKey {
 }
 
 class StoryPdfRenderer {
+  /** Prepared by buildStoryPdf(); null when the mark could not be read. */
+  private brandMark: Buffer | null = null;
+
+  setBrandMark(bytes: Buffer | null): void {
+    this.brandMark = bytes;
+  }
   private readonly doc: Doc;
   private readonly input: StoryPdfInput;
   private readonly imagesById: Map<string, StoryPdfImage>;
@@ -1204,8 +1250,54 @@ class StoryPdfRenderer {
 
   // -- Document sections -------------------------------------------------
 
+  /**
+   * A small mark plus wordmark above the story title, on page one only.
+   *
+   * The brand had appeared nowhere in an exported PDF except the colophon
+   * sentence at the foot of the page and the file's Creator metadata --
+   * neither of which reads as a title. This is the letterhead treatment the
+   * site header, contributor nav and footer already give it.
+   *
+   * Page one only, on purpose: the running footer already carries the story
+   * title and page number on every page, and repeating the brand there would
+   * crowd a band that is deliberately quiet.
+   *
+   * The circular clip mirrors BrandLogo's `rounded-full object-cover` -- the
+   * source art is 650x480, and brandMarkBytes() has already centre-cropped it
+   * square, so this only has to round the corners off.
+   */
+  private renderLetterhead(column: Column): void {
+    const mark = this.brandMark;
+    if (!mark) return;
+
+    const size = 18;
+    const top = this.doc.y;
+    const radius = size / 2;
+
+    this.doc
+      .save()
+      .circle(column.left + radius, top + radius, radius)
+      .clip()
+      .image(mark, column.left, top, { width: size, height: size })
+      .restore();
+
+    this.drawPlain("Kakinotes", {
+      baseFont: "bold",
+      size: 11,
+      color: INK,
+      x: column.left + size + 7,
+      y: top + 4.5,
+      width: column.width - size - 7,
+    });
+
+    this.doc.y = top + size;
+    this.doc.moveDown(0.9);
+  }
+
   renderHeader(): void {
     const column = this.column;
+
+    this.renderLetterhead(column);
 
     this.drawSegments(this.input.title, {
       baseFont: "bold",
@@ -1496,6 +1588,9 @@ export async function buildStoryPdf(input: StoryPdfInput): Promise<Buffer> {
   });
 
   const renderer = new StoryPdfRenderer(doc, input);
+  // Awaited out here because reading and shrinking the mark is async while
+  // renderHeader() is not; a null simply omits the letterhead.
+  renderer.setBrandMark(await brandMarkBytes());
   doc.on("pageAdded", () => renderer.onPageAdded());
   doc.addPage();
 
