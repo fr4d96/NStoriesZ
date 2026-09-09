@@ -6,6 +6,7 @@ import {
   type UserAccountRow,
 } from "@/lib/admin/user-accounts";
 import { APP_ROLES } from "@/lib/validation/admin";
+import { rateLimitRows } from "@/lib/admin/rate-limit-summary";
 import { sumCounts } from "@/lib/story/moderation-analytics";
 import {
   ROLE_LABELS,
@@ -400,6 +401,74 @@ export default async function AdminOverviewPage() {
               ))}
             </ul>
           )}
+        </Panel>
+      </div>
+
+      <div className="mt-4">
+        <Panel className="flex flex-col">
+          <SectionHeading
+            title="Rate limits"
+            description="What each form allows before it starts refusing, and what it does when it refuses."
+          />
+          {/* Read from lib/rate-limit.ts's own constants, so this table
+              cannot drift from what is actually enforced. These are the
+              SETTINGS, not live counters -- see lib/admin/rate-limit-summary.ts
+              for why the counters are deliberately unreadable. */}
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[42rem] border-collapse text-sm">
+              <caption className="sr-only">
+                Rate limits by surface, showing what each one counts, how many
+                it allows, over what period, and how it responds once exceeded.
+              </caption>
+              <thead>
+                <tr className="border-b border-border-subtle text-left">
+                  <th scope="col" className="py-2 pr-4 font-bold">
+                    Surface
+                  </th>
+                  <th scope="col" className="py-2 pr-4 font-bold">
+                    Counted
+                  </th>
+                  <th scope="col" className="py-2 pr-4 font-bold">
+                    Allowed
+                  </th>
+                  <th scope="col" className="py-2 font-bold">
+                    When exceeded
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-subtle">
+                {rateLimitRows().map((row) => (
+                  <tr key={row.key}>
+                    <th
+                      scope="row"
+                      className="py-2.5 pr-4 text-left font-normal"
+                    >
+                      <span className="font-bold">{row.surface}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {row.scope}
+                      </span>
+                    </th>
+                    <td className="py-2.5 pr-4 text-muted-foreground">
+                      {row.counts}
+                    </td>
+                    <td className="py-2.5 pr-4 font-mono whitespace-nowrap">
+                      {row.limit} / {row.windowMinutes} min
+                    </td>
+                    <td className="py-2.5 text-muted-foreground">
+                      {row.whenExceeded}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Counters reset on their own once the period passes — nothing here
+            needs unlocking. Sign in counts only failed attempts; the others
+            count every request, because their cost lands on success. If the
+            limiter itself cannot be reached the request is allowed through,
+            deliberately: an outage in the counting must not lock anyone out.
+          </p>
         </Panel>
       </div>
 
