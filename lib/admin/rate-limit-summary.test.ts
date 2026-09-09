@@ -92,8 +92,10 @@ describe("rateLimitRows", () => {
     // claimed otherwise it would be describing an oracle the code
     // deliberately does not have.
     expect(byKey["reset-email"].whenExceeded).toMatch(/sends nothing/i);
-    expect(byKey["sign-in-identifier"].whenExceeded).toMatch(/says so/i);
-    expect(byKey["sign-up-email"].whenExceeded).toMatch(/says so/i);
+    expect(byKey["sign-in-identifier"].whenExceeded).toMatch(
+      /how long to wait/i,
+    );
+    expect(byKey["sign-up-email"].whenExceeded).toMatch(/how long to wait/i);
     expect(byKey["pdf-preview"].whenExceeded).toMatch(/429/);
   });
 });

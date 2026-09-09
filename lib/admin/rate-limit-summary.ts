@@ -40,8 +40,8 @@ export type RateLimitRow = {
 
 const minutes = (seconds: number) => Math.round(seconds / 60);
 
-const TELLS_YOU = "Says so, with the wait";
-const SILENT = "Sends nothing, says the same as always";
+const TELLS_YOU = "Tells you how long to wait";
+const SILENT = "Sends nothing, same reply as always";
 const HTTP_429 = "HTTP 429 with a retry time";
 
 export function rateLimitRows(): RateLimitRow[] {
