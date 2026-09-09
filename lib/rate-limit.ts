@@ -2,6 +2,38 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import {
+  SIGN_IN_WINDOW_SECONDS,
+  SIGN_IN_IP_LIMIT,
+  SIGN_IN_IDENTIFIER_LIMIT,
+  PASSWORD_RESET_WINDOW_SECONDS,
+  PASSWORD_RESET_IP_LIMIT,
+  PASSWORD_RESET_EMAIL_LIMIT,
+  SIGN_UP_WINDOW_SECONDS,
+  SIGN_UP_IP_LIMIT,
+  SIGN_UP_EMAIL_LIMIT,
+  PDF_IMPORT_WINDOW_SECONDS,
+  PDF_PREVIEW_LIMIT,
+  PDF_ATTACH_LIMIT,
+} from "@/lib/rate-limit-config";
+
+// Re-exported so every existing `from "@/lib/rate-limit"` import keeps
+// working; the numbers themselves live in the dependency-free config module
+// (see its header for why they had to move).
+export {
+  SIGN_IN_WINDOW_SECONDS,
+  SIGN_IN_IP_LIMIT,
+  SIGN_IN_IDENTIFIER_LIMIT,
+  PASSWORD_RESET_WINDOW_SECONDS,
+  PASSWORD_RESET_IP_LIMIT,
+  PASSWORD_RESET_EMAIL_LIMIT,
+  SIGN_UP_WINDOW_SECONDS,
+  SIGN_UP_IP_LIMIT,
+  SIGN_UP_EMAIL_LIMIT,
+  PDF_IMPORT_WINDOW_SECONDS,
+  PDF_PREVIEW_LIMIT,
+  PDF_ATTACH_LIMIT,
+};
 
 /**
  * Sign-in rate limiting.
@@ -34,10 +66,6 @@ import { createClient } from "@/lib/supabase/server";
  * reasoning as hasContributorIdentity()'s documented fail-open in
  * lib/auth/contributor-identity.ts.
  */
-
-export const SIGN_IN_WINDOW_SECONDS = 15 * 60;
-export const SIGN_IN_IP_LIMIT = 25;
-export const SIGN_IN_IDENTIFIER_LIMIT = 8;
 
 export type RateLimitVerdict =
   { allowed: true } | { allowed: false; retryAfterSeconds: number };
@@ -224,9 +252,6 @@ export function rateLimitedMessage(
  * Buckets are separate from sign-in's, so neither form can spend the
  * other's allowance.
  */
-export const PASSWORD_RESET_WINDOW_SECONDS = 60 * 60;
-export const PASSWORD_RESET_IP_LIMIT = 20;
-export const PASSWORD_RESET_EMAIL_LIMIT = 5;
 
 export async function checkPasswordResetRateLimit(
   rawEmail: string,
@@ -296,9 +321,6 @@ export async function recordPasswordResetRequest(
  * shared NAT -- a hostel, campus or cafe, very much this platform's
  * audience -- and the honest retry when a confirmation mail does not land.
  */
-export const SIGN_UP_WINDOW_SECONDS = 60 * 60;
-export const SIGN_UP_IP_LIMIT = 10;
-export const SIGN_UP_EMAIL_LIMIT = 3;
 
 export async function checkSignUpRateLimit(
   rawEmail: string,
@@ -374,9 +396,6 @@ export async function recordSignUpAttempt(rawEmail: string): Promise<void> {
  * Counts every request: the rasterising cost is paid whether or not the PDF
  * turns out to be usable.
  */
-export const PDF_IMPORT_WINDOW_SECONDS = 60 * 60;
-export const PDF_PREVIEW_LIMIT = 20;
-export const PDF_ATTACH_LIMIT = 20;
 
 export type PdfImportSurface = "preview" | "attach";
 
