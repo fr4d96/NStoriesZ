@@ -63,8 +63,27 @@ they prove nothing about the real chain):
   confirmed against the live database.
 - All test rows deleted afterwards; the table is back to zero rows.
 
-**Still unthrottled:** `signUpAction` and `forgotPasswordAction`. Forgot-password is an
-email-bombing vector. Out of scope for "rate limit the login"; worth doing next.
+**Password reset throttled too (same day).** `20260909110000_password_reset_rate_limits.sql`:
+separate `reset_ip` (20) / `reset_email` (5) buckets over a 60-minute window, and
+`record_auth_failure()` renamed to `record_auth_attempt()` because for this caller it counts every
+REQUEST, not every failure — inbox flooding does not care whether the send succeeded, and a wrong
+name on a security-relevant function is how a later change assumes the wrong thing.
+
+The decision worth remembering: **a throttled reset returns the IDENTICAL generic string and sends
+nothing.** Exactly the opposite of `signInAction`, where silence would leave someone retyping a
+correct password forever. Here the one fixed reply is what stops the action confirming an address
+is registered, so a distinct "too many requests" message would hand back the oracle. A test asserts
+the two replies are `toEqual`.
+
+Live-verified: 5 reset requests then blocked at limit 5 with `retry_after` 3600; one real
+forgot-password submission produced `POST /forgot-password 200` plus `reset_ip` and `reset_email`
+rows, the latter carrying the SHA-256 computed independently in Node. **Regression-checked the
+rename** by submitting a real sign-in afterwards — `identifier` and `ip` rows still recorded, with
+the expected hash, so renaming a live function did not break the path depending on it. All test
+rows deleted; table back to zero.
+
+**Still unthrottled:** `signUpAction` only. Lower priority — it does not mail an arbitrary third
+party on demand — but it is the last unthrottled auth entry point.
 
 **2026-09-09 — /account is left-hand tabs, not one long scroll.**
 

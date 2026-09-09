@@ -46,12 +46,18 @@ vi.mock("@/lib/auth/username-login", () => ({
 // which of signInAction's paths call it.
 const mockCheckSignInRateLimit = vi.fn();
 const mockRecordSignInFailure = vi.fn();
+const mockCheckPasswordResetRateLimit = vi.fn();
+const mockRecordPasswordResetRequest = vi.fn();
 vi.mock("@/lib/auth/rate-limit", () => ({
   checkSignInRateLimit: (identifier: string) =>
     mockCheckSignInRateLimit(identifier),
   recordSignInFailure: (identifier: string) =>
     mockRecordSignInFailure(identifier),
   rateLimitedMessage: (seconds: number) => `RATE_LIMITED:${seconds}`,
+  checkPasswordResetRateLimit: (email: string) =>
+    mockCheckPasswordResetRateLimit(email),
+  recordPasswordResetRequest: (email: string) =>
+    mockRecordPasswordResetRequest(email),
 }));
 
 const mockGetCurrentUserRole = vi.fn();
@@ -100,6 +106,10 @@ beforeEach(() => {
   mockResolveEmailForUsername.mockReset().mockResolvedValue(null);
   mockCheckSignInRateLimit.mockReset().mockResolvedValue({ allowed: true });
   mockRecordSignInFailure.mockReset().mockResolvedValue(undefined);
+  mockCheckPasswordResetRateLimit
+    .mockReset()
+    .mockResolvedValue({ allowed: true });
+  mockRecordPasswordResetRequest.mockReset().mockResolvedValue(undefined);
   mockGetCurrentUserRole.mockReset().mockResolvedValue(null);
   mockHasContributorIdentity.mockReset().mockResolvedValue(true);
 });
@@ -460,6 +470,78 @@ describe("forgotPasswordAction", () => {
     const result = await forgotPasswordAction({}, formData({ email: "" }));
     expect(result.success).toMatch(/if an account exists/i);
     expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("forgotPasswordAction rate limiting", () => {
+  const form = (email = "casey@example.com") => {
+    const data = new FormData();
+    data.set("email", email);
+    return data;
+  };
+
+  it("sends the email and counts the request when under the limit", async () => {
+    const state = await forgotPasswordAction({}, form());
+
+    expect(mockResetPasswordForEmail).toHaveBeenCalled();
+    expect(mockRecordPasswordResetRequest).toHaveBeenCalledWith(
+      "casey@example.com",
+    );
+    expect(state.success).toBeTruthy();
+  });
+
+  it("counts EVERY request, not only failures", async () => {
+    // Flooding an inbox does not care whether the send succeeded, so there
+    // is no failure to wait for -- a perfectly successful send still counts.
+    await forgotPasswordAction({}, form());
+    expect(mockRecordPasswordResetRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends NOTHING when throttled", async () => {
+    mockCheckPasswordResetRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 1800,
+    });
+
+    await forgotPasswordAction({}, form());
+
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it("returns the IDENTICAL generic message when throttled", async () => {
+    // THE POINT OF THIS TEST: this action's single fixed reply is what stops
+    // it confirming whether an address is registered. A distinct "too many
+    // requests" message would punch straight through that, letting someone
+    // probe which addresses are having resets requested. Unlike signInAction
+    // -- where a throttled user MUST be told, or they retype a correct
+    // password forever -- silence is the correct answer here.
+    const normal = await forgotPasswordAction({}, form());
+
+    mockCheckPasswordResetRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 1800,
+    });
+    const throttled = await forgotPasswordAction({}, form());
+
+    expect(throttled).toEqual(normal);
+  });
+
+  it("does not count a request it refused to send", async () => {
+    mockCheckPasswordResetRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 1800,
+    });
+
+    await forgotPasswordAction({}, form());
+
+    expect(mockRecordPasswordResetRequest).not.toHaveBeenCalled();
+  });
+
+  it("still says nothing, and sends nothing, for an unparseable address", async () => {
+    const state = await forgotPasswordAction({}, form("not-an-email"));
+
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
+    expect(state.success).toBeTruthy();
   });
 });
 

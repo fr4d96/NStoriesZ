@@ -19,6 +19,11 @@ const {
   checkSignInRateLimit,
   recordSignInFailure,
   rateLimitedMessage,
+  checkPasswordResetRateLimit,
+  recordPasswordResetRequest,
+  PASSWORD_RESET_IP_LIMIT,
+  PASSWORD_RESET_EMAIL_LIMIT,
+  PASSWORD_RESET_WINDOW_SECONDS,
   SIGN_IN_IP_LIMIT,
   SIGN_IN_IDENTIFIER_LIMIT,
   SIGN_IN_WINDOW_SECONDS,
@@ -170,7 +175,7 @@ describe("recordSignInFailure", () => {
 
     const scopes = mockRpc.mock.calls.map((c) => c[1].p_scope).sort();
     expect(scopes).toEqual(["identifier", "ip"]);
-    expect(mockRpc.mock.calls[0][0]).toBe("record_auth_failure");
+    expect(mockRpc.mock.calls[0][0]).toBe("record_auth_attempt");
   });
 
   it("still counts the identifier when the IP is unknown", async () => {
@@ -202,5 +207,89 @@ describe("rateLimitedMessage", () => {
   it("says nothing about which bucket tripped or whether the account exists", () => {
     const message = rateLimitedMessage(300);
     expect(message).not.toMatch(/ip|address|account|username|email/i);
+  });
+});
+
+describe("password reset limits", () => {
+  it("uses its own buckets, never sign-in's", async () => {
+    // Sharing them would let a reset request eat a sign-in allowance, so
+    // one form could lock the other.
+    mockRpc.mockResolvedValue(allow);
+    await checkPasswordResetRateLimit("a@b.com");
+
+    const scopes = mockRpc.mock.calls.map((c) => c[1].p_scope);
+    expect(scopes).toEqual(["reset_ip", "reset_email"]);
+  });
+
+  it("uses the longer window and its own limits", async () => {
+    mockRpc.mockResolvedValue(allow);
+    await checkPasswordResetRateLimit("a@b.com");
+
+    expect(mockRpc.mock.calls[0][1]).toMatchObject({
+      p_limit: PASSWORD_RESET_IP_LIMIT,
+      p_window_seconds: PASSWORD_RESET_WINDOW_SECONDS,
+    });
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({
+      p_limit: PASSWORD_RESET_EMAIL_LIMIT,
+      p_window_seconds: PASSWORD_RESET_WINDOW_SECONDS,
+    });
+  });
+
+  it("keys the reset bucket differently than the sign-in bucket for the same address", async () => {
+    // The hash is salted with the scope name, so one address cannot have
+    // its sign-in allowance spent by reset traffic even accidentally.
+    mockRpc.mockResolvedValue(allow);
+    await checkSignInRateLimit("a@b.com");
+    const signInKey = mockRpc.mock.calls[1][1].p_key_hash;
+
+    mockRpc.mockClear();
+    await checkPasswordResetRateLimit("a@b.com");
+    expect(mockRpc.mock.calls[1][1].p_key_hash).not.toBe(signInKey);
+  });
+
+  it("blocks on the email bucket", async () => {
+    mockRpc.mockResolvedValueOnce(allow).mockResolvedValueOnce(deny(1800));
+    await expect(checkPasswordResetRateLimit("a@b.com")).resolves.toEqual({
+      allowed: false,
+      retryAfterSeconds: 1800,
+    });
+  });
+
+  it("checks the IP bucket first and short-circuits", async () => {
+    mockRpc.mockResolvedValueOnce(deny(600));
+    const verdict = await checkPasswordResetRateLimit("a@b.com");
+
+    expect(verdict).toEqual({ allowed: false, retryAfterSeconds: 600 });
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends no raw email address to the database", async () => {
+    mockRpc.mockResolvedValue(allow);
+    await checkPasswordResetRateLimit("someone@example.com");
+
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toContain(
+      "someone@example.com",
+    );
+  });
+
+  it("fails OPEN on a returned error", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: "nope" } });
+    await expect(checkPasswordResetRateLimit("a@b.com")).resolves.toEqual({
+      allowed: true,
+    });
+  });
+
+  it("records against both reset buckets", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    await recordPasswordResetRequest("a@b.com");
+
+    expect(mockRpc.mock.calls.map((c) => c[0])).toEqual([
+      "record_auth_attempt",
+      "record_auth_attempt",
+    ]);
+    expect(mockRpc.mock.calls.map((c) => c[1].p_scope).sort()).toEqual([
+      "reset_email",
+      "reset_ip",
+    ]);
   });
 });
