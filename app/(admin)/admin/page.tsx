@@ -415,7 +415,7 @@ export default async function AdminOverviewPage() {
               SETTINGS, not live counters -- see lib/admin/rate-limit-summary.ts
               for why the counters are deliberately unreadable. */}
           <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[42rem] border-collapse text-sm">
+            <table className="w-full min-w-[38rem] border-collapse text-sm">
               <caption className="sr-only">
                 Rate limits by surface, showing what each one counts, how many
                 it allows, over what period, and how it responds once exceeded.
@@ -426,10 +426,10 @@ export default async function AdminOverviewPage() {
                     Surface
                   </th>
                   <th scope="col" className="py-2 pr-4 font-bold">
-                    Counted
+                    Allowed
                   </th>
                   <th scope="col" className="py-2 pr-4 font-bold">
-                    Allowed
+                    Counted
                   </th>
                   <th scope="col" className="py-2 font-bold">
                     When exceeded
@@ -448,11 +448,11 @@ export default async function AdminOverviewPage() {
                         {row.scope}
                       </span>
                     </th>
-                    <td className="py-2.5 pr-4 text-muted-foreground">
-                      {row.counts}
-                    </td>
                     <td className="py-2.5 pr-4 font-mono whitespace-nowrap">
                       {row.limit} / {row.windowMinutes} min
+                    </td>
+                    <td className="py-2.5 pr-4 text-muted-foreground">
+                      {row.counts}
                     </td>
                     <td className="py-2.5 text-muted-foreground">
                       {row.whenExceeded}
