@@ -236,9 +236,9 @@ pattern as `public_slug` in `updateProfileAction`.
 ## Sign-in rate limiting (2026-09-09)
 
 `signInAction` counts failed attempts in two independent buckets, both over a 15-minute window:
-**per IP, 25** and **per identifier, 8**. Table `public.auth_rate_limits`
+**per IP, 25** and **per identifier, 8**. Table `public.rate_limits`
 (`supabase/migrations/20260909100000_auth_rate_limits.sql`), reached only through
-`check_auth_rate_limit()` and `record_auth_failure()`; the table itself has RLS on with zero
+`check_rate_limit()` and `record_rate_limit_attempt()`; the table itself has RLS on with zero
 policies and all grants revoked, so a counter can never be read directly (which account is under
 attack is not public information).
 
@@ -293,7 +293,7 @@ Three things differ from sign-in, each deliberately:
    it — letting someone probe which addresses are having resets requested. A user who has hit the
    limit has by definition already been sent the mail they are asking for again.
 2. **It counts every request, not every failure.** Flooding an inbox does not care whether the send
-   succeeded. That is why `record_auth_failure()` was renamed to `record_auth_attempt()`
+   succeeded. That is why `record_rate_limit_attempt()` was renamed to `record_rate_limit_attempt()`
    (`20260909110000_password_reset_rate_limits.sql`) — a misleading name on a security-relevant
    function is how a later change quietly assumes the wrong thing. Grants and comments survive an
    `alter function ... rename`, so nothing needed re-granting.
@@ -303,6 +303,44 @@ Three things differ from sign-in, each deliberately:
 **Same lockout trade-off as sign-in, in a new place:** flooding an address' reset allowance also
 silently drops that person's own genuine reset request for the rest of the window. Inherent to
 per-target limiting; the window self-heals.
+
+### PDF import (2026-09-09) — rate limiting stops being auth-only
+
+The three PDF Route Handlers — `/stories/new/pdf-preview` (any signed-in contributor),
+`/editorial/new/pdf-preview` and `/editorial/new/pdf-attach` (editor/admin) — are the most expensive
+thing anyone can ask this server to do: pdfjs-dist plus @napi-rs/canvas over an input of up to
+75 MiB for up to `MAX_PDF_IMPORT_PAGES` pages, billed by the second on serverless. The abuse here is
+resource exhaustion, not credentials.
+
+**Keyed on the user id, with no IP bucket at all.** Every one of these routes is authenticated, so
+the caller is already established server-side from the session — unspoofable, and free of the
+shared-NAT problem the auth limits have to tolerate. The id always comes from the session, never
+from the request (Engineering Rule 2).
+
+**The check sits before `request.formData()`.** That call buffers the entire upload (up to
+next.config.ts's 80mb `proxyClientMaxBodySize`) before the handler sees a byte, so refusing first is
+what makes the limit save work rather than merely change the reply. Measured live: an allowed
+request took 3.5s, a throttled one 419ms.
+
+**Preview and attach have separate budgets** (20 each per hour). Preview is exploratory and repeated
+— try a file, look at the thumbnails, try another; attach is the committed action at the end. A
+shared budget would let heavy previewing block the very import the previewing was for.
+
+**A 429 with `Retry-After`, not form state.** These are Route Handlers answering `fetch()`, so HTTP
+status is the right channel; the auth actions return form state because that is what a Server Action
+gives back. Third response shape, third context, same underlying counters.
+
+**The table and functions lost their `auth_` prefix** in `20260909130000_generalise_rate_limits.sql`
+(`rate_limits`, `check_rate_limit`, `record_rate_limit_attempt`, `prune_rate_limits`), and
+`lib/auth/rate-limit.ts` moved to `lib/rate-limit.ts`, since none of it is auth-only any more.
+
+**The one genuinely dangerous part of that migration, worth remembering:** a plpgsql function body
+is stored as TEXT and resolved when CALLED, so renaming the table does _not_ update
+`public.auth_rate_limits` inside those bodies — they simply start failing at call time. Combined
+with this limiter being fail-open by design, that break would have been completely invisible: every
+auth form would have kept working while enforcing nothing. The functions are therefore dropped and
+recreated against the new name, with grants re-applied (a DROP takes its grants with it), and every
+flow was re-exercised live afterwards to confirm counters still move.
 
 ### Signup (added same day) — the set is now complete
 
@@ -327,7 +365,7 @@ All three forms key the same address differently (the hash is salted with the sc
 auth form can spend another's allowance — signing up must never be able to lock someone out of
 signing in. A test asserts the three keys are distinct.
 
-`auth_rate_limits_scope_known` stays a closed list rather than an open pattern: a typo in a scope
+`rate_limits_scope_known` stays a closed list rather than an open pattern: a typo in a scope
 name should fail loudly, not silently create an empty bucket that limits nothing. That was the third
 migration widening it, and with signup covered there is no fourth entry point, so the churn stops.
 

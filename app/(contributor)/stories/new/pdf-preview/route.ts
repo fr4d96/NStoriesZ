@@ -3,6 +3,11 @@ import { getCurrentUser } from "@/lib/auth/get-current-user";
 import { pdfImportFileSchema } from "@/lib/validation/pdf-import";
 import { renderPagePreviews } from "@/lib/story/pdf-import";
 import { pdfImportErrorMessage } from "@/lib/story/pdf-import-messages";
+import {
+  checkPdfImportRateLimit,
+  recordPdfImportAttempt,
+  tooManyRequestsResponse,
+} from "@/lib/rate-limit";
 
 // Node runtime (not Edge): pdfjs-dist/@napi-rs/canvas (lib/story/pdf-import.ts)
 // need real Node APIs, same reasoning as
@@ -29,6 +34,19 @@ export async function POST(request: NextRequest) {
       { status: 401 },
     );
   }
+
+  // Before request.formData(), deliberately: that call buffers the whole
+  // upload (up to next.config.ts's 80mb proxyClientMaxBodySize) before this
+  // handler sees a single byte of it. Checking first means a throttled
+  // caller is refused without the server reading, holding, or rasterising
+  // anything -- the point of the limit is the work, not the response.
+  const verdict = await checkPdfImportRateLimit("preview", user.id);
+  if (!verdict.allowed) {
+    return tooManyRequestsResponse(verdict.retryAfterSeconds);
+  }
+  // Counts every request: the rasterising cost is paid whether or not the
+  // PDF turns out to be usable.
+  await recordPdfImportAttempt("preview", user.id);
 
   let formData: FormData;
   try {

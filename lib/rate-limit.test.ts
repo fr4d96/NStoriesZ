@@ -29,6 +29,12 @@ const {
   SIGN_UP_IP_LIMIT,
   SIGN_UP_EMAIL_LIMIT,
   SIGN_UP_WINDOW_SECONDS,
+  checkPdfImportRateLimit,
+  recordPdfImportAttempt,
+  tooManyRequestsResponse,
+  PDF_PREVIEW_LIMIT,
+  PDF_ATTACH_LIMIT,
+  PDF_IMPORT_WINDOW_SECONDS,
   SIGN_IN_IP_LIMIT,
   SIGN_IN_IDENTIFIER_LIMIT,
   SIGN_IN_WINDOW_SECONDS,
@@ -180,7 +186,7 @@ describe("recordSignInFailure", () => {
 
     const scopes = mockRpc.mock.calls.map((c) => c[1].p_scope).sort();
     expect(scopes).toEqual(["identifier", "ip"]);
-    expect(mockRpc.mock.calls[0][0]).toBe("record_auth_attempt");
+    expect(mockRpc.mock.calls[0][0]).toBe("record_rate_limit_attempt");
   });
 
   it("still counts the identifier when the IP is unknown", async () => {
@@ -289,8 +295,8 @@ describe("password reset limits", () => {
     await recordPasswordResetRequest("a@b.com");
 
     expect(mockRpc.mock.calls.map((c) => c[0])).toEqual([
-      "record_auth_attempt",
-      "record_auth_attempt",
+      "record_rate_limit_attempt",
+      "record_rate_limit_attempt",
     ]);
     expect(mockRpc.mock.calls.map((c) => c[1].p_scope).sort()).toEqual([
       "reset_email",
@@ -393,5 +399,95 @@ describe("rateLimitedMessage labels", () => {
     expect(rateLimitedMessage(300, "sign-up")).toBe(
       "Too many sign-up attempts. Try again in about 5 minutes.",
     );
+  });
+});
+
+describe("PDF import limits", () => {
+  it("keys on the user id, with no IP bucket at all", async () => {
+    // Every PDF route is authenticated, so the caller is already established
+    // server-side. A user id is unspoofable and has none of the shared-NAT
+    // problem the auth limits must tolerate, so there is nothing for an IP
+    // bucket to add here.
+    mockRpc.mockResolvedValue(allow);
+    await checkPdfImportRateLimit("preview", "user-123");
+
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc.mock.calls[0][1]).toMatchObject({
+      p_scope: "pdf_preview_user",
+      p_limit: PDF_PREVIEW_LIMIT,
+      p_window_seconds: PDF_IMPORT_WINDOW_SECONDS,
+    });
+  });
+
+  it("gives preview and attach separate budgets", async () => {
+    // Preview is exploratory and repeated; attach is the committed action.
+    // A shared budget would let heavy previewing block the very import the
+    // previewing was for.
+    mockRpc.mockResolvedValue(allow);
+
+    await checkPdfImportRateLimit("preview", "user-123");
+    const previewCall = mockRpc.mock.calls[0][1];
+    mockRpc.mockClear();
+
+    await checkPdfImportRateLimit("attach", "user-123");
+    const attachCall = mockRpc.mock.calls[0][1];
+
+    expect(previewCall.p_scope).toBe("pdf_preview_user");
+    expect(attachCall.p_scope).toBe("pdf_attach_user");
+    expect(attachCall.p_key_hash).not.toBe(previewCall.p_key_hash);
+    expect(attachCall.p_limit).toBe(PDF_ATTACH_LIMIT);
+  });
+
+  it("never sends a raw user id to the database", async () => {
+    mockRpc.mockResolvedValue(allow);
+    await checkPdfImportRateLimit("preview", "user-123");
+
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toContain("user-123");
+    expect(mockRpc.mock.calls[0][1].p_key_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("blocks and reports a retry time", async () => {
+    mockRpc.mockResolvedValue(deny(1200));
+    await expect(
+      checkPdfImportRateLimit("attach", "user-123"),
+    ).resolves.toEqual({ allowed: false, retryAfterSeconds: 1200 });
+  });
+
+  it("fails OPEN on a returned error", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: "nope" } });
+    await expect(
+      checkPdfImportRateLimit("preview", "user-123"),
+    ).resolves.toEqual({ allowed: true });
+  });
+
+  it("records against the surface's own scope", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    await recordPdfImportAttempt("attach", "user-123");
+
+    expect(mockRpc.mock.calls[0][0]).toBe("record_rate_limit_attempt");
+    expect(mockRpc.mock.calls[0][1]).toMatchObject({
+      p_scope: "pdf_attach_user",
+    });
+  });
+});
+
+describe("tooManyRequestsResponse", () => {
+  it("is a 429 carrying Retry-After in seconds", async () => {
+    // A Route Handler answers fetch(), not a form, so HTTP status is the
+    // right channel -- unlike the auth actions, which return form state.
+    const res = tooManyRequestsResponse(1800);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("1800");
+    await expect(res.json()).resolves.toEqual({
+      error: "Too many PDF imports. Try again in about 30 minutes.",
+    });
+  });
+
+  it("never rounds down to zero minutes", async () => {
+    const res = tooManyRequestsResponse(5);
+    await expect(res.json()).resolves.toEqual({
+      error: "Too many PDF imports. Try again in about 1 minute.",
+    });
   });
 });

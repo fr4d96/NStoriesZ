@@ -21,7 +21,7 @@ import {
   recordPasswordResetRequest,
   checkSignUpRateLimit,
   recordSignUpAttempt,
-} from "@/lib/auth/rate-limit";
+} from "@/lib/rate-limit";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 

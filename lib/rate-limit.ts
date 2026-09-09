@@ -91,7 +91,9 @@ type Bucket =
   | "reset_ip"
   | "reset_email"
   | "signup_ip"
-  | "signup_email";
+  | "signup_email"
+  | "pdf_preview_user"
+  | "pdf_attach_user";
 
 async function checkBucket(
   scope: Bucket,
@@ -100,7 +102,7 @@ async function checkBucket(
   windowSeconds: number,
 ): Promise<RateLimitVerdict> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("check_auth_rate_limit", {
+  const { data, error } = await supabase.rpc("check_rate_limit", {
     p_scope: scope,
     p_key_hash: keyHash,
     p_limit: limit,
@@ -171,7 +173,7 @@ export async function recordSignInFailure(
     // useful to do with a counter we could not write, and the one thing we
     // must NOT do is fail a sign-in over it.
     const record = (scope: Bucket, keyHash: string) =>
-      supabase.rpc("record_auth_attempt", {
+      supabase.rpc("record_rate_limit_attempt", {
         p_scope: scope,
         p_key_hash: keyHash,
         p_window_seconds: SIGN_IN_WINDOW_SECONDS,
@@ -260,7 +262,7 @@ export async function recordPasswordResetRequest(
     const ip = await clientIp();
 
     const record = (scope: Bucket, keyHash: string) =>
-      supabase.rpc("record_auth_attempt", {
+      supabase.rpc("record_rate_limit_attempt", {
         p_scope: scope,
         p_key_hash: keyHash,
         p_window_seconds: PASSWORD_RESET_WINDOW_SECONDS,
@@ -330,7 +332,7 @@ export async function recordSignUpAttempt(rawEmail: string): Promise<void> {
     const ip = await clientIp();
 
     const record = (scope: Bucket, keyHash: string) =>
-      supabase.rpc("record_auth_attempt", {
+      supabase.rpc("record_rate_limit_attempt", {
         p_scope: scope,
         p_key_hash: keyHash,
         p_window_seconds: SIGN_UP_WINDOW_SECONDS,
@@ -346,4 +348,97 @@ export async function recordSignUpAttempt(rawEmail: string): Promise<void> {
   } catch {
     // Fail open, same as every other counter here.
   }
+}
+
+/**
+ * PDF import limits.
+ *
+ * The abuse is resource exhaustion, not credentials: rasterising a PDF runs
+ * pdfjs-dist plus @napi-rs/canvas over an input of up to 75 MiB
+ * (MAX_PDF_IMPORT_INPUT_BYTES) for up to MAX_PDF_IMPORT_PAGES pages. That is
+ * by far the most expensive thing a signed-in person can ask this server to
+ * do, and on serverless it is billed by the second.
+ *
+ * KEYED ON THE USER ID, NOT AN IP. Every one of these routes is
+ * authenticated, so the caller's identity is already established
+ * server-side from the session -- unspoofable, and free of the shared-NAT
+ * problem the auth limits have to tolerate. The id is always taken from the
+ * session, never from the request (Engineering Rule 2).
+ *
+ * PREVIEW AND ATTACH HAVE SEPARATE BUDGETS. Preview is exploratory and
+ * repeated -- try a file, look at the thumbnails, try a different file --
+ * while attach is the committed action at the end of it. A shared budget
+ * would let heavy previewing block the very import the previewing was for,
+ * which is precisely the wrong thing to break.
+ *
+ * Counts every request: the rasterising cost is paid whether or not the PDF
+ * turns out to be usable.
+ */
+export const PDF_IMPORT_WINDOW_SECONDS = 60 * 60;
+export const PDF_PREVIEW_LIMIT = 20;
+export const PDF_ATTACH_LIMIT = 20;
+
+export type PdfImportSurface = "preview" | "attach";
+
+function pdfScope(surface: PdfImportSurface): Bucket {
+  return surface === "preview" ? "pdf_preview_user" : "pdf_attach_user";
+}
+
+function pdfLimit(surface: PdfImportSurface): number {
+  return surface === "preview" ? PDF_PREVIEW_LIMIT : PDF_ATTACH_LIMIT;
+}
+
+/**
+ * `userId` must come from the session (getCurrentUser()/getCurrentUserRole()),
+ * never from the request body or a header.
+ */
+export async function checkPdfImportRateLimit(
+  surface: PdfImportSurface,
+  userId: string,
+): Promise<RateLimitVerdict> {
+  try {
+    const scope = pdfScope(surface);
+    return await checkBucket(
+      scope,
+      hashKey(scope, userId),
+      pdfLimit(surface),
+      PDF_IMPORT_WINDOW_SECONDS,
+    );
+  } catch {
+    return ALLOWED;
+  }
+}
+
+export async function recordPdfImportAttempt(
+  surface: PdfImportSurface,
+  userId: string,
+): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const scope = pdfScope(surface);
+    await supabase.rpc("record_rate_limit_attempt", {
+      p_scope: scope,
+      p_key_hash: hashKey(scope, userId),
+      p_window_seconds: PDF_IMPORT_WINDOW_SECONDS,
+    });
+  } catch {
+    // Fail open, same as every other counter here.
+  }
+}
+
+/**
+ * 429 with a Retry-After header -- the correct answer for a Route Handler,
+ * where the caller is fetch() rather than a form. The auth actions return
+ * form state instead because that is what a Server Action gives back.
+ */
+export function tooManyRequestsResponse(retryAfterSeconds: number): Response {
+  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+  return Response.json(
+    {
+      error: `Too many PDF imports. Try again in about ${minutes} minute${
+        minutes === 1 ? "" : "s"
+      }.`,
+    },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
 }

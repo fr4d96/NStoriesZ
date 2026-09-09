@@ -1,5 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUserRole, resolveStaffAccess } from "@/lib/auth/roles";
+import { getCurrentUser } from "@/lib/auth/get-current-user";
+import {
+  checkPdfImportRateLimit,
+  recordPdfImportAttempt,
+  tooManyRequestsResponse,
+} from "@/lib/rate-limit";
 import { createDraftSchema } from "@/lib/validation/story";
 import {
   pdfImportFileSchema,
@@ -106,6 +112,23 @@ export async function POST(request: NextRequest) {
       { error: "Only an editor or admin can start an editorial import." },
       { status: 403 },
     );
+  }
+
+  // Keyed on the caller's own id, taken from the session -- never from the
+  // request (Engineering Rule 2). Staff are trusted, not unlimited: this is
+  // the most expensive thing anyone can ask this server to do.
+  //
+  // Placed before request.formData(), which buffers the whole upload (up to
+  // next.config.ts's 80mb proxyClientMaxBodySize) before this handler sees
+  // any of it. Refusing first means a throttled caller costs no read, no
+  // memory and no rasterising.
+  const user = await getCurrentUser();
+  if (user) {
+    const verdict = await checkPdfImportRateLimit("attach", user.id);
+    if (!verdict.allowed) {
+      return tooManyRequestsResponse(verdict.retryAfterSeconds);
+    }
+    await recordPdfImportAttempt("attach", user.id);
   }
 
   let formData: FormData;
