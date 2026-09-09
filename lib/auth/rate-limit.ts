@@ -85,17 +85,20 @@ async function clientIp(): Promise<string | null> {
   }
 }
 
+type Bucket = "ip" | "identifier" | "reset_ip" | "reset_email";
+
 async function checkBucket(
-  scope: "ip" | "identifier",
+  scope: Bucket,
   keyHash: string,
   limit: number,
+  windowSeconds: number,
 ): Promise<RateLimitVerdict> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("check_auth_rate_limit", {
     p_scope: scope,
     p_key_hash: keyHash,
     p_limit: limit,
-    p_window_seconds: SIGN_IN_WINDOW_SECONDS,
+    p_window_seconds: windowSeconds,
   });
 
   // `error` is checked here rather than left to the caller's try/catch:
@@ -107,7 +110,7 @@ async function checkBucket(
 
   return {
     allowed: false,
-    retryAfterSeconds: row.retry_after_seconds ?? SIGN_IN_WINDOW_SECONDS,
+    retryAfterSeconds: row.retry_after_seconds ?? windowSeconds,
   };
 }
 
@@ -125,6 +128,7 @@ export async function checkSignInRateLimit(
         "ip",
         hashKey("ip", ip),
         SIGN_IN_IP_LIMIT,
+        SIGN_IN_WINDOW_SECONDS,
       );
       if (!verdict.allowed) return verdict;
     }
@@ -133,6 +137,7 @@ export async function checkSignInRateLimit(
       "identifier",
       hashKey("identifier", normalizeIdentifier(rawIdentifier)),
       SIGN_IN_IDENTIFIER_LIMIT,
+      SIGN_IN_WINDOW_SECONDS,
     );
   } catch {
     return ALLOWED;
@@ -159,8 +164,8 @@ export async function recordSignInFailure(
     // A returned `error` is deliberately not inspected: there is nothing
     // useful to do with a counter we could not write, and the one thing we
     // must NOT do is fail a sign-in over it.
-    const record = (scope: "ip" | "identifier", keyHash: string) =>
-      supabase.rpc("record_auth_failure", {
+    const record = (scope: Bucket, keyHash: string) =>
+      supabase.rpc("record_auth_attempt", {
         p_scope: scope,
         p_key_hash: keyHash,
         p_window_seconds: SIGN_IN_WINDOW_SECONDS,
@@ -190,4 +195,76 @@ export function rateLimitedMessage(retryAfterSeconds: number): string {
   return `Too many sign-in attempts. Try again in about ${minutes} minute${
     minutes === 1 ? "" : "s"
   }.`;
+}
+
+/**
+ * Password-reset limits.
+ *
+ * A LONGER WINDOW THAN SIGN-IN (60 minutes vs 15) because the harm is
+ * cumulative: at sign-in's 15-minute window, five requests per window is
+ * still ~480 emails a day into one inbox. An hour makes the ceiling
+ * meaningful while staying generous for a real person, who needs one and
+ * occasionally a second when the first mail does not arrive.
+ *
+ * Counts EVERY request rather than every failure -- forgot-password has no
+ * failure to wait for, and flooding an inbox does not care whether the send
+ * succeeded.
+ *
+ * Buckets are separate from sign-in's, so neither form can spend the
+ * other's allowance.
+ */
+export const PASSWORD_RESET_WINDOW_SECONDS = 60 * 60;
+export const PASSWORD_RESET_IP_LIMIT = 20;
+export const PASSWORD_RESET_EMAIL_LIMIT = 5;
+
+export async function checkPasswordResetRateLimit(
+  rawEmail: string,
+): Promise<RateLimitVerdict> {
+  try {
+    const ip = await clientIp();
+    if (ip) {
+      const verdict = await checkBucket(
+        "reset_ip",
+        hashKey("reset_ip", ip),
+        PASSWORD_RESET_IP_LIMIT,
+        PASSWORD_RESET_WINDOW_SECONDS,
+      );
+      if (!verdict.allowed) return verdict;
+    }
+
+    return await checkBucket(
+      "reset_email",
+      hashKey("reset_email", normalizeIdentifier(rawEmail)),
+      PASSWORD_RESET_EMAIL_LIMIT,
+      PASSWORD_RESET_WINDOW_SECONDS,
+    );
+  } catch {
+    return ALLOWED;
+  }
+}
+
+export async function recordPasswordResetRequest(
+  rawEmail: string,
+): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const ip = await clientIp();
+
+    const record = (scope: Bucket, keyHash: string) =>
+      supabase.rpc("record_auth_attempt", {
+        p_scope: scope,
+        p_key_hash: keyHash,
+        p_window_seconds: PASSWORD_RESET_WINDOW_SECONDS,
+      });
+
+    await Promise.all([
+      ...(ip ? [record("reset_ip", hashKey("reset_ip", ip))] : []),
+      record(
+        "reset_email",
+        hashKey("reset_email", normalizeIdentifier(rawEmail)),
+      ),
+    ]);
+  } catch {
+    // Fail open, same as the sign-in counters.
+  }
 }

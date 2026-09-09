@@ -17,6 +17,8 @@ import {
   checkSignInRateLimit,
   recordSignInFailure,
   rateLimitedMessage,
+  checkPasswordResetRateLimit,
+  recordPasswordResetRequest,
 } from "@/lib/auth/rate-limit";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -168,6 +170,26 @@ export async function forgotPasswordAction(
   if (!parsed.success) {
     return genericSuccess;
   }
+
+  // A throttled request returns the SAME generic string and sends nothing.
+  //
+  // This is the opposite of signInAction, deliberately. There, someone who
+  // is throttled MUST be told, or they will retype a correct password
+  // forever. Here, the whole point of the single fixed reply is that it
+  // discloses nothing at all -- and a distinct "too many requests" message
+  // would punch a hole straight through it, letting someone probe which
+  // addresses are having resets requested. Dropping silently keeps the
+  // zero-information property whole, and a legitimate user who has hit the
+  // limit has, by definition, already been sent the mail they are asking
+  // for again.
+  const verdict = await checkPasswordResetRateLimit(parsed.data.email);
+  if (!verdict.allowed) {
+    return genericSuccess;
+  }
+
+  // Counts EVERY request, not just failures: flooding an inbox does not
+  // care whether the send succeeded, so there is no failure to wait for.
+  await recordPasswordResetRequest(parsed.data.email);
 
   const supabase = await createClient();
   await supabase.auth.resetPasswordForEmail(parsed.data.email, {

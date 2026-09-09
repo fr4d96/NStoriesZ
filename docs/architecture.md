@@ -278,9 +278,34 @@ first, so one source burns its own allowance after 25 failures and cannot go on 
 in front; an origin reachable directly would let a caller mint a fresh bucket per request. The
 per-identifier bucket does not depend on them.
 
-**Not covered:** `signUpAction` and `forgotPasswordAction` are still unthrottled. Forgot-password
-in particular is an email-bombing vector. Deliberately out of scope for a change asked as "rate
-limit the login"; worth doing next.
+### Password reset (added same day)
+
+`forgotPasswordAction` shares the machinery on separate buckets — `reset_ip` (20) and `reset_email`
+(5) — over a **60-minute** window rather than 15. The longer window is the point: at 15 minutes,
+five per window is still roughly 480 mails a day into one inbox.
+
+Three things differ from sign-in, each deliberately:
+
+1. **A throttled request returns the identical generic string and sends nothing.** This is the
+   opposite of `signInAction`, where a throttled person _must_ be told or they will retype a correct
+   password forever. Here the single fixed reply is the entire reason the action cannot confirm
+   whether an address is registered, and a distinct "too many requests" message would punch through
+   it — letting someone probe which addresses are having resets requested. A user who has hit the
+   limit has by definition already been sent the mail they are asking for again.
+2. **It counts every request, not every failure.** Flooding an inbox does not care whether the send
+   succeeded. That is why `record_auth_failure()` was renamed to `record_auth_attempt()`
+   (`20260909110000_password_reset_rate_limits.sql`) — a misleading name on a security-relevant
+   function is how a later change quietly assumes the wrong thing. Grants and comments survive an
+   `alter function ... rename`, so nothing needed re-granting.
+3. **Separate buckets, and the hash is salted with the scope name**, so a reset request can never
+   spend a sign-in allowance or vice versa — one form locking the other would be a real outage.
+
+**Same lockout trade-off as sign-in, in a new place:** flooding an address' reset allowance also
+silently drops that person's own genuine reset request for the rest of the window. Inherent to
+per-target limiting; the window self-heals.
+
+**Still not covered:** `signUpAction`. Lower priority — it does not mail an arbitrary third party
+on demand — but it is the last unthrottled auth entry point.
 
 **Applied 2026-09-09.** `20260909090000_usernames` is pushed and live, `types/database.ts` is
 regenerated, and every call site is a plain typed `supabase.from("usernames")` — the temporary

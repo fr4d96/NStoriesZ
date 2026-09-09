@@ -2274,7 +2274,7 @@ export type Database = {
         };
         Returns: undefined;
       };
-      record_auth_failure: {
+      record_auth_attempt: {
         Args: { p_key_hash: string; p_scope: string; p_window_seconds: number };
         Returns: undefined;
       };
