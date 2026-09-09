@@ -39,10 +39,10 @@ vi.mock("@/lib/auth/username-login", () => ({
     mockResolveEmailForUsername(username),
 }));
 
-// lib/auth/rate-limit.ts imports server-only and next/headers, neither of
+// lib/rate-limit.ts imports server-only and next/headers, neither of
 // which loads outside Next's bundler, so it is mocked at the import boundary
 // like username-login.ts above. Its own limits, hashing and fail-open rules
-// are covered in lib/auth/rate-limit.test.ts; what matters HERE is only
+// are covered in lib/rate-limit.test.ts; what matters HERE is only
 // which of signInAction's paths call it.
 const mockCheckSignInRateLimit = vi.fn();
 const mockRecordSignInFailure = vi.fn();
@@ -50,7 +50,7 @@ const mockCheckPasswordResetRateLimit = vi.fn();
 const mockRecordPasswordResetRequest = vi.fn();
 const mockCheckSignUpRateLimit = vi.fn();
 const mockRecordSignUpAttempt = vi.fn();
-vi.mock("@/lib/auth/rate-limit", () => ({
+vi.mock("@/lib/rate-limit", () => ({
   checkSignInRateLimit: (identifier: string) =>
     mockCheckSignInRateLimit(identifier),
   recordSignInFailure: (identifier: string) =>

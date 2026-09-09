@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-09 (sign-in rate limiting; earlier the same day: /account rebuilt as
+Last updated: 2026-09-09 (PDF import rate limiting; earlier the same day: sign-in, password reset
+and signup rate limiting; /account rebuilt as
 left-hand tabs;
 username sign-in, opt-in and additive; earlier:
 every mention of Canva removed; earlier:
@@ -21,10 +22,42 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-09 (latest) — sign-in is rate limited.** Closes the gap flagged in the username
+**2026-09-09 (latest) — the PDF import routes are rate limited, and rate limiting stops being
+auth-only.** `20260909130000_generalise_rate_limits.sql`: `pdf_preview_user` (20) and
+`pdf_attach_user` (20) per hour across all three PDF Route Handlers, plus the table and functions
+losing their `auth_` prefix (`rate_limits`, `check_rate_limit`, `record_rate_limit_attempt`,
+`prune_rate_limits`) and `lib/rate-limit.ts` moving to `lib/rate-limit.ts`.
+
+- **Keyed on the user id, no IP bucket.** These routes are authenticated, so the caller is already
+  established server-side — unspoofable, no shared-NAT problem. Id always from the session, never
+  the request.
+- **The check runs before `request.formData()`**, which buffers the whole upload (up to 80mb)
+  before the handler sees any of it. Measured live: allowed request 3.5s, throttled 419ms.
+- **Preview and attach have separate budgets**, so heavy previewing cannot block the import it was
+  for.
+- **429 + `Retry-After`**, not form state — a Route Handler answers `fetch()`.
+
+**THE TRAP IN THIS MIGRATION, worth remembering:** a plpgsql function body is stored as TEXT and
+resolved when CALLED. Renaming the table does NOT update `public.auth_rate_limits` inside those
+bodies — they just start failing at call time. Because the limiter is fail-open by design, that
+break would have been INVISIBLE: every auth form still working, enforcing nothing. So the functions
+are dropped and recreated against the new name, and grants re-applied (a DROP takes its grants).
+
+**Regression-verified live afterwards, not assumed:** sign-in (`identifier` + `ip`),
+forgot-password (`reset_email` + `reset_ip`) and PDF preview (`pdf_preview_user`) all recorded real
+counter rows through the renamed functions, and a pre-burned PDF bucket returned a real 429 with
+`Retry-After: 3579`. Signup shares the identical code path and is covered by unit tests. All test
+rows deleted; table back to zero.
+
+**Pre-existing build warning, not from this change:** `lib/story/story-pdf.ts:135`'s dynamic
+`path.join(liberationFontDir(), ...)` makes Turbopack trace the whole project into the server
+bundle, which bloats deployments. It comes from the PDF _export_ work (2a3c596 / 082cde5), not from
+rate limiting.
+
+**2026-09-09 — sign-in is rate limited.** Closes the gap flagged in the username
 sign-in entry below. Two buckets over 15 minutes: per IP 25, per identifier 8, counting failures
 only. New table `public.auth_rate_limits` + `check_auth_rate_limit()` / `record_auth_failure()` /
-`prune_auth_rate_limits()` (`20260909100000_auth_rate_limits.sql`), plus `lib/auth/rate-limit.ts`.
+`prune_auth_rate_limits()` (`20260909100000_auth_rate_limits.sql`), plus `lib/rate-limit.ts`.
 22 new tests (917 total). Full reasoning in `docs/architecture.md` "Sign-in rate limiting"; the
 decisions worth knowing here:
 
@@ -38,7 +71,7 @@ decisions worth knowing here:
 - Keys are SHA-256 hashed, so the table stores no readable email, username, or IP.
 
 **Applied 2026-09-09.** Migration pushed, `types/database.ts` regenerated, and both calls in
-`lib/auth/rate-limit.ts` are back on plain typed `supabase.rpc(...)`. Verified against the live
+`lib/rate-limit.ts` are back on plain typed `supabase.rpc(...)`. Verified against the live
 project: RLS on with **zero** policies, `anon` and `authenticated` hold no SELECT or INSERT on the
 table at all, `anon` may execute `check_auth_rate_limit()` and `record_auth_failure()` (the sign-in
 path needs them with no session) but **not** `prune_auth_rate_limits()`.
