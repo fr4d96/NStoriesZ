@@ -49,10 +49,31 @@ counter rows through the renamed functions, and a pre-burned PDF bucket returned
 `Retry-After: 3579`. Signup shares the identical code path and is covered by unit tests. All test
 rows deleted; table back to zero.
 
-**Pre-existing build warning, not from this change:** `lib/story/story-pdf.ts:135`'s dynamic
-`path.join(liberationFontDir(), ...)` makes Turbopack trace the whole project into the server
-bundle, which bloats deployments. It comes from the PDF _export_ work (2a3c596 / 082cde5), not from
-rate limiting.
+**Fixed same day — the PDF export route no longer drags the whole project into its bundle.**
+`lib/story/story-pdf.ts`'s `fontPath()` calls `path.join(liberationFontDir(), ...)`, and
+`liberationFontDir()` deliberately resolves through Node's real resolver at runtime so no bundler
+can rewrite it. Turbopack therefore cannot see what the path is, treats it as "could be anything",
+and traces EVERYTHING into the export route's output. Fixed with the `/*turbopackIgnore: true*/`
+comment Turbopack itself suggests.
+
+**Nothing is lost, because tracing was never how those fonts got deployed:** next.config.ts's
+`outputFileTracingIncludes` entry for `/stories/*\/export` already names
+`pdfjs-dist/standard_fonts/LiberationSans-*.ttf` explicitly, precisely because nothing statically
+imports them.
+
+Measured against `.next/server/app/**/*.nft.json`, the check that entry's own comment prescribes:
+traced entries 874 -> **348**; app source files 128 -> **0**; `public/` files 2 -> **0**; Liberation
+faces 4 -> **4**; Noto fallbacks 4 -> **4**; libvips entries 9 -> **9**.
+
+Then confirmed at runtime, not only at build time: `GET /stories/<id>/export` returned 200,
+`application/pdf`, 146,881 bytes, `%PDF-` magic bytes. pdfkit opens those `.ttf` files by path, so a
+broken resolution would have thrown rather than produced a valid document.
+
+**The two alternatives Turbopack also offers were both wrong here.** "Statically scope the path"
+means hardcoding `node_modules/pdfjs-dist/` under `process.cwd()`, which assumes a flat,
+non-hoisted install layout — exactly what that resolver was written to avoid. Committing the
+Liberation faces reverses that file's documented "adds no binary to the repo" decision for the sake
+of a warning.
 
 **2026-09-09 — sign-in is rate limited.** Closes the gap flagged in the username
 sign-in entry below. Two buckets over 15 minutes: per IP 25, per identifier 8, counting failures

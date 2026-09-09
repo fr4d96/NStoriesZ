@@ -131,8 +131,36 @@ type FallbackKey = keyof typeof FALLBACK_FONT_FILES;
 type RegisteredFont =
   (typeof FONT_FILES)[FontKey] | (typeof FALLBACK_FONT_FILES)[FallbackKey];
 
+/**
+ * The `turbopackIgnore` is load-bearing, not noise-suppression.
+ *
+ * liberationFontDir() deliberately resolves through Node's real resolver at
+ * runtime (see its comment), so Turbopack cannot see what this path is. Its
+ * static analysis treats an unresolvable path.join as "could be anything"
+ * and responds by tracing the ENTIRE project into the export route's
+ * bundle -- measured at 128 app source files and 2 public/ files that this
+ * route has no use for, on top of the ~17 MB of libvips it legitimately
+ * needs.
+ *
+ * Nothing is lost by opting out, because tracing was never how these files
+ * got deployed: next.config.ts's `outputFileTracingIncludes` entry for
+ * `/stories/*\/export` names
+ * `pdfjs-dist/standard_fonts/LiberationSans-*.ttf` explicitly, precisely
+ * because nothing statically imports them. Verify with the grep that entry's
+ * own comment prescribes after changing either side.
+ *
+ * NOT fixed by "statically scoping the path" (Turbopack's other suggestion):
+ * hardcoding node_modules/pdfjs-dist/ under process.cwd() assumes a flat,
+ * non-hoisted install layout and would break exactly where this module's
+ * resolver was written to be careful. NOT fixed by committing the Liberation
+ * faces either -- that reverses this file's documented "adds no binary to
+ * the repo" decision for a warning.
+ */
 function fontPath(key: FontKey): string {
-  return path.join(liberationFontDir(), FONT_FILES[key]);
+  return path.join(
+    /*turbopackIgnore: true*/ liberationFontDir(),
+    FONT_FILES[key],
+  );
 }
 
 /**
