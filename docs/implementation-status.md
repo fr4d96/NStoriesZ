@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-09 (/account rebuilt as left-hand tabs; earlier the same day:
+Last updated: 2026-09-09 (sign-in rate limiting; earlier the same day: /account rebuilt as
+left-hand tabs;
 username sign-in, opt-in and additive; earlier:
 every mention of Canva removed; earlier:
 a story's cover falls back to its first photo; earlier:
@@ -20,7 +21,52 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-09 (latest) — /account is left-hand tabs, not one long scroll.**
+**2026-09-09 (latest) — sign-in is rate limited.** Closes the gap flagged in the username
+sign-in entry below. Two buckets over 15 minutes: per IP 25, per identifier 8, counting failures
+only. New table `public.auth_rate_limits` + `check_auth_rate_limit()` / `record_auth_failure()` /
+`prune_auth_rate_limits()` (`20260909100000_auth_rate_limits.sql`), plus `lib/auth/rate-limit.ts`.
+22 new tests (917 total). Full reasoning in `docs/architecture.md` "Sign-in rate limiting"; the
+decisions worth knowing here:
+
+- **No service-role client.** A rate limiter leaks nothing, so unlike username-to-email resolution
+  it has an anon-safe alternative. The privileged-import allowlist stays at two files.
+- **Every failure path counts, including an identifier that resolves to nothing.** Otherwise the
+  absence of throttling becomes an account-existence oracle.
+- **No clear-on-success**, because it would have to be anon-callable with an arbitrary key — an
+  attacker resetting their own allowance before every guess.
+- **Fails open**, deliberately, on any limiter error.
+- Keys are SHA-256 hashed, so the table stores no readable email, username, or IP.
+
+**Applied 2026-09-09.** Migration pushed, `types/database.ts` regenerated, and both calls in
+`lib/auth/rate-limit.ts` are back on plain typed `supabase.rpc(...)`. Verified against the live
+project: RLS on with **zero** policies, `anon` and `authenticated` hold no SELECT or INSERT on the
+table at all, `anon` may execute `check_auth_rate_limit()` and `record_auth_failure()` (the sign-in
+path needs them with no session) but **not** `prune_auth_rate_limits()`.
+
+**The typed swap is not purely a type-level change, and it bit once already today.**
+`callUntypedRpc()` throws on error; a plain `rpc()` hands the error back in the result. In
+`checkBucket()` that error is now checked explicitly so an unreachable database still reads as
+ALLOWED _by decision_ rather than by accident — with a test (`fails OPEN when the RPC RETURNS an
+error rather than throwing`) that pins the difference. The same slip in `setRevisionExpenses`
+earlier today would have made a failed write look like a successful save.
+
+**Live-verified end to end**, not just unit-tested (the unit tests mock the RPC, so on their own
+they prove nothing about the real chain):
+
+- The SQL itself, driven directly: 7 failures still allowed at limit 8; the 8th blocks with
+  `retry_after_seconds` 890; the same row read at limit 25 is still allowed, so the two buckets are
+  genuinely independent; a closed window reads as allowed without any write; and recording into a
+  closed window RESETS to 1 rather than climbing to 9.
+- The app chain: one junk sign-in submission produced `POST /sign-in 200` and two counter rows,
+  one `ip` and one `identifier`, the latter carrying exactly the SHA-256 computed independently in
+  Node from `identifier:<the typed value>`. That is the whole path -- action, hash, RPC, table --
+  confirmed against the live database.
+- All test rows deleted afterwards; the table is back to zero rows.
+
+**Still unthrottled:** `signUpAction` and `forgotPasswordAction`. Forgot-password is an
+email-bombing vector. Out of scope for "rate limit the login"; worth doing next.
+
+**2026-09-09 — /account is left-hand tabs, not one long scroll.**
 
 Profile, Sign-in, and Contributor identity are now three tabs: a vertical rail on the left with the
 settings on the right, collapsing to a horizontally scrollable strip above the content on mobile.

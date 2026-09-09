@@ -231,10 +231,56 @@ the server-known session, never the form (Rule 2). There is no "is it taken?" pr
 unique index is the only thing that can actually decide a race, so its `23505` is the answer, same
 pattern as `public_slug` in `updateProfileAction`.
 
-**Known gap:** there is no rate limiting on `signInAction`, before or after this change. Username
-sign-in does not create the gap but does make it more attractive (a guessable handle is a better
-credential-stuffing target than an unknown email). Worth closing before this is exercised at any
-volume.
+**Rate limiting** — closed 2026-09-09, see the section below.
+
+## Sign-in rate limiting (2026-09-09)
+
+`signInAction` counts failed attempts in two independent buckets, both over a 15-minute window:
+**per IP, 25** and **per identifier, 8**. Table `public.auth_rate_limits`
+(`supabase/migrations/20260909100000_auth_rate_limits.sql`), reached only through
+`check_auth_rate_limit()` and `record_auth_failure()`; the table itself has RLS on with zero
+policies and all grants revoked, so a counter can never be read directly (which account is under
+attack is not public information).
+
+**Why a table, not an in-process counter.** This deploys to serverless functions. A `Map` in module
+scope is per-instance and dies on every cold start, so it would see a fraction of the real attempts
+and reset itself at exactly the moment load is applied. Postgres is the shared state this platform
+already has, so this costs no new dependency (Engineering Rule 20).
+
+**Why this does NOT get the service-role client.** `lib/auth/username-login.ts` earned the only
+other exemption on a specific argument: a SECURITY DEFINER function returning an email would be a
+bulk harvester for anyone holding the public anon key, so there was no anon-safe alternative. That
+argument does not transfer. These functions return a boolean and a number of seconds and disclose
+nothing about any account, so the ordinary SECURITY DEFINER pattern applies and the platform's most
+privileged boundary stays at two files.
+
+**Every failure path counts, including "no such account".** If only real accounts accumulated
+failures, "this identifier never starts rate-limiting" would confirm the account does not exist —
+an existence oracle that would quietly undo the single generic error message the sign-in path is
+built around. So an unresolvable identifier records a failure exactly like a wrong password.
+Covered by a test that says so.
+
+**There is deliberately no "clear on success".** Such a function would have to be callable by
+`anon` with an arbitrary key, which is an attacker resetting their own IP allowance before every
+guess. Windows expire on their own instead.
+
+**Everything fails open.** If the check cannot run — database unreachable, migration not applied,
+RPC error — the sign-in proceeds unthrottled. A limiter that locks the whole platform out when its
+own storage hiccups is a worse outage than the one it prevents, and the password check is still in
+front of every account. Same reasoning as `hasContributorIdentity()`'s documented fail-open.
+
+**Two limitations, stated plainly.** (1) A per-identifier limit is weaponisable: anyone can burn a
+chosen account's allowance and lock its owner out for the window. That is inherent to per-account
+limiting and is already possible through the form, which is equally scriptable — the RPC makes it
+cheaper, not newly possible. Mitigated by short self-healing windows and by checking the IP bucket
+first, so one source burns its own allowance after 25 failures and cannot go on burning others'.
+(2) The IP is read from `x-real-ip` / `x-forwarded-for`, which are only as trustworthy as the proxy
+in front; an origin reachable directly would let a caller mint a fresh bucket per request. The
+per-identifier bucket does not depend on them.
+
+**Not covered:** `signUpAction` and `forgotPasswordAction` are still unthrottled. Forgot-password
+in particular is an email-bombing vector. Deliberately out of scope for a change asked as "rate
+limit the login"; worth doing next.
 
 **Applied 2026-09-09.** `20260909090000_usernames` is pushed and live, `types/database.ts` is
 regenerated, and every call site is a plain typed `supabase.from("usernames")` — the temporary

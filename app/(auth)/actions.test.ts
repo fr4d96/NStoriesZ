@@ -39,6 +39,21 @@ vi.mock("@/lib/auth/username-login", () => ({
     mockResolveEmailForUsername(username),
 }));
 
+// lib/auth/rate-limit.ts imports server-only and next/headers, neither of
+// which loads outside Next's bundler, so it is mocked at the import boundary
+// like username-login.ts above. Its own limits, hashing and fail-open rules
+// are covered in lib/auth/rate-limit.test.ts; what matters HERE is only
+// which of signInAction's paths call it.
+const mockCheckSignInRateLimit = vi.fn();
+const mockRecordSignInFailure = vi.fn();
+vi.mock("@/lib/auth/rate-limit", () => ({
+  checkSignInRateLimit: (identifier: string) =>
+    mockCheckSignInRateLimit(identifier),
+  recordSignInFailure: (identifier: string) =>
+    mockRecordSignInFailure(identifier),
+  rateLimitedMessage: (seconds: number) => `RATE_LIMITED:${seconds}`,
+}));
+
 const mockGetCurrentUserRole = vi.fn();
 vi.mock("@/lib/auth/roles", () => ({
   getCurrentUserRole: () => mockGetCurrentUserRole(),
@@ -83,6 +98,8 @@ beforeEach(() => {
   mockGetUser.mockReset();
   mockUpdateUser.mockReset();
   mockResolveEmailForUsername.mockReset().mockResolvedValue(null);
+  mockCheckSignInRateLimit.mockReset().mockResolvedValue({ allowed: true });
+  mockRecordSignInFailure.mockReset().mockResolvedValue(undefined);
   mockGetCurrentUserRole.mockReset().mockResolvedValue(null);
   mockHasContributorIdentity.mockReset().mockResolvedValue(true);
 });
@@ -329,6 +346,96 @@ describe("signInAction", () => {
 
     expect(result.error).toBe("Incorrect email/username or password.");
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
+});
+
+describe("signInAction rate limiting", () => {
+  const form = (identifier = "casey@example.com") => {
+    const data = new FormData();
+    data.set("identifier", identifier);
+    data.set("password", "hunter22");
+    return data;
+  };
+
+  it("refuses a throttled attempt without touching Supabase", async () => {
+    mockCheckSignInRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 300,
+    });
+
+    const state = await signInAction({}, form());
+
+    expect(state.error).toBe("RATE_LIMITED:300");
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("checks the limit BEFORE the service-role username lookup", async () => {
+    // A throttled request must not be able to make this server do
+    // privileged work on its behalf.
+    mockCheckSignInRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 60,
+    });
+
+    await signInAction({}, form("caseyc"));
+
+    expect(mockResolveEmailForUsername).not.toHaveBeenCalled();
+  });
+
+  it("counts a wrong password", async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: { message: "bad" } });
+
+    await signInAction({}, form());
+
+    expect(mockRecordSignInFailure).toHaveBeenCalledWith("casey@example.com");
+  });
+
+  it("counts an unknown username exactly like a wrong password", async () => {
+    // THE POINT OF THIS TEST: if only real accounts ever accumulated
+    // failures, then "this identifier never starts rate-limiting" would
+    // confirm the account does not exist -- an existence oracle that
+    // silently undoes the single generic error message the whole sign-in
+    // path is built around.
+    mockResolveEmailForUsername.mockResolvedValue(null);
+
+    await signInAction({}, form("ghostuser"));
+
+    expect(mockRecordSignInFailure).toHaveBeenCalledWith("ghostuser");
+  });
+
+  it("counts an identifier that is neither an email nor a valid username", async () => {
+    await signInAction({}, form("not a valid anything!!"));
+
+    expect(mockRecordSignInFailure).toHaveBeenCalledWith(
+      "not a valid anything!!",
+    );
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("counts nothing on a successful sign-in", async () => {
+    mockSignInWithPassword.mockResolvedValue({ error: null });
+    mockGetCurrentUserRole.mockResolvedValue("user");
+    mockHasContributorIdentity.mockResolvedValue(true);
+
+    await expect(signInAction({}, form())).rejects.toThrow(/REDIRECT:/);
+
+    expect(mockRecordSignInFailure).not.toHaveBeenCalled();
+  });
+
+  it("gives a throttled attempt a different message than a wrong password", async () => {
+    // These two MUST differ: telling someone "wrong password" while
+    // silently refusing to check it would leave them retyping a correct
+    // password forever.
+    mockSignInWithPassword.mockResolvedValue({ error: { message: "bad" } });
+    const wrongPassword = await signInAction({}, form());
+
+    mockCheckSignInRateLimit.mockResolvedValue({
+      allowed: false,
+      retryAfterSeconds: 300,
+    });
+    const throttled = await signInAction({}, form());
+
+    expect(throttled.error).not.toBe(wrongPassword.error);
   });
 });
 
