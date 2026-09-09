@@ -24,6 +24,11 @@ const {
   PASSWORD_RESET_IP_LIMIT,
   PASSWORD_RESET_EMAIL_LIMIT,
   PASSWORD_RESET_WINDOW_SECONDS,
+  checkSignUpRateLimit,
+  recordSignUpAttempt,
+  SIGN_UP_IP_LIMIT,
+  SIGN_UP_EMAIL_LIMIT,
+  SIGN_UP_WINDOW_SECONDS,
   SIGN_IN_IP_LIMIT,
   SIGN_IN_IDENTIFIER_LIMIT,
   SIGN_IN_WINDOW_SECONDS,
@@ -291,5 +296,102 @@ describe("password reset limits", () => {
       "reset_email",
       "reset_ip",
     ]);
+  });
+});
+
+describe("signup limits", () => {
+  it("uses its own buckets", async () => {
+    mockRpc.mockResolvedValue(allow);
+    await checkSignUpRateLimit("a@b.com");
+
+    expect(mockRpc.mock.calls.map((c) => c[1].p_scope)).toEqual([
+      "signup_ip",
+      "signup_email",
+    ]);
+  });
+
+  it("uses its own limits and window", async () => {
+    mockRpc.mockResolvedValue(allow);
+    await checkSignUpRateLimit("a@b.com");
+
+    expect(mockRpc.mock.calls[0][1]).toMatchObject({
+      p_limit: SIGN_UP_IP_LIMIT,
+      p_window_seconds: SIGN_UP_WINDOW_SECONDS,
+    });
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({
+      p_limit: SIGN_UP_EMAIL_LIMIT,
+      p_window_seconds: SIGN_UP_WINDOW_SECONDS,
+    });
+  });
+
+  it("gives one address three different keys across the three forms", async () => {
+    // The hash is salted with the scope name, so no auth form can spend
+    // another's allowance for the same person -- signing up must never be
+    // able to lock someone out of signing in.
+    mockRpc.mockResolvedValue(allow);
+
+    await checkSignInRateLimit("a@b.com");
+    const signIn = mockRpc.mock.calls[1][1].p_key_hash;
+    mockRpc.mockClear();
+
+    await checkPasswordResetRateLimit("a@b.com");
+    const reset = mockRpc.mock.calls[1][1].p_key_hash;
+    mockRpc.mockClear();
+
+    await checkSignUpRateLimit("a@b.com");
+    const signUp = mockRpc.mock.calls[1][1].p_key_hash;
+
+    expect(new Set([signIn, reset, signUp]).size).toBe(3);
+  });
+
+  it("blocks on the email bucket and reports a retry time", async () => {
+    mockRpc.mockResolvedValueOnce(allow).mockResolvedValueOnce(deny(2400));
+    await expect(checkSignUpRateLimit("a@b.com")).resolves.toEqual({
+      allowed: false,
+      retryAfterSeconds: 2400,
+    });
+  });
+
+  it("checks the IP bucket first and short-circuits", async () => {
+    mockRpc.mockResolvedValueOnce(deny(900));
+    await checkSignUpRateLimit("a@b.com");
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends no raw address to the database", async () => {
+    mockRpc.mockResolvedValue(allow);
+    await checkSignUpRateLimit("someone@example.com");
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toContain(
+      "someone@example.com",
+    );
+  });
+
+  it("fails OPEN on a returned error", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: "nope" } });
+    await expect(checkSignUpRateLimit("a@b.com")).resolves.toEqual({
+      allowed: true,
+    });
+  });
+
+  it("records against both signup buckets", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    await recordSignUpAttempt("a@b.com");
+
+    expect(mockRpc.mock.calls.map((c) => c[1].p_scope).sort()).toEqual([
+      "signup_email",
+      "signup_ip",
+    ]);
+  });
+});
+
+describe("rateLimitedMessage labels", () => {
+  it("defaults to sign-in wording", () => {
+    expect(rateLimitedMessage(300)).toContain("sign-in");
+  });
+
+  it("says sign-up when asked", () => {
+    expect(rateLimitedMessage(300, "sign-up")).toBe(
+      "Too many sign-up attempts. Try again in about 5 minutes.",
+    );
   });
 });
