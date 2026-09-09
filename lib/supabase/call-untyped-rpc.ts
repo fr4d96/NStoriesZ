@@ -8,7 +8,13 @@ import type { Database } from "@/types/database";
  * `npm run supabase:types:linked` has not been re-run against the project
  * that migration was pushed to.
  *
- * NOTE (2026-09-09): this helper is back to ZERO call sites. The types were
+ * NOTE (2026-09-09, second time today): this helper is back to ZERO call
+ * sites again. It picked one up for a few hours while
+ * 20260909100000_auth_rate_limits sat unpushed, then lost it once the types
+ * caught up -- which is exactly the cycle this file exists to serve, and the
+ * reason it is kept rather than deleted each time it empties out.
+ *
+ * Earlier the same day: The types were
  * regenerated from the linked project after the `usernames` migration was
  * pushed, which also caught up the two RPCs that had drifted onto it in the
  * meantime -- get_revision_selections (re-signed with an `expenses` output)

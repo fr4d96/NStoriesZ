@@ -14,6 +14,33 @@ export type Database = {
   };
   public: {
     Tables: {
+      auth_rate_limits: {
+        Row: {
+          attempt_count: number;
+          created_at: string;
+          key_hash: string;
+          scope: string;
+          updated_at: string;
+          window_started_at: string;
+        };
+        Insert: {
+          attempt_count?: number;
+          created_at?: string;
+          key_hash: string;
+          scope: string;
+          updated_at?: string;
+          window_started_at?: string;
+        };
+        Update: {
+          attempt_count?: number;
+          created_at?: string;
+          key_hash?: string;
+          scope?: string;
+          updated_at?: string;
+          window_started_at?: string;
+        };
+        Relationships: [];
+      };
       contributor_links: {
         Row: {
           contributor_id: string;
@@ -1539,6 +1566,18 @@ export type Database = {
         Args: { p_request_id: string };
         Returns: undefined;
       };
+      check_auth_rate_limit: {
+        Args: {
+          p_key_hash: string;
+          p_limit: number;
+          p_scope: string;
+          p_window_seconds: number;
+        };
+        Returns: {
+          allowed: boolean;
+          retry_after_seconds: number;
+        }[];
+      };
       create_editorial_import_draft: {
         Args: {
           p_assigned_editor_id?: string;
@@ -2222,6 +2261,10 @@ export type Database = {
         };
         Returns: undefined;
       };
+      prune_auth_rate_limits: {
+        Args: { p_older_than_seconds?: number };
+        Returns: number;
+      };
       reassign_editorial_story: {
         Args: {
           p_editor_id: string;
@@ -2229,6 +2272,10 @@ export type Database = {
           p_note?: string;
           p_story_id: string;
         };
+        Returns: undefined;
+      };
+      record_auth_failure: {
+        Args: { p_key_hash: string; p_scope: string; p_window_seconds: number };
         Returns: undefined;
       };
       record_heic_transcoded_original: {

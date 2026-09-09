@@ -13,6 +13,11 @@ import { getCurrentUserRole } from "@/lib/auth/roles";
 import { resolveSignInLandingPath } from "@/lib/auth/contributor-identity";
 import { classifySignInIdentifier } from "@/lib/auth/sign-in-identifier";
 import { resolveEmailForUsername } from "@/lib/auth/username-login";
+import {
+  checkSignInRateLimit,
+  recordSignInFailure,
+  rateLimitedMessage,
+} from "@/lib/auth/rate-limit";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -81,6 +86,15 @@ export async function signInAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
+  // Before any credential work, and before the service-role username lookup
+  // in particular -- a throttled request must not be able to make this
+  // server do privileged work on its behalf. Checking consumes nothing;
+  // only the recordSignInFailure() calls below move a counter.
+  const verdict = await checkSignInRateLimit(parsed.data.identifier);
+  if (!verdict.allowed) {
+    return { error: rateLimitedMessage(verdict.retryAfterSeconds) };
+  }
+
   // Supabase's signInWithPassword takes an email or a phone number and
   // nothing else, so a username sign-in is always "resolve to the email
   // first, then sign in exactly as before". The resolved email comes from
@@ -89,6 +103,7 @@ export async function signInAction(
   // account reference in its own right (Engineering Rule 2).
   const identifier = classifySignInIdentifier(parsed.data.identifier);
   if (!identifier) {
+    await recordSignInFailure(parsed.data.identifier);
     return { error: GENERIC_SIGN_IN_ERROR };
   }
 
@@ -98,6 +113,7 @@ export async function signInAction(
       : await resolveEmailForUsername(identifier.username);
 
   if (!email) {
+    await recordSignInFailure(parsed.data.identifier);
     return { error: GENERIC_SIGN_IN_ERROR };
   }
 
@@ -108,6 +124,7 @@ export async function signInAction(
   });
 
   if (error) {
+    await recordSignInFailure(parsed.data.identifier);
     // Deliberately generic — never confirms whether the email or username
     // is registered.
     return { error: GENERIC_SIGN_IN_ERROR };
