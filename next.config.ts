@@ -155,6 +155,14 @@ const nextConfig: NextConfig = {
       // The committed CJK + emoji fallback faces. Opened by path at runtime
       // from process.cwd(), so nothing statically imports them either.
       "./assets/fonts/*.ttf",
+      // The letterhead mark on page one (lib/story/story-pdf.ts's
+      // brandMarkBytes()). Same blind spot as the fonts above, and MORE
+      // easily missed: this route stopped tracing the public/ folder
+      // wholesale when fontPath() got its turbopackIgnore, so nothing pulls
+      // this file in implicitly any more. Without this line the export still
+      // succeeds and simply loses its logo, silently -- brandMarkBytes()
+      // returns null rather than failing a contributor's download.
+      "./public/kakinotes-icon.png",
     ],
     "/stories/new/pdf-attach": ["./node_modules/@img/sharp-libvips-*/lib/*"],
     "/editorial/*/edit": ["./node_modules/@img/sharp-libvips-*/lib/*"],

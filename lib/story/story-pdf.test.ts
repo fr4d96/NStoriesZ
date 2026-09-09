@@ -176,6 +176,24 @@ describe("buildStoryPdf", () => {
     expect(pdf.subarray(-1024).toString("latin1")).toContain("%%EOF");
   });
 
+  it("puts the brand letterhead on page one", async () => {
+    // The wordmark is real text, so it survives extraction.
+    const text = await extractText(await buildStoryPdf(input()));
+    expect(text).toContain("Kakinotes");
+  });
+
+  it("embeds the brand mark itself, not just the word", async () => {
+    // WHY THIS EXISTS: brandMarkBytes() returns null rather than throwing
+    // when public/kakinotes-icon.png cannot be read -- a missing logo must
+    // never 500 a contributor's download of their own writing. The cost of
+    // that choice is that losing the file would be SILENT. This input has no
+    // story photos, so any embedded image is the letterhead mark; if the
+    // file disappears or moves, this fails instead of shipping a logo-less
+    // export nobody notices.
+    const pdf = await buildStoryPdf(input({ images: [] }));
+    expect(pdf.includes(Buffer.from("/Image"))).toBe(true);
+  });
+
   it("renders the title, macron place names and the story text", async () => {
     const text = await extractText(
       await buildStoryPdf(
