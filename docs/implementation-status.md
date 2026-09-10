@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-09 (PDF import rate limiting; earlier the same day: sign-in, password reset
+Last updated: 2026-09-10 (one shared ContributorAvatar replaces three copied letter-circles;
+earlier: PDF import rate limiting; earlier the same day: sign-in, password reset
 and signup rate limiting; /account rebuilt as
 left-hand tabs;
 username sign-in, opt-in and additive; earlier:
@@ -22,7 +23,54 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-09 (latest) — the PDF import routes are rate limited, and rate limiting stops being
+**2026-09-10 (latest) — the contributor avatar exists once instead of three times.**
+`components/contributor/contributor-avatar.tsx` is now the only place that turns a display name
+into the grey initial-letter circle. It replaces three identical copies of the same expression and
+the same class list: `components/story/attribution-chip.tsx` (story cards, the home page's featured
+stack, the story detail page), `app/(public)/contributors/page.tsx` (the directory card) and
+`app/(public)/contributors/[slug]/page.tsx` (the profile header). Pure refactor — no schema change,
+no query change, no migration.
+
+- **Three sizes, closed set** (`sm`/`md`/`lg` = the 32px/40px/64px the three call sites already
+  used), rather than a pass-through `className` for height and text. An open prop would let the
+  three surfaces drift apart again, which is the whole thing this fixes.
+- **Two drifts had already happened, and the consolidation is what surfaced them.** The directory
+  card had lost its `aria-hidden`, so a screen reader announced "K" immediately before "KakiKu";
+  it is now unconditional, because the letter is derived from a display name every call site also
+  renders as text. And only the attribution chip had `shrink-0`, though all three sit in a flex
+  container beside text that can be long.
+- **`charAt(0)` became `Array.from(...)[0]`.** All three originals indexed UTF-16 code units, so a
+  display name starting outside the BMP rendered half a surrogate pair as the replacement glyph.
+  Free to fix once there is one implementation; CLAUDE.md's "nationality is data" applies to names
+  too.
+
+**Verified in a browser, not only by tests:** `/contributors` and `/contributors/kakitest` at 375px
+and at desktop. The profile page shows the `lg` header avatar and the `sm` story-card avatar on one
+screen, both rendering "K" — which is exactly the consistency this was about. The directory card's
+circle computes to 40x40 with `aria-hidden="true"`. 15 new tests in
+`components/contributor/contributor-avatar.test.tsx` (977 total, up from 962), `npm run verify`
+exits 0.
+
+**What prompted this was a bug report that described a codebase this is not.** It cited a migration
+`20260910090000_contributor_public_identity.sql` adding `contributors.avatar_emoji`, and a
+`ContributorAvatar` component already rendering it, with story cards showing a letter where the
+profile showed an emoji. None of that exists: no such migration on any branch or anywhere in
+history, `public.contributors` has no `avatar_emoji` column, and all three surfaces rendered a
+letter. `avatar_emoji` is on `public.profiles` (20260807220000), the signed-in ACCOUNT identity,
+shown only by `components/auth/user-avatar-menu.tsx` in the header. The header emoji sitting above
+a page of letter-circles is the likely source of the confusion.
+
+**If public emoji avatars are wanted later, the join is not the obvious one.** `contributors` and
+`profiles` are deliberately separate (see the header comment on 20260802085016) because a
+contributor can exist before any account does — the editor-led founding-catalogue import. So
+joining `profiles.avatar_emoji` yields NULL for exactly those imported contributors, and it would
+also publish an account-profile field that is currently owner-only, which Engineering Rule 16 makes
+a deliberate decision rather than a side effect. A `contributors.avatar_emoji` column avoids both.
+Either way `list_published_stories` and `get_published_story` need DROP + CREATE (not CREATE OR
+REPLACE) to gain an output column, with `grant execute ... to anon, authenticated` re-applied — the
+same trap 20260909130000 documents above.
+
+**2026-09-09 — the PDF import routes are rate limited, and rate limiting stops being
 auth-only.** `20260909130000_generalise_rate_limits.sql`: `pdf_preview_user` (20) and
 `pdf_attach_user` (20) per hour across all three PDF Route Handlers, plus the table and functions
 losing their `auth_` prefix (`rate_limits`, `check_rate_limit`, `record_rate_limit_attempt`,

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ContributorAvatar } from "@/components/contributor/contributor-avatar";
 import { MapPinIcon, TripYearIcon } from "@/components/icons";
 
 export function AttributionChip({
@@ -25,12 +26,7 @@ export function AttributionChip({
 
   return (
     <div className="flex items-center gap-2 text-sm">
-      <span
-        aria-hidden="true"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-xs font-semibold text-foreground/70"
-      >
-        {name.trim().charAt(0).toUpperCase() || "?"}
-      </span>
+      <ContributorAvatar name={name} size="sm" />
       <span>
         {nameNode}
         {destination || tripYear ? (
