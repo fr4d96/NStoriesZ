@@ -46,6 +46,32 @@ describe("StoryCard", () => {
     expect(screen.getByText("M")).toBeInTheDocument();
   });
 
+  // The row shape 20260910140000 returns for an anonymously-published story:
+  // every identity marker nulled at the read boundary. This asserts the card
+  // does the right thing with that shape -- no name, no byline link, no
+  // avatar emoji -- which is what makes the SQL gate worth anything.
+  it("renders an anonymous story with no name, no byline link and no emoji", () => {
+    render(
+      <StoryCard
+        story={{
+          ...baseStory,
+          attribution_value: null,
+          contributor_slug: null,
+          contributor_avatar_emoji: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Anonymous")).toBeInTheDocument();
+    expect(screen.queryByText("Mei L.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /anonymous/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("🛶")).not.toBeInTheDocument();
+    // Falls all the way back to the initial of the word actually shown.
+    expect(screen.getByText("A")).toBeInTheDocument();
+  });
+
   it("never renders a rating/score or a booking-style CTA (docs/design-brief.md anti-patterns)", () => {
     render(<StoryCard story={baseStory} />);
 

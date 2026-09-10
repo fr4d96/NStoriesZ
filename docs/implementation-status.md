@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-10 (the types scripts format their own output; earlier the same day: story
+Last updated: 2026-09-10 (anonymous attribution is actually anonymous — it was publishing the
+contributor's real name; earlier the same day: the types scripts format their own output; earlier: story
 cards and the story page show the contributor's avatar emoji,
 closing the letter-vs-emoji split; earlier the same day: public contributor identity consolidated
 onto `contributors`, byline pages gain derived facts — all three migrations now APPLIED to the
@@ -70,12 +71,66 @@ both matched. That is a proof rather than an eyeballing.
 **One thing left alone, pre-existing and outside this change:** `contributor_slug` is gated only on
 `public_status`, not on anonymity, so an anonymous contributor with a public profile still gets a
 byline link on their card — and it 404s, because `get_public_contributor()` excludes
-`attribution_type = 'anonymous'`. Worth its own look.
+`attribution_type = 'anonymous'`. Worth its own look. — CLOSED the same day by
+20260910140000, which also found the much worse bug sitting behind it: see the latest entry.
 
 **Also fixed here:** the avatar's no-emoji fallback used `charAt(0)`, which indexes UTF-16 code
 units — a display name starting outside the BMP returned half a surrogate pair and rendered as the
 replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
 `AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
+
+**2026-09-10 (latest) — "Anonymous" was publishing the contributor's real name.**
+`20260910140000_anonymous_attribution_actually_anonymous.sql`. Found while fixing the smaller
+`contributor_slug` gap noted below, which turned out to be the lesser half of the same bug.
+
+- **The name.** `submit_story_for_review()` snapshots the consent as
+  `attribution_type := v_contributor.attribution_type` but
+  `attribution_value := v_contributor.display_name` — the real name, unconditionally, including
+  when the type is `anonymous` (20260803090700). Both public readers returned that value verbatim,
+  and NO public surface reads `attribution_type`: `story-card.tsx` and the story page render
+  `attribution_value ?? "Anonymous"`, a fallback that could never fire because the column is
+  `NOT NULL`. Choosing "Anonymous" on /account — an option the form genuinely offers — published
+  your real display name.
+- **The link.** `contributor_slug` was gated on `public_status` alone, so an anonymously-published
+  story rendered its byline as a LINK to the author's profile. One click deanonymises. Separately a
+  contributor whose own `attribution_type` is `anonymous` got a link that 404s, since
+  `get_public_contributor()` excludes them.
+- **Nothing leaked.** Zero consents carry `attribution_type = 'anonymous'`. Latent, fixed before it
+  wasn't.
+
+**Fixed in the readers, not the snapshot,** for two reasons: the consent row is the audit record of
+what was agreed and `/moderation/stories/[id]` deliberately shows it as `"<value> (<type>)"` during
+review; and masking at the read boundary also repairs rows that already exist, which a snapshot
+change could not.
+
+**The three identity markers are gated differently, on purpose.** `attribution_value` masks to NULL
+on THIS STORY'S consent alone — someone flipping their default to anonymous later must not silently
+rewrite the byline of stories they published under their name. `contributor_slug` and
+`avatar_emoji` additionally require the CONTRIBUTOR's `attribution_type` to be non-anonymous, which
+is exactly the condition `get_public_contributor()` uses to decide the byline page exists at all,
+so it doubles as "never advertise a page that will 404". `avatar_emoji` gains that middle condition
+here; 20260910120000 had given it only the other two.
+
+**NULL rather than the string 'Anonymous'** because every caller already writes
+`attribution_value ?? "Anonymous"` and `StoryCardData` already types it `string | null`. The
+intended design was already in the code and had simply never been handed a null to fall back on —
+which is why this migration needed no TypeScript change at all, and why `types/database.ts` came
+back byte-identical after regenerating (the RETURNS TABLE signature is unchanged).
+
+**Verified after applying:** grants intact (`anon`/`authenticated` execute on both) and out-column
+counts unchanged at 16 and 19, so no signature drift. Regression: the normal path is untouched —
+KakiKu still returns name, slug and 🛶; non-public contributors still return nulls. Structurally the
+deployed bodies carry exactly 1 value-mask and 4 suppression gates each. There is no anonymous data
+to drive the functions end to end, so the gate logic was instead evaluated across the full
+2×2×2 matrix of public_status × contributor attribution × consent attribution: only
+public+named+named yields all three markers, and the contributor-anonymous/consent-named row
+correctly keeps the name while dropping the link and avatar.
+
+**Still not covered by an automated test.** The UI contract is (`StoryCard` renders an anonymous row
+— null name, null slug, null emoji — as "Anonymous" with no link and no emoji), but the SQL gate
+itself is not, because a DB-level test needs a full anonymous story lifecycle through the shared
+`npm run test:rls` account pool. Worth adding if anonymous attribution is going to be used in
+anger.
 
 **FIXED same day — the types scripts format their own output.** `supabase gen types` emits
 unformatted TypeScript, so `npm run supabase:types:linked` used to leave `types/database.ts`
