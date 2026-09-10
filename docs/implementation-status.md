@@ -126,11 +126,29 @@ to drive the functions end to end, so the gate logic was instead evaluated acros
 public+named+named yields all three markers, and the contributor-anonymous/consent-named row
 correctly keeps the name while dropping the link and avatar.
 
-**Still not covered by an automated test.** The UI contract is (`StoryCard` renders an anonymous row
-— null name, null slug, null emoji — as "Anonymous" with no link and no emoji), but the SQL gate
-itself is not, because a DB-level test needs a full anonymous story lifecycle through the shared
-`npm run test:rls` account pool. Worth adding if anonymous attribution is going to be used in
-anger.
+**Now covered end to end** (added the same day, `npm run test:rls`, 8 cases). The UI contract was
+already covered by `StoryCard`; the SQL gate needed a real anonymous story, which needs the
+CONTRIBUTOR's own `attribution_type` flipped to `anonymous` BEFORE submitting, since that is what
+`submit_revision_with_consent()` snapshots into the consent. The block publishes one named story
+and one anonymous one through the ordinary create → submit → approve flow and asserts both readers
+mask correctly, including the cross-case: a story published under a name KEEPS its byline after the
+contributor turns anonymous, but loses its link and avatar.
+
+It also asserts `get_story_for_moderator()` still returns the real name for the anonymous story —
+the thing that proves the mask is at the READ boundary and the audit record is intact.
+
+Two things about this block matter for anyone editing it. It mutates the SHARED owner contributor,
+which `scripts/rls-test-cleanup.sql` deliberately never touches (the fixed account pool has to
+outlive the data), so it snapshots four identity columns up front and restores them in a guarded
+`afterAll`; leaving `attribution_type = 'anonymous'` behind would silently change what every other
+block in the file publishes. And each row is read DURING setup rather than asserted in place,
+because every assertion needs the contributor in a different state and no test may depend on
+another having run first.
+
+**Verified load-bearing by mutation**, not just green: flipping the key assertion to the pre-fix
+expectation fails with `expected null to be 'My Life'` — the reader really does return NULL where
+the old code returned the real display name. A test that passes on fixed and broken code alike
+would have been worth nothing here.
 
 **FIXED same day — the types scripts format their own output.** `supabase gen types` emits
 unformatted TypeScript, so `npm run supabase:types:linked` used to leave `types/database.ts`

@@ -3189,3 +3189,204 @@ describe("private stories skip moderation entirely (migration 20260907100100)", 
     expect(error?.code).toBe("WHV04");
   }, 60000);
 });
+
+// ---------------------------------------------------------------------------
+// 20260910140000: anonymous attribution is actually anonymous.
+// ---------------------------------------------------------------------------
+//
+// The bug this locks down: submit_revision_with_consent() snapshots the
+// consent as `attribution_value := v_contributor.display_name` -- the REAL
+// name -- regardless of attribution_type, and no public surface reads
+// attribution_type. Both public readers returned that name verbatim, plus a
+// byline link, on a story published anonymously.
+//
+// Driving this needs the contributor's OWN attribution_type flipped before
+// submitting, because that is what the consent snapshot copies. The owner
+// contributor is a SHARED fixture that survives every cleanup run on purpose
+// (scripts/rls-test-cleanup.sql never touches `contributors` -- the fixed
+// account pool has to outlive the data), so this block snapshots its four
+// public-identity columns up front and restores them in afterAll. Leaving
+// attribution_type = 'anonymous' behind would silently change what every
+// other block in this file publishes.
+describe("public readers mask an anonymously-published story (20260910140000)", () => {
+  type Identity = {
+    display_name: string;
+    attribution_type: "real_name" | "display_name" | "pseudonym" | "anonymous";
+    public_status: "private" | "public" | "archived";
+    public_slug: string | null;
+    avatar_emoji: string | null;
+  };
+
+  let saved: Identity;
+  let realName: string;
+
+  // Captured DURING setup rather than asserted in place, because each row has
+  // to be read while the contributor is in a specific state and a test cannot
+  // depend on another test having run first.
+  let namedWhileNamed: Record<string, unknown> | undefined;
+  let namedDetailWhileNamed: Record<string, unknown> | undefined;
+  let namedWhileAnonymous: Record<string, unknown> | undefined;
+  let anonymousRow: Record<string, unknown> | undefined;
+  let anonymousDetail: Record<string, unknown> | undefined;
+  let anonymousRevisionId: string;
+
+  async function setIdentity(patch: Partial<Identity>) {
+    const { error } = await owner.client
+      .from("contributors")
+      .update(patch)
+      .eq("id", ownerContributorId);
+    if (error) {
+      throw new Error(`Could not set contributor identity: ${error.message}`);
+    }
+  }
+
+  async function listOwnStory(storySlug: string) {
+    const { data, error } = await anon.rpc("list_published_stories", {
+      p_contributor_id: ownerContributorId,
+      p_limit: 50,
+    });
+    if (error) throw new Error(`list_published_stories: ${error.message}`);
+    return (data ?? []).find((row) => row.slug === storySlug) as
+      Record<string, unknown> | undefined;
+  }
+
+  async function getOwnStory(storySlug: string) {
+    const { data, error } = await anon.rpc("get_published_story", {
+      p_slug: storySlug,
+    });
+    if (error) throw new Error(`get_published_story: ${error.message}`);
+    return data?.[0] as Record<string, unknown> | undefined;
+  }
+
+  beforeAll(async () => {
+    const { data: before, error } = await owner.client
+      .from("contributors")
+      .select(
+        "display_name, attribution_type, public_status, public_slug, avatar_emoji",
+      )
+      .eq("id", ownerContributorId)
+      .single();
+    if (error || !before) {
+      throw new Error(`Could not read contributor identity: ${error?.message}`);
+    }
+    saved = before as Identity;
+    realName = saved.display_name;
+
+    // Publicly identifiable and named: the state in which all three identity
+    // markers SHOULD be published.
+    await setIdentity({
+      attribution_type: "display_name",
+      public_status: "public",
+      public_slug: slug("anon-gate"),
+      avatar_emoji: "🛶",
+    });
+
+    const named = await publishOwnerStory({ title: slug("named-story") });
+    namedWhileNamed = await listOwnStory(named.slug);
+    namedDetailWhileNamed = await getOwnStory(named.slug);
+
+    // Now anonymous. The consent snapshot for the NEXT submission copies
+    // this, which is the only way to get an anonymous consent row.
+    await setIdentity({ attribution_type: "anonymous" });
+
+    const anonymous = await publishOwnerStory({ title: slug("anon-story") });
+    anonymousRevisionId = anonymous.revisionId;
+    anonymousRow = await listOwnStory(anonymous.slug);
+    anonymousDetail = await getOwnStory(anonymous.slug);
+
+    // Re-read the FIRST story while the contributor is anonymous: the
+    // cross-case the gate design turns on.
+    namedWhileAnonymous = await listOwnStory(named.slug);
+  }, 180000);
+
+  afterAll(async () => {
+    // Guarded: if beforeAll threw before the snapshot was taken there is
+    // nothing to restore, and an unguarded restore would mask the real
+    // failure with a TypeError.
+    if (!saved) return;
+    // Restore exactly, including nulls -- this fixture outlives the suite.
+    await setIdentity({
+      attribution_type: saved.attribution_type,
+      public_status: saved.public_status,
+      public_slug: saved.public_slug,
+      avatar_emoji: saved.avatar_emoji,
+    });
+  }, 30000);
+
+  it("publishes all three identity markers for a named story by a public contributor", () => {
+    expect(namedWhileNamed).toBeDefined();
+    expect(namedWhileNamed!.attribution_value).toBe(realName);
+    expect(namedWhileNamed!.contributor_slug).toBe(slug("anon-gate"));
+    expect(namedWhileNamed!.contributor_avatar_emoji).toBe("🛶");
+
+    // get_published_story must agree with list_published_stories; they are
+    // separate function bodies carrying separate copies of the gate.
+    expect(namedDetailWhileNamed).toBeDefined();
+    expect(namedDetailWhileNamed!.attribution_value).toBe(realName);
+    expect(namedDetailWhileNamed!.contributor_slug).toBe(slug("anon-gate"));
+    expect(namedDetailWhileNamed!.contributor_avatar_emoji).toBe("🛶");
+  });
+
+  it("never returns the real name for an anonymously-published story", () => {
+    expect(anonymousRow).toBeDefined();
+    expect(anonymousRow!.attribution_type).toBe("anonymous");
+    // The whole bug in one assertion.
+    expect(anonymousRow!.attribution_value).toBeNull();
+    expect(anonymousRow!.attribution_value).not.toBe(realName);
+  });
+
+  it("never returns a byline link or avatar for an anonymously-published story", () => {
+    expect(anonymousRow!.contributor_slug).toBeNull();
+    expect(anonymousRow!.contributor_avatar_emoji).toBeNull();
+  });
+
+  it("masks the anonymous story in get_published_story too", () => {
+    expect(anonymousDetail).toBeDefined();
+    expect(anonymousDetail!.attribution_type).toBe("anonymous");
+    expect(anonymousDetail!.attribution_value).toBeNull();
+    expect(anonymousDetail!.contributor_slug).toBeNull();
+    expect(anonymousDetail!.contributor_avatar_emoji).toBeNull();
+  });
+
+  // The design decision the gate turns on, in both directions.
+  it("keeps the byline of a story published under a name, after the contributor turns anonymous", () => {
+    expect(namedWhileAnonymous).toBeDefined();
+    // The consent is what the contributor agreed to for THIS story; flipping
+    // a default later must not silently rewrite past bylines.
+    expect(namedWhileAnonymous!.attribution_value).toBe(realName);
+  });
+
+  it("drops the link and avatar for that same story, because the byline page is now gone", () => {
+    // get_public_contributor() excludes attribution_type = 'anonymous', so
+    // the profile 404s -- the markers pointing at it must not be published.
+    expect(namedWhileAnonymous!.contributor_slug).toBeNull();
+    expect(namedWhileAnonymous!.contributor_avatar_emoji).toBeNull();
+  });
+
+  it("still shows a moderator the real name, because the mask is at the read boundary", async () => {
+    // The consent row is the audit record of what was agreed and
+    // /moderation/stories/[id] renders it as "<value> (<type>)". This is
+    // what proves the fix masks on READ rather than degrading the stored
+    // record -- and why it also repairs rows that already existed.
+    const { data, error } = await moderator.client.rpc(
+      "get_story_for_moderator",
+      { p_revision_id: anonymousRevisionId },
+    );
+    expect(error).toBeNull();
+    const detail = data?.[0];
+    expect(detail).toBeDefined();
+    expect(detail!.attribution_type).toBe("anonymous");
+    expect(detail!.attribution_value).toBe(realName);
+  }, 30000);
+
+  it("leaves no anonymous story reachable by the contributor's public slug", async () => {
+    // Belt and braces on Engineering Rule 12: the directory link is gone, but
+    // confirm the story cannot be walked back to the contributor via the
+    // contributor-filtered public listing either -- it is returned there
+    // (it IS their story) but carries nothing identifying.
+    const rows = await listOwnStory(String(anonymousRow!.slug));
+    expect(rows).toBeDefined();
+    expect(rows!.attribution_value).toBeNull();
+    expect(rows!.contributor_slug).toBeNull();
+  });
+});
