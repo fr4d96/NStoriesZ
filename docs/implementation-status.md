@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-10 (story cards and the story page show the contributor's avatar emoji,
+Last updated: 2026-09-10 (the types scripts format their own output; earlier the same day: story
+cards and the story page show the contributor's avatar emoji,
 closing the letter-vs-emoji split; earlier the same day: public contributor identity consolidated
 onto `contributors`, byline pages gain derived facts — all three migrations now APPLIED to the
 linked project; earlier: PDF import rate limiting; earlier the same day: sign-in, password reset
@@ -76,9 +77,15 @@ units — a display name starting outside the BMP returned half a surrogate pair
 replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
 `AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
 
-**NOTE for anyone regenerating types:** `npm run supabase:types:linked` writes `types/database.ts`
-UNFORMATTED, which fails `npm run verify` at the `format:check` step before it reaches anything
-interesting. Run `npx prettier --write types/database.ts` after regenerating.
+**FIXED same day — the types scripts format their own output.** `supabase gen types` emits
+unformatted TypeScript, so `npm run supabase:types:linked` used to leave `types/database.ts`
+failing `npm run verify` at the `format:check` step, before it reached anything interesting. Both
+`supabase:types` and `supabase:types:linked` now pipe through Prettier. It runs on the `.tmp` file
+BEFORE the `mv`, so the existing atomicity holds: `types/database.ts` is only ever replaced by a
+complete, formatted file, and a failure anywhere in the chain leaves the previous one untouched.
+`--parser typescript` is required because Prettier cannot infer a parser from the `.ts.tmp`
+extension. Proved by running it: the regenerated file came back byte-identical to the committed
+one, which it could not have been before this change.
 
 **2026-09-10 — the public contributor identity moves onto `contributors`, and a byline page
 now shows facts derived from the contributor's own published stories.**
