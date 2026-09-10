@@ -27,14 +27,14 @@ export default async function AccountPage() {
     await Promise.all([
       supabase
         .from("profiles")
-        .select(
-          "display_name, bio, home_country_code, public_profile_enabled, public_slug, avatar_emoji",
-        )
+        .select("display_name")
         .eq("id", user.id)
         .single(),
       supabase
         .from("contributors")
-        .select("display_name, attribution_type, public_status, public_slug")
+        .select(
+          "display_name, attribution_type, public_status, public_slug, bio, home_country_code, avatar_emoji",
+        )
         .eq("linked_user_id", user.id)
         .maybeSingle(),
       // The caller's OWN username row only. RLS ("usernames: owner reads
@@ -86,17 +86,9 @@ export default async function AccountPage() {
           {
             id: "profile",
             label: "Profile",
-            description: "Nothing here is public unless you enable it below.",
-            panel: (
-              <ProfileForm
-                displayName={profile?.display_name ?? ""}
-                bio={profile?.bio ?? ""}
-                homeCountryCode={profile?.home_country_code ?? "MY"}
-                publicProfileEnabled={profile?.public_profile_enabled ?? false}
-                publicSlug={profile?.public_slug ?? ""}
-                avatarEmoji={profile?.avatar_emoji ?? ""}
-              />
-            ),
+            description:
+              "Your account settings. None of this is shown to readers.",
+            panel: <ProfileForm displayName={profile?.display_name ?? ""} />,
           },
           {
             id: "sign-in",
@@ -109,7 +101,7 @@ export default async function AccountPage() {
             id: "contributor-identity",
             label: "Contributor identity",
             description:
-              "This is how you'll be attributed on any story you write. You choose this — it's never inferred from your account.",
+              "How you're attributed on every story, and what readers see on your contributor page. You choose this — it's never inferred from your account.",
             panel: (
               <ContributorForm
                 existing={
@@ -120,6 +112,9 @@ export default async function AccountPage() {
                         publicProfileEnabled:
                           contributor.public_status === "public",
                         publicSlug: contributor.public_slug ?? "",
+                        bio: contributor.bio ?? "",
+                        homeCountryCode: contributor.home_country_code ?? "",
+                        avatarEmoji: contributor.avatar_emoji ?? "",
                       }
                     : null
                 }

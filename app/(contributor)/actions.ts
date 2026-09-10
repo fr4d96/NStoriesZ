@@ -42,6 +42,14 @@ function checkContributorPublicVisibility(
   return null;
 }
 
+/**
+ * The account record only. Since 20260910090000 every publicly visible
+ * field -- bio, avatar, home country, the directory opt-in, the slug --
+ * belongs to the caller's `contributors` row and is written by
+ * create/updateOwnContributorAction below. This action deliberately writes
+ * ONE column so a stale form field can never resurrect the old duplicate
+ * public identity.
+ */
 export async function updateProfileAction(
   _prevState: AccountFormState,
   formData: FormData,
@@ -53,23 +61,10 @@ export async function updateProfileAction(
 
   const parsed = profileUpdateSchema.safeParse({
     displayName: formData.get("displayName"),
-    bio: formData.get("bio") ?? "",
-    homeCountryCode: formData.get("homeCountryCode"),
-    publicProfileEnabled: formData.get("publicProfileEnabled") === "on",
-    publicSlug: formData.get("publicSlug") ?? "",
-    avatarEmoji: formData.get("avatarEmoji") ?? "",
   });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
-  }
-
-  // publicProfileEnabled requires a slug — enforced here (not just in the
-  // DB) so the user gets an immediate, specific error.
-  if (parsed.data.publicProfileEnabled && !parsed.data.publicSlug) {
-    return {
-      error: "Choose a public profile URL before making your profile public.",
-    };
   }
 
   const supabase = await createClient();
@@ -78,21 +73,10 @@ export async function updateProfileAction(
   // reject any attempt to target another user's row regardless.
   const { error } = await supabase
     .from("profiles")
-    .update({
-      display_name: parsed.data.displayName,
-      bio: parsed.data.bio || null,
-      home_country_code: parsed.data.homeCountryCode,
-      public_profile_enabled: parsed.data.publicProfileEnabled,
-      public_slug: parsed.data.publicSlug || null,
-      avatar_emoji: parsed.data.avatarEmoji || null,
-    })
+    .update({ display_name: parsed.data.displayName })
     .eq("id", user.id);
 
   if (error) {
-    // Most likely cause: public_slug already taken by another profile.
-    if (error.code === "23505") {
-      return { error: "That profile URL is already taken." };
-    }
     return { error: "Could not update your profile. Please try again." };
   }
 
@@ -155,6 +139,20 @@ export async function setUsernameAction(
   return { success: "Username saved. You can now sign in with it." };
 }
 
+/**
+ * Both public contributor surfaces are ISR'd (/contributors/[slug] at
+ * revalidate = 60, /contributors dynamic on searchParams), so they would
+ * catch up on their own within a minute. Nudging them means a contributor
+ * who just saved their bio sees it immediately instead of reloading and
+ * wondering. Only the NEW slug is revalidated -- a renamed slug's old path
+ * stops resolving anyway, since get_public_contributor() matches on the
+ * current value.
+ */
+function revalidateContributorPublicPages(slug: string | undefined): void {
+  revalidatePath("/contributors");
+  if (slug) revalidatePath(`/contributors/${slug}`);
+}
+
 export async function createOwnContributorAction(
   _prevState: AccountFormState,
   formData: FormData,
@@ -169,6 +167,9 @@ export async function createOwnContributorAction(
     attributionType: formData.get("attributionType"),
     publicProfileEnabled: formData.get("publicProfileEnabled") === "on",
     publicSlug: formData.get("publicSlug") ?? "",
+    bio: formData.get("bio") ?? "",
+    homeCountryCode: formData.get("homeCountryCode") ?? "",
+    avatarEmoji: formData.get("avatarEmoji") ?? "",
   });
 
   if (!parsed.success) {
@@ -189,6 +190,9 @@ export async function createOwnContributorAction(
     attribution_type: parsed.data.attributionType,
     public_status: parsed.data.publicProfileEnabled ? "public" : "private",
     public_slug: parsed.data.publicSlug || null,
+    bio: parsed.data.bio || null,
+    home_country_code: parsed.data.homeCountryCode || null,
+    avatar_emoji: parsed.data.avatarEmoji || null,
   });
 
   if (error) {
@@ -204,6 +208,7 @@ export async function createOwnContributorAction(
   }
 
   revalidatePath("/account");
+  revalidateContributorPublicPages(parsed.data.publicSlug);
   return { success: "Contributor identity created." };
 }
 
@@ -221,6 +226,9 @@ export async function updateOwnContributorAction(
     attributionType: formData.get("attributionType"),
     publicProfileEnabled: formData.get("publicProfileEnabled") === "on",
     publicSlug: formData.get("publicSlug") ?? "",
+    bio: formData.get("bio") ?? "",
+    homeCountryCode: formData.get("homeCountryCode") ?? "",
+    avatarEmoji: formData.get("avatarEmoji") ?? "",
   });
 
   if (!parsed.success) {
@@ -239,6 +247,9 @@ export async function updateOwnContributorAction(
       attribution_type: parsed.data.attributionType,
       public_status: parsed.data.publicProfileEnabled ? "public" : "private",
       public_slug: parsed.data.publicSlug || null,
+      bio: parsed.data.bio || null,
+      home_country_code: parsed.data.homeCountryCode || null,
+      avatar_emoji: parsed.data.avatarEmoji || null,
     })
     .eq("linked_user_id", user.id);
 
@@ -252,5 +263,6 @@ export async function updateOwnContributorAction(
   }
 
   revalidatePath("/account");
+  revalidateContributorPublicPages(parsed.data.publicSlug);
   return { success: "Contributor identity updated." };
 }

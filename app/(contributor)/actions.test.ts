@@ -108,21 +108,30 @@ describe("updateProfileAction", () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  it("requires a public slug before enabling the public profile toggle", async () => {
+  // Replaces the old "requires a public slug before enabling the public
+  // profile toggle" case. That rule did not disappear -- it moved to
+  // create/updateOwnContributorAction along with the toggle itself
+  // (20260910090000). What matters on THIS action now is the opposite
+  // guarantee: a stale form still posting the old public fields must not be
+  // able to write any of them back onto profiles.
+  it("writes only the display name, ignoring smuggled public identity fields", async () => {
     mockGetCurrentUser.mockResolvedValue(user);
 
     const result = await updateProfileAction(
       {},
       formData({
         displayName: "Casey",
+        bio: "smuggled",
         homeCountryCode: "MY",
         publicProfileEnabled: "on",
-        publicSlug: "",
+        publicSlug: "casey-nz-2024",
+        avatarEmoji: "🥝",
       }),
     );
 
-    expect(result.error).toMatch(/public profile url/i);
-    expect(mockFrom).not.toHaveBeenCalled();
+    expect(result.error).toBeUndefined();
+    const updateCall = calls.find((c) => c.method === "update");
+    expect(updateCall?.args).toEqual([{ display_name: "Casey" }]);
   });
 });
 

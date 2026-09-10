@@ -21,6 +21,7 @@ export type StoryCardData = {
   total_expense_nzd_cents: number | null;
   attribution_value: string | null;
   contributor_slug: string | null;
+  contributor_avatar_emoji: string | null;
   cover_image_path: string | null;
   regions: unknown;
   tags: unknown;
@@ -78,6 +79,7 @@ export function StoryCard({ story }: { story: StoryCardData }) {
         <div className="mt-auto flex items-center justify-between gap-2 pt-2 text-sm text-foreground/70">
           <AttributionChip
             name={story.attribution_value ?? "Anonymous"}
+            avatarEmoji={story.contributor_avatar_emoji}
             tripYear={story.trip_year}
             destination={regionLabel}
           />

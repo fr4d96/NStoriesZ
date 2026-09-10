@@ -206,3 +206,14 @@ export const COUNTRY_OPTIONS = [
 ] as const;
 
 export type CountryCode = (typeof COUNTRY_OPTIONS)[number]["code"];
+
+/**
+ * Display name for an ISO 3166-1 alpha-2 code, or null when the code is
+ * unset or not in the list above. Null rather than the raw code on purpose:
+ * a public profile should show "Malaysia" or nothing at all, never a bare
+ * "MY" that reads like a database leak.
+ */
+export function countryName(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return COUNTRY_OPTIONS.find((c) => c.code === code)?.name ?? null;
+}

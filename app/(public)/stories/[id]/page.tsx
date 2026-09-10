@@ -205,6 +205,7 @@ export default async function StoryDetailPage({
         <AttributionChip
           name={story.attribution_value ?? "Anonymous"}
           contributorSlug={story.contributor_slug}
+          avatarEmoji={story.contributor_avatar_emoji}
           tripYear={tripLabel ? undefined : story.trip_year}
           destination={regions[0] ?? null}
         />

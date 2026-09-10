@@ -84,6 +84,7 @@ export function FeaturedStorySlide({
         <div className="pt-2">
           <AttributionChip
             name={story.attribution_value ?? "Anonymous"}
+            avatarEmoji={story.contributor_avatar_emoji}
             tripYear={story.trip_year}
             destination={regionLabel}
           />

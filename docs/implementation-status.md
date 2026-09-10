@@ -3,7 +3,10 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-09 (PDF import rate limiting; earlier the same day: sign-in, password reset
+Last updated: 2026-09-10 (story cards and the story page show the contributor's avatar emoji,
+closing the letter-vs-emoji split; earlier the same day: public contributor identity consolidated
+onto `contributors`, byline pages gain derived facts — all three migrations now APPLIED to the
+linked project; earlier: PDF import rate limiting; earlier the same day: sign-in, password reset
 and signup rate limiting; /account rebuilt as
 left-hand tabs;
 username sign-in, opt-in and additive; earlier:
@@ -21,6 +24,137 @@ earlier: contributor edits to published stories, and the tag-input dropdown fix;
 earlier the same day: moderation review rebuild — empty submissions blocked at the RPC, queue
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
+
+**2026-09-10 (latest) — a contributor is the same avatar everywhere.**
+`20260910120000_story_cards_contributor_avatar.sql` adds `contributor_avatar_emoji` to
+`list_published_stories()` and `get_published_story()`, and
+`components/story/attribution-chip.tsx` renders it through the existing
+`components/contributor/contributor-avatar.tsx`. Before this, the same person was 🛶 on their
+byline page and "K" on their own story cards two inches below it, on the same screen — the
+contributor identity work had wired the emoji into the two CONTRIBUTOR RPCs but not the two STORY
+ones, and the chip had nothing to render but a first letter.
+
+- **No new join, which was the thing to check first** on the most performance-sensitive public
+  query in the app. Both functions already load the contributor row — `list_published_stories` has
+  `left join public.contributors c` for `contributor_slug`, `get_published_story` does
+  `select * into v_contributor` — so this reads one more column off a row already in hand. Checked
+  against the LIVE definitions via `pg_get_functiondef`, not against the oldest migration naming
+  the table.
+- **DROP + CREATE, grants re-applied**, because both gain an OUT column. Verified after applying:
+  both functions still carry `anon=X` and `authenticated=X`.
+- **The emoji is gated on two conditions, and the second is the one that matters.**
+  `public_status = 'public'` mirrors the gate `contributor_slug` already uses. But the emoji is
+  ALSO gated on the per-story CONSENT's `attribution_type` not being `anonymous` — not the
+  contributor's own default. The consent row decides how THIS story is attributed, and a
+  contributor can publish one story under their name and the next anonymously. A distinctive emoji
+  rendered beside the word "Anonymous" is a linkable fingerprint: the same 🛶 across three
+  anonymous stories re-identifies the author to anyone who then visits the directory. A cosmetic
+  change would have shipped a privacy leak.
+
+**Verified against real data, not only by tests.** `/contributors/kakitest` at 375px now shows 🛶
+in the profile header AND in the story card's attribution chip on the same screen, and the story
+page (`/stories/opotiki-trip-2f2754f0`) shows it too; no console errors on any of them.
+`list_published_stories()` returns 🛶 for the public contributor and null for every non-public one,
+matching `contributor_slug` exactly. The anonymous branch has no data to exercise it, so it was
+checked directly instead: evaluating the migration's CASE against the real contributor row across
+all four `attribution_type` values returns 🛶 for real_name/display_name/pseudonym and null for
+anonymous.
+
+**A transcription check worth reusing.** Copying ~200 lines of an existing function body into a
+DROP+CREATE migration is the kind of thing a diff review passes and a typo survives. Postgres
+stores plpgsql bodies verbatim, so `pg_get_functiondef`'s body was whitespace-stripped and hashed,
+and the migration's body was whitespace-stripped, had the one added CASE removed, and hashed —
+both matched. That is a proof rather than an eyeballing.
+
+**One thing left alone, pre-existing and outside this change:** `contributor_slug` is gated only on
+`public_status`, not on anonymity, so an anonymous contributor with a public profile still gets a
+byline link on their card — and it 404s, because `get_public_contributor()` excludes
+`attribution_type = 'anonymous'`. Worth its own look.
+
+**Also fixed here:** the avatar's no-emoji fallback used `charAt(0)`, which indexes UTF-16 code
+units — a display name starting outside the BMP returned half a surrogate pair and rendered as the
+replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
+`AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
+
+**NOTE for anyone regenerating types:** `npm run supabase:types:linked` writes `types/database.ts`
+UNFORMATTED, which fails `npm run verify` at the `format:check` step before it reaches anything
+interesting. Run `npx prettier --write types/database.ts` after regenerating.
+
+**2026-09-10 — the public contributor identity moves onto `contributors`, and a byline page
+now shows facts derived from the contributor's own published stories.**
+`20260910090000_contributor_public_identity.sql`.
+
+**THE BUG THIS STARTED AS.** `/contributors/[slug]` renders `get_public_contributor()`, which
+returns `contributors.display_name` and `contributors.bio`. Grep for writes to `contributors.bio`:
+there are none, and never have been. The account page's Profile tab wrote `profiles.bio`. So a
+self-service contributor could write a bio, pick an avatar emoji and tick "make my profile public",
+and their public page still showed a name, a grey letter circle and a story count. The same split
+gave them two "public" toggles and two slugs, only one of each reaching a real URL. Known
+assumption #8 had flagged exactly this and asked for it to be revisited. It was.
+
+- **`contributors` wins, not `profiles`,** because `contributors.linked_user_id` is nullable — that
+  is how editors import the founding catalogue for people who never signed up — while `profiles.id`
+  references `auth.users`. Hanging the public identity off `profiles` would make imported
+  contributors structurally incapable of ever having a bio or an avatar.
+- **New columns `contributors.avatar_emoji` and `contributors.home_country_code`.** The emoji CHECK
+  mirrors the profiles one and `lib/avatar.ts`; changing the set means a migration touching both.
+- **`home_country_code` is nullable and NOT backfilled from profiles, on purpose.**
+  `profiles.home_country_code` is `NOT NULL DEFAULT 'MY'`, so for every user who never opened that
+  dropdown the value is an onboarding default rather than something they told us. Copying it would
+  publish "from Malaysia" under real people's names on the strength of a default. Bio and avatar
+  ARE backfilled — those are only non-null if someone actually typed or picked them.
+- **The public-visibility invariant now has exactly one definition.** Both public RPCs had their own
+  copy of the "public + published + approved revision + consent granted + not revoked" lateral join.
+  Adding derived facts would have made that three copies across two functions, and Rules 10/12 fail
+  closed only while every copy stays in step — one forgotten `consent_revoked_at is null` and a
+  withdrawn story leaves a region chip on someone's byline page. It now lives in
+  `contributor_public_facts()` (internal, zero grants) and both RPCs read from it.
+- **Both RPCs are DROPped and recreated, not `CREATE OR REPLACE`d,** because their return columns
+  changed and Postgres refuses to replace a function whose OUT parameters differ. A DROP takes its
+  grants, so both `grant execute ... to anon, authenticated` are re-applied — the same trap
+  `20260909130000` documented. Here it would fail loudly rather than silently, but it still has to
+  be done.
+- **App side:** the emoji picker is extracted to `components/account/avatar-picker.tsx` and moves to
+  the Contributor identity tab; the Profile tab shrinks to the account name alone;
+  `updateProfileAction` now writes exactly one column, with a test proving a stale form posting the
+  old public fields writes none of them. `getCurrentUserAvatarEmoji()` reads contributor-then-
+  profile so no existing account loses its header avatar.
+
+**FIXED SAME DAY, and the bug is worth remembering — `20260910091000_contributor_facts_custom_tags.sql`.**
+The first version of `contributor_public_facts()` INNER JOINed `public.tags`, which silently dropped
+every contributor-typed tag from a byline page. A `story_revision_tags` row is EITHER a `tag_id`
+referencing the curated list OR a free-text `custom_label` (20260812110000, extended 20260816100000),
+and a custom-label row has `tag_id` NULL.
+
+- **Caught live on real data, not by a test.** `list_public_contributors()` returned `tags: []` for a
+  contributor whose published revisions carried "Good Vibes" and "Auckland". Proven side by side
+  against the live database before the fix was written: corrected query `["Auckland","Good Vibes"]`,
+  shipped query `[]`.
+- **The codebase had already written the rule down, twice**, and the first version ignored both.
+  20260812110000's section header prescribes "LEFT JOIN + coalesce to the lookup name" for public
+  reads, and 20260903120000 states the consequence outright: "an inner join would silently drop
+  every typed one."
+- **Why it looked fine next to working code.** The regions aggregate beside it uses an inner join
+  and IS correct, because `story_revision_locations.region_id` is NOT NULL (its sibling
+  `custom_destination_label` only ever replaces the optional DESTINATION, which this function does
+  not read). Two structurally identical-looking joins, one safe, one not.
+- **Root cause of the mistake:** the table shape was read from the ORIGINAL
+  `20260803090300_story_revision_relations.sql` (`primary key (revision_id, tag_id)`, no
+  `custom_label`) instead of from the live schema, which later migrations had restructured.
+  **Read the live schema, not the oldest migration that mentions the table.**
+- **Regression test added** to `tests/integration/story-rls.integration.test.ts` (real database, not
+  a mock): the public-contributor fixture now carries an avatar, a home country and a
+  CUSTOM-LABEL tag, and asserts all three survive to `get_public_contributor()`.
+
+**STATUS: 20260910090000 applied; 20260910091000 written and reviewed, NOT YET APPLIED.**
+`npm run verify` passes in full against the applied first migration (format, lint 0 errors,
+typecheck, 966/966 unit tests, build). Live-verified afterwards, not assumed: the migration is
+recorded in `schema_migrations`; `anon` and `authenticated` hold execute on both public RPCs and
+NEITHER holds it on `contributor_public_facts()` (the DROP-takes-its-grants trap handled);
+`list_public_contributors()` returns a real backfilled avatar plus derived regions and trip years;
+and `home_country_code` is NULL on all 365 contributor rows, confirming the deliberate
+non-backfill. The Definition of Done is NOT met until 20260910091000 is applied and
+`npm run test:rls` passes with the new regression assertions.
 
 **2026-09-09 (latest) — the PDF import routes are rate limited, and rate limiting stops being
 auth-only.** `20260909130000_generalise_rate_limits.sql`: `pdf_preview_user` (20) and
@@ -5089,12 +5223,14 @@ validation/auth.ts`'s `passwordSchema` mirrors this by hand (documented in a cod
 7. ~~Email confirmation is assumed OFF~~ — resolved: confirmed **ON** on the real linked project
    (empirically, during Prompt 2 verification), independent of `supabase/config.toml`'s local-only
    default. See "Manual Supabase settings required" above.
-8. A contributor's public byline (`contributors.public_status`/`attribution_type`) and a user's public
-   profile page (`profiles.public_profile_enabled`) are modeled as two separate opt-ins on two
-   separate tables, not one combined toggle — assumed correct per CLAUDE.md rule 4 ("keep
-   user-editable profile data separate from protected role/permission data") and the brief listing
-   `contributors` and `profiles` as distinct tables with their own fields. Revisit if product intent
-   was actually a single combined "public profile."
+8. ~~A contributor's public byline and a user's public profile page are two separate opt-ins on two
+   separate tables~~ — **resolved 2026-09-10, and it was wrong.** The split meant `profiles` carried
+   a bio, avatar, home country, "make public" toggle and slug that NO public route ever read, while
+   `/contributors/[slug]` rendered `contributors.bio`, a column no application code has ever
+   written. Product intent was a single public profile. `contributors` now owns it
+   (`20260910090000_contributor_public_identity.sql`) — it is the only one of the two tables that
+   can exist for an editor-imported contributor with no user account. Rule 4's separation is about
+   `profiles` vs `user_roles` and is untouched.
 
 ## Next prompt
 

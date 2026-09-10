@@ -92,6 +92,11 @@ lib/
 components/
   site-header.tsx, site-footer.tsx, mobile-nav-toggle.tsx, contributor-nav.tsx,
   placeholder-page.tsx
+  contributor/
+    contributor-avatar.tsx      # the ONE contributor avatar: chosen emoji, else the initial letter.
+                                #   Shared by the story attribution chip, the /contributors
+                                #   directory card and the byline header, so the same person cannot
+                                #   be an emoji on one surface and a letter on another.
   story/
     story-content-editor.tsx    # adapter between content_json and the Markdown editor below
     editor/
