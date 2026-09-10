@@ -3,8 +3,10 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-10 (public contributor identity consolidated onto `contributors`, byline
-pages gain derived facts — migration written, NOT yet applied; earlier: PDF import rate limiting; earlier the same day: sign-in, password reset
+Last updated: 2026-09-10 (story cards and the story page show the contributor's avatar emoji,
+closing the letter-vs-emoji split; earlier the same day: public contributor identity consolidated
+onto `contributors`, byline pages gain derived facts — all three migrations now APPLIED to the
+linked project; earlier: PDF import rate limiting; earlier the same day: sign-in, password reset
 and signup rate limiting; /account rebuilt as
 left-hand tabs;
 username sign-in, opt-in and additive; earlier:
@@ -23,7 +25,62 @@ earlier the same day: moderation review rebuild — empty submissions blocked at
 and review page rebuilt around who/when/what-is-wrong, and a consent check that had been false for
 every story since Prompt 3).
 
-**2026-09-10 (latest) — the public contributor identity moves onto `contributors`, and a byline page
+**2026-09-10 (latest) — a contributor is the same avatar everywhere.**
+`20260910120000_story_cards_contributor_avatar.sql` adds `contributor_avatar_emoji` to
+`list_published_stories()` and `get_published_story()`, and
+`components/story/attribution-chip.tsx` renders it through the existing
+`components/contributor/contributor-avatar.tsx`. Before this, the same person was 🛶 on their
+byline page and "K" on their own story cards two inches below it, on the same screen — the
+contributor identity work had wired the emoji into the two CONTRIBUTOR RPCs but not the two STORY
+ones, and the chip had nothing to render but a first letter.
+
+- **No new join, which was the thing to check first** on the most performance-sensitive public
+  query in the app. Both functions already load the contributor row — `list_published_stories` has
+  `left join public.contributors c` for `contributor_slug`, `get_published_story` does
+  `select * into v_contributor` — so this reads one more column off a row already in hand. Checked
+  against the LIVE definitions via `pg_get_functiondef`, not against the oldest migration naming
+  the table.
+- **DROP + CREATE, grants re-applied**, because both gain an OUT column. Verified after applying:
+  both functions still carry `anon=X` and `authenticated=X`.
+- **The emoji is gated on two conditions, and the second is the one that matters.**
+  `public_status = 'public'` mirrors the gate `contributor_slug` already uses. But the emoji is
+  ALSO gated on the per-story CONSENT's `attribution_type` not being `anonymous` — not the
+  contributor's own default. The consent row decides how THIS story is attributed, and a
+  contributor can publish one story under their name and the next anonymously. A distinctive emoji
+  rendered beside the word "Anonymous" is a linkable fingerprint: the same 🛶 across three
+  anonymous stories re-identifies the author to anyone who then visits the directory. A cosmetic
+  change would have shipped a privacy leak.
+
+**Verified against real data, not only by tests.** `/contributors/kakitest` at 375px now shows 🛶
+in the profile header AND in the story card's attribution chip on the same screen, and the story
+page (`/stories/opotiki-trip-2f2754f0`) shows it too; no console errors on any of them.
+`list_published_stories()` returns 🛶 for the public contributor and null for every non-public one,
+matching `contributor_slug` exactly. The anonymous branch has no data to exercise it, so it was
+checked directly instead: evaluating the migration's CASE against the real contributor row across
+all four `attribution_type` values returns 🛶 for real_name/display_name/pseudonym and null for
+anonymous.
+
+**A transcription check worth reusing.** Copying ~200 lines of an existing function body into a
+DROP+CREATE migration is the kind of thing a diff review passes and a typo survives. Postgres
+stores plpgsql bodies verbatim, so `pg_get_functiondef`'s body was whitespace-stripped and hashed,
+and the migration's body was whitespace-stripped, had the one added CASE removed, and hashed —
+both matched. That is a proof rather than an eyeballing.
+
+**One thing left alone, pre-existing and outside this change:** `contributor_slug` is gated only on
+`public_status`, not on anonymity, so an anonymous contributor with a public profile still gets a
+byline link on their card — and it 404s, because `get_public_contributor()` excludes
+`attribution_type = 'anonymous'`. Worth its own look.
+
+**Also fixed here:** the avatar's no-emoji fallback used `charAt(0)`, which indexes UTF-16 code
+units — a display name starting outside the BMP returned half a surrogate pair and rendered as the
+replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
+`AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
+
+**NOTE for anyone regenerating types:** `npm run supabase:types:linked` writes `types/database.ts`
+UNFORMATTED, which fails `npm run verify` at the `format:check` step before it reaches anything
+interesting. Run `npx prettier --write types/database.ts` after regenerating.
+
+**2026-09-10 — the public contributor identity moves onto `contributors`, and a byline page
 now shows facts derived from the contributor's own published stories.**
 `20260910090000_contributor_public_identity.sql`.
 

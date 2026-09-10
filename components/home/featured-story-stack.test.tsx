@@ -15,6 +15,7 @@ function makeStory(overrides: Partial<StoryCardData> = {}): StoryCardData {
     total_expense_nzd_cents: null,
     attribution_value: "M. Lindqvist",
     contributor_slug: "m-lindqvist",
+    contributor_avatar_emoji: null,
     cover_image_path: "stories/story-1/cover.jpg",
     regions: [{ region_name: "Marlborough", destination_name: "Blenheim" }],
     tags: ["Viticulture", "Seasonal work"],

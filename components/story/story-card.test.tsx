@@ -13,6 +13,7 @@ const baseStory: StoryCardData = {
   total_expense_nzd_cents: 850000,
   attribution_value: "Mei L.",
   contributor_slug: "mei-l",
+  contributor_avatar_emoji: null,
   cover_image_path: null,
   regions: [{ region_name: "Hawke's Bay", destination_name: "Hastings" }],
   tags: ["Fruit picking", "Rural"],
@@ -29,6 +30,20 @@ describe("StoryCard", () => {
     expect(screen.getByText("Mei L.")).toBeInTheDocument();
     expect(screen.getByText("Fruit picking")).toBeInTheDocument();
     expect(screen.getByText("Rural")).toBeInTheDocument();
+  });
+
+  it("passes the contributor's avatar emoji through to the attribution chip", () => {
+    render(
+      <StoryCard story={{ ...baseStory, contributor_avatar_emoji: "🛶" }} />,
+    );
+
+    expect(screen.getByText("🛶")).toBeInTheDocument();
+  });
+
+  it("falls back to the initial letter when the story carries no avatar emoji", () => {
+    render(<StoryCard story={baseStory} />);
+
+    expect(screen.getByText("M")).toBeInTheDocument();
   });
 
   it("never renders a rating/score or a booking-style CTA (docs/design-brief.md anti-patterns)", () => {

@@ -1853,6 +1853,7 @@ export type Database = {
           attribution_type: Database["public"]["Enums"]["attribution_type"];
           attribution_value: string;
           content_json: Json;
+          contributor_avatar_emoji: string;
           contributor_slug: string;
           excerpt: string;
           expenses: Json;
@@ -2179,6 +2180,7 @@ export type Database = {
         Returns: {
           attribution_type: Database["public"]["Enums"]["attribution_type"];
           attribution_value: string;
+          contributor_avatar_emoji: string;
           contributor_slug: string;
           cover_image_path: string;
           excerpt: string;
