@@ -4,7 +4,6 @@ import {
   getPublicContributor,
   listContributorPublishedStories,
 } from "@/lib/story/public-queries";
-import { ContributorAvatar } from "@/components/contributor/contributor-avatar";
 import { StoryCard } from "@/components/story/story-card";
 
 export const revalidate = 60;
@@ -41,7 +40,12 @@ export default async function ContributorDetailPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="flex items-center gap-4">
-        <ContributorAvatar name={contributor.display_name} size="lg" />
+        <span
+          aria-hidden="true"
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-surface-muted text-2xl font-semibold text-foreground/70"
+        >
+          {contributor.display_name.trim().charAt(0).toUpperCase() || "?"}
+        </span>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             {contributor.display_name}

@@ -92,12 +92,6 @@ lib/
 components/
   site-header.tsx, site-footer.tsx, mobile-nav-toggle.tsx, contributor-nav.tsx,
   placeholder-page.tsx
-  contributor/
-    contributor-avatar.tsx      # the ONLY initial-letter circle for a contributor. Shared by the
-                                #   story attribution chip, the /contributors directory card and
-                                #   the profile header — it existed three times before it existed
-                                #   once. Anything that gives a contributor a real avatar changes
-                                #   this file and nothing else.
   story/
     story-content-editor.tsx    # adapter between content_json and the Markdown editor below
     editor/
