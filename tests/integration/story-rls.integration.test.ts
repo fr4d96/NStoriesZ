@@ -1532,6 +1532,9 @@ describe("Prompt 5: public contributor directory and detail", () => {
         public_status: "public",
         public_slug: realSlug,
         bio: "A real bio for a real public contributor fixture.",
+        // 20260910090000 moved the public identity onto this table.
+        avatar_emoji: "\u{1F95D}",
+        home_country_code: "MY",
       })
       .select("id")
       .single();
@@ -1546,11 +1549,36 @@ describe("Prompt 5: public contributor directory and detail", () => {
         p_content_json: [{ type: "markdown", text: "Fixture content." }],
       },
     );
+
+    // A CUSTOM-LABEL tag, deliberately, not a curated tag_id. A
+    // story_revision_tags row is either a tag_id referencing public.tags or
+    // free text the contributor typed, and 20260910090000 shipped an INNER
+    // join to public.tags that silently dropped every typed one -- caught
+    // live on real data, not by a test, which is why this fixture exists.
+    // Corrected in 20260910091000.
+    const { data: realDraftForTags } = await editor.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: realImport![0].story_id },
+    );
+    const { error: realTagError } = await editor.client.rpc(
+      "set_revision_tags",
+      {
+        p_revision_id: realImport![0].revision_id,
+        p_expected_version: realDraftForTags![0].version,
+        p_tags: [{ custom_label: "Fixture Custom Tag" }],
+      },
+    );
+    expect(realTagError).toBeNull();
+
+    const { data: realDraftAfterTags } = await editor.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: realImport![0].story_id },
+    );
     const { error: realSubmitError } = await editor.client.rpc(
       "submit_revision_with_consent",
       {
         p_revision_id: realImport![0].revision_id,
-        p_expected_version: 1,
+        p_expected_version: realDraftAfterTags![0].version,
         p_confirmation_method: "email",
         p_publication_confirmed: true,
         p_expected_terms_version: currentTermsVersion,
@@ -1571,6 +1599,14 @@ describe("Prompt 5: public contributor directory and detail", () => {
     expect(detailError).toBeNull();
     expect(detail?.[0]?.display_name).toBe("RLS Test Real Public Contributor");
     expect(detail?.[0]?.published_story_count).toBe(1);
+
+    // 20260910090000/20260910091000: the public identity and the facts
+    // derived from published revisions only.
+    expect(detail?.[0]?.avatar_emoji).toBe("\u{1F95D}");
+    expect(detail?.[0]?.home_country_code).toBe("MY");
+    // THE REGRESSION: a contributor-typed tag must survive to the byline
+    // page. The shipped inner join returned [] here.
+    expect(detail?.[0]?.tags).toContain("Fixture Custom Tag");
 
     expect(
       (await anon.rpc("get_public_contributor", { p_slug: zeroStorySlug }))

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ContributorAvatar } from "@/components/contributor/contributor-avatar";
+import { countryName } from "@/lib/countries";
 import { listPublicContributors } from "@/lib/story/public-queries";
 
 // No `export const revalidate` here on purpose. This route awaits
@@ -73,9 +75,11 @@ export default async function ContributorsPage({
                   href={`/contributors/${c.public_slug}`}
                   className="flex h-full flex-col gap-2 rounded-xl border border-border-subtle bg-surface p-4 hover:shadow-md"
                 >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted text-sm font-semibold text-foreground/70">
-                    {c.display_name.trim().charAt(0).toUpperCase() || "?"}
-                  </span>
+                  <ContributorAvatar
+                    emoji={c.avatar_emoji}
+                    displayName={c.display_name}
+                    className="h-10 w-10 text-sm"
+                  />
                   <span className="font-medium">{c.display_name}</span>
                   {c.bio ? (
                     <span className="line-clamp-2 text-sm text-foreground/60">
@@ -85,6 +89,9 @@ export default async function ContributorsPage({
                   <span className="mt-auto text-xs text-foreground/50">
                     {c.published_story_count}{" "}
                     {c.published_story_count === 1 ? "story" : "stories"}
+                    {countryName(c.home_country_code)
+                      ? ` · from ${countryName(c.home_country_code)}`
+                      : ""}
                   </span>
                 </Link>
               </li>

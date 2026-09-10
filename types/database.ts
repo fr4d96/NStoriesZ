@@ -55,11 +55,13 @@ export type Database = {
       contributors: {
         Row: {
           attribution_type: Database["public"]["Enums"]["attribution_type"];
+          avatar_emoji: string | null;
           avatar_path: string | null;
           bio: string | null;
           created_at: string;
           created_by: string;
           display_name: string;
+          home_country_code: string | null;
           id: string;
           linked_user_id: string | null;
           public_slug: string | null;
@@ -68,11 +70,13 @@ export type Database = {
         };
         Insert: {
           attribution_type?: Database["public"]["Enums"]["attribution_type"];
+          avatar_emoji?: string | null;
           avatar_path?: string | null;
           bio?: string | null;
           created_at?: string;
           created_by: string;
           display_name: string;
+          home_country_code?: string | null;
           id?: string;
           linked_user_id?: string | null;
           public_slug?: string | null;
@@ -81,11 +85,13 @@ export type Database = {
         };
         Update: {
           attribution_type?: Database["public"]["Enums"]["attribution_type"];
+          avatar_emoji?: string | null;
           avatar_path?: string | null;
           bio?: string | null;
           created_at?: string;
           created_by?: string;
           display_name?: string;
+          home_country_code?: string | null;
           id?: string;
           linked_user_id?: string | null;
           public_slug?: string | null;
@@ -1578,6 +1584,15 @@ export type Database = {
           retry_after_seconds: number;
         }[];
       };
+      contributor_public_facts: {
+        Args: { p_contributor_id: string };
+        Returns: {
+          published_story_count: number;
+          regions: string[];
+          tags: string[];
+          trip_years: number[];
+        }[];
+      };
       create_editorial_import_draft: {
         Args: {
           p_assigned_editor_id?: string;
@@ -1806,11 +1821,16 @@ export type Database = {
       get_public_contributor: {
         Args: { p_slug: string };
         Returns: {
+          avatar_emoji: string;
           bio: string;
           contributor_id: string;
           display_name: string;
+          home_country_code: string;
           public_slug: string;
           published_story_count: number;
+          regions: string[];
+          tags: string[];
+          trip_years: number[];
         }[];
       };
       get_published_revision_snapshot: {
@@ -2127,11 +2147,16 @@ export type Database = {
           p_limit?: number;
         };
         Returns: {
+          avatar_emoji: string;
           bio: string;
           contributor_id: string;
           display_name: string;
+          home_country_code: string;
           public_slug: string;
           published_story_count: number;
+          regions: string[];
+          tags: string[];
+          trip_years: number[];
         }[];
       };
       list_published_stories: {

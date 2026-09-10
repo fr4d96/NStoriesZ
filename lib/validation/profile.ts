@@ -7,10 +7,10 @@ import { AVATAR_EMOJI_OPTIONS } from "@/lib/avatar";
 const slugPattern = /^[a-z0-9][a-z0-9-]{2,59}$/;
 const countryCodePattern = /^[A-Z]{2}$/;
 
-// Shared by profileUpdateSchema (profiles.public_slug) and
-// createOwnContributorSchema (contributors.public_slug) — two separate
-// opt-ins on two separate tables (see docs/implementation-status.md
-// "Known assumptions" #8), but the same slug shape either way.
+// contributors.public_slug only. Until 20260910090000 this was shared with
+// profiles.public_slug as well -- two opt-ins on two tables, the second of
+// which no route ever resolved (docs/implementation-status.md "Known
+// assumptions" #8, now closed). profiles no longer carries a public slug.
 const publicSlugSchema = z
   .string()
   .trim()
@@ -22,31 +22,17 @@ const publicSlugSchema = z
   .optional()
   .or(z.literal(""));
 
+// The ACCOUNT record, not the public one. Everything a reader can see --
+// bio, avatar, home country, the directory opt-in and the slug -- now lives
+// on createOwnContributorSchema below, because `contributors` is what
+// /contributors/[slug] actually reads and is the only one of the two tables
+// that can exist for an editor-imported contributor with no user account.
 export const profileUpdateSchema = z.object({
   displayName: z
     .string()
     .trim()
     .min(1, "Display name is required.")
     .max(120, "Display name must be 120 characters or fewer."),
-  bio: z
-    .string()
-    .trim()
-    .max(2000, "Bio must be 2000 characters or fewer.")
-    .optional()
-    .or(z.literal("")),
-  homeCountryCode: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(countryCodePattern, "Use a 2-letter country code, e.g. MY."),
-  publicProfileEnabled: z.boolean(),
-  publicSlug: publicSlugSchema,
-  avatarEmoji: z
-    .enum(AVATAR_EMOJI_OPTIONS, {
-      message: "Choose one of the provided avatars.",
-    })
-    .optional()
-    .or(z.literal("")),
 });
 
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
@@ -67,11 +53,32 @@ export const createOwnContributorSchema = z.object({
   attributionType: z.enum(contributorAttributionTypes),
   // contributors.public_status/public_slug -- controls whether this
   // contributor shows up in the /contributors directory and gets a real
-  // /contributors/:slug page. Distinct from profileUpdateSchema's own
-  // publicProfileEnabled/publicSlug (profiles table) — see that field's
-  // comment above.
+  // /contributors/:slug page. As of 20260910090000 this is the ONLY such
+  // opt-in; profiles no longer has a competing one.
   publicProfileEnabled: z.boolean(),
   publicSlug: publicSlugSchema,
+  bio: z
+    .string()
+    .trim()
+    .max(2000, "Bio must be 2000 characters or fewer.")
+    .optional()
+    .or(z.literal("")),
+  // Optional here, unlike the old profiles field which defaulted to MY. An
+  // unset home country renders as absent on the public page rather than as
+  // a guess -- see the column comment in 20260910090000.
+  homeCountryCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(countryCodePattern, "Use a 2-letter country code, e.g. MY.")
+    .optional()
+    .or(z.literal("")),
+  avatarEmoji: z
+    .enum(AVATAR_EMOJI_OPTIONS, {
+      message: "Choose one of the provided avatars.",
+    })
+    .optional()
+    .or(z.literal("")),
 });
 
 export type CreateOwnContributorInput = z.infer<
