@@ -3,7 +3,8 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-10 (anonymous attribution is actually anonymous — it was publishing the
+Last updated: 2026-09-11 (the unit suite's 5s default timeout raised to 20s, fixing a
+~1-in-3 phantom PDF-test failure; earlier: anonymous attribution is actually anonymous — it was publishing the
 contributor's real name; earlier the same day: the types scripts format their own output; earlier: story
 cards and the story page show the contributor's avatar emoji,
 closing the letter-vs-emoji split; earlier the same day: public contributor identity consolidated
@@ -78,6 +79,45 @@ byline link on their card — and it 404s, because `get_public_contributor()` ex
 units — a display name starting outside the BMP returned half a surrogate pair and rendered as the
 replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
 `AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
+
+**2026-09-11 (latest) — the unit suite's phantom PDF failures were a timeout budget, not a bug.**
+`vitest.config.ts` gains `testTimeout: 20000` / `hookTimeout: 20000`. A full `npm run verify` had
+started failing roughly ONE RUN IN THREE with "Test timed out in 5000ms" across up to five PDF test
+files — while the same files, run alone, finished in 1.6s. That gap is what made it look like a
+phantom.
+
+**Two plausible causes were measured and DISPROVEN before anything was changed**, which is the only
+reason the eventual fix is trustworthy:
+
+- _CPU starvation._ Ran the PDF files under 24 spinning processes on 8 cores, load average 43.
+  Passed.
+- _The Supabase CLI running concurrently_ (`posttest:rls` shells out to it, and the first failure
+  happened right after an RLS run). Ran cleanup in parallel with all five files. Passed.
+
+The actual trigger is FULL-SUITE PARALLELISM — ~80 files at once, which running five files never
+reproduces. Three full runs reproduced it once, timing out at **5007ms** against the 5000ms
+default: seven milliseconds over.
+
+**Then it was measured rather than guessed at.** `vitest run --reporter=json` across full parallel
+runs, worst case per test: 4535ms (pdf-attach route), 4241ms (pdf-page-attachment), 3408ms
+(story-content-editor), 3383ms (pdf-import-picker); twelve tests exceed 2000ms. The worst was
+running at **91% of the budget**, so ordinary variance tipped it over. These tests do REAL work, not
+mocked work — the PDF paths rasterise actual fixture PDFs through pdfjs-dist + @napi-rs/canvas,
+whose native render calls block the thread, and the editor/paste tests drive CodeMirror and a full
+HTML parse.
+
+20s is ~4.4x the measured worst case, leaving headroom for slower CI hardware while still failing a
+genuinely hung test quickly against the ~95s the suite takes. **Raise the slow tests, not this
+number**, if it is ever hit again.
+
+**Verified as a fix, not assumed:** five consecutive full runs, 988/988, zero timeouts — against a
+~1-in-3 failure rate before. Plus one full run under load average 92, also clean. Suite duration is
+unchanged at ~98-105s, so the higher ceiling costs nothing.
+
+**One trap worth remembering from the diagnosis:** when vitest times out a test it does NOT cancel
+the in-flight async work, so a timeout in one file surfaced as a bogus ASSERTION failure in the next
+test in that file (`expected 400 to be 200`, from a `request.formData()` that lost its body). Chasing
+that 400 as an independent bug would have been a dead end — it was a cascade.
 
 **2026-09-10 (latest) — "Anonymous" was publishing the contributor's real name.**
 `20260910140000_anonymous_attribution_actually_anonymous.sql`. Found while fixing the smaller
