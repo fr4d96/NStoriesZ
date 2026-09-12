@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BellIcon } from "@/components/icons";
 import { controlToneClasses } from "@/components/ui-tone";
 import { createClient } from "@/lib/supabase/client";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notifications/notifications-changed";
 import {
   describeNotification,
   formatNotificationAge,
@@ -93,11 +94,26 @@ export function NotificationBell({ inverted = false }: { inverted?: boolean }) {
         void refreshCount();
       }
     }, REFRESH_INTERVAL_MS);
+    // The /notifications page marks rows read through a Server Action, which
+    // re-renders that page but cannot reach this component's state -- without
+    // this the header would sit at "3" beside a page already showing 2.
+    function onNotificationsChanged() {
+      if (active) void refreshCount();
+    }
+
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener(
+      NOTIFICATIONS_CHANGED_EVENT,
+      onNotificationsChanged,
+    );
     return () => {
       active = false;
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener(
+        NOTIFICATIONS_CHANGED_EVENT,
+        onNotificationsChanged,
+      );
     };
   }, [refreshCount]);
 
@@ -254,6 +270,22 @@ export function NotificationBell({ inverted = false }: { inverted?: boolean }) {
               ))}
             </ul>
           )}
+
+          {/*
+            Always present, including on the empty and error states: the
+            dropdown shows at most LIST_LIMIT rows and its own failure is
+            exactly when someone wants the real page.
+          */}
+          <div className="mt-1 border-t border-border-subtle pt-1">
+            <Link
+              href="/notifications"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="block rounded-lg px-3 py-2 text-center text-sm font-semibold hover:bg-surface-muted"
+            >
+              See all notifications
+            </Link>
+          </div>
         </div>
       )}
     </div>

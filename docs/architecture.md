@@ -713,6 +713,15 @@ derived, not audit), and `scripts/rls-test-cleanup.sql` still deletes them expli
 header and reads client-side (count on mount / tab-visible / 60s; list on open), for the same
 cacheability reason `SiteHeader` reads identity client-side.
 
+`/notifications` (`app/(contributor)/notifications/`) is the full page behind the dropdown's "See
+all". It sits in the contributor group for the same reason `/account` does — signed-in-only, not
+role-gated, staff included — and `proxy.ts` protects it via `PROTECTED_PATHS`. Its mark-read is a
+Server Action over real `<form>` submits (works without JavaScript, re-renders from the database),
+unlike the bell's optimistic client RPC. Because the bell is a sibling Client Component that
+`revalidatePath` cannot reach, the page dispatches `NOTIFICATIONS_CHANGED_EVENT`
+(`lib/notifications/notifications-changed.ts`) after a successful mark-read and the bell
+re-counts — without it the header badge sits stale beside an already-updated page.
+
 ### Private stories — the branch that never enters review (2026-09-07)
 
 `lifecycle_status` gained a `private` value, and the submit step became a choice of two
