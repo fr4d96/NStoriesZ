@@ -13,6 +13,8 @@ export type NotificationRow = {
   revision_id: string;
   story_title: string;
   story_slug: string;
+  /** The moderator's user-facing reason -- only for story_rejected / story_changes_requested. */
+  reason: string | null;
   read_at: string | null;
   created_at: string;
 };
@@ -24,6 +26,8 @@ export type NotificationView = {
   heading: string;
   /** The story title, quoted by the renderer -- kept separate so it can be truncated on its own. */
   title: string;
+  /** Moderator's reason, shown under the title when present. */
+  reason: string | null;
   unread: boolean;
   createdAt: string;
 };
@@ -39,6 +43,11 @@ export type NotificationView = {
  *   story_published -> the public story page, by slug -- the thing the
  *                      contributor actually wants to see is their story,
  *                      live.
+ *   story_rejected / story_changes_requested -> /my-stories, where the
+ *                      story now sits with its "Not approved" / "Changes
+ *                      requested" badge. The reason itself travels IN the
+ *                      notification: no contributor page shows it (see
+ *                      20260912100000), so this line is where they read it.
  *
  * Pure and `server-only`-free so the client bell and its tests can import
  * it directly.
@@ -47,6 +56,7 @@ export function describeNotification(row: NotificationRow): NotificationView {
   const base = {
     id: row.id,
     title: row.story_title,
+    reason: row.reason,
     unread: row.read_at === null,
     createdAt: row.created_at,
   };
@@ -62,6 +72,18 @@ export function describeNotification(row: NotificationRow): NotificationView {
         ...base,
         heading: "Your story is live",
         href: `/stories/${row.story_slug}`,
+      };
+    case "story_rejected":
+      return {
+        ...base,
+        heading: "Your story wasn't approved",
+        href: "/my-stories",
+      };
+    case "story_changes_requested":
+      return {
+        ...base,
+        heading: "Changes requested on your story",
+        href: "/my-stories",
       };
   }
 }

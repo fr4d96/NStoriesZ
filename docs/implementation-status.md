@@ -3,8 +3,9 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-12 (in-app notifications: moderators are told when a story needs review,
-contributors when theirs goes live — a trigger, three RPCs, one bell; earlier: the unit suite's
+Last updated: 2026-09-12 (rejected / changes-requested notifications, carrying the moderator's
+reason to the contributor for the first time; earlier the same day: in-app notifications —
+moderators are told when a story needs review, contributors when theirs goes live; earlier: the unit suite's
 5s default timeout raised to 20s, fixing a
 ~1-in-3 phantom PDF-test failure; earlier: anonymous attribution is actually anonymous — it was publishing the
 contributor's real name; earlier the same day: the types scripts format their own output; earlier: story
@@ -82,7 +83,39 @@ units — a display name starting outside the BMP returned half a surrogate pair
 replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
 `AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
 
-**2026-09-12 (latest) — in-app notifications: a bell in every signed-in header.**
+**2026-09-12 (latest) — rejected and changes-requested reach the contributor, with the reason.**
+`20260912100000_notification_kinds_decisions.sql` (two enum values + `notifications.reason`) and
+`20260912100100_notify_on_moderation_decisions.sql`, both APPLIED. Two new kinds,
+`story_rejected` and `story_changes_requested`, sent to the story's contributor.
+
+- **The contributor had never seen the reason.** `moderation_actions.user_facing_reason` is
+  REQUIRED for both decisions (`moderation_actions_reason_required_on_decline`, 20260803090600)
+  and is named for the user — yet checked against every contributor-callable RPC, none returns it.
+  My Stories shows a "Not approved" / "Changes requested" badge and nothing else. The inbox row
+  now carries the reason, so the bell is the first place it reaches them.
+- **A second trigger, on `moderation_actions`, not two more branches in the first.**
+  `moderate_revision()` flips `revision_status` FIRST and inserts the audit row — the one with the
+  reason — AFTER, so a row-level AFTER UPDATE trigger on the revision runs between the two and
+  cannot see a reason that does not exist yet. The audit row IS the decision (exists only for one,
+  immutable, reason mandatory), so the decision notifications hang off it. Split is deliberate:
+  status transitions notify from `story_revisions`, moderator decisions with a reason from
+  `moderation_actions`. The `story_submitted` auto-read stays on the status change.
+- **Recipient rule extracted to `_notification_recipient_for_story()`** (internal, zero grants),
+  used by both triggers, so the self_submitted/editorial_import partition cannot drift.
+- **Two migration files, on purpose:** a new enum value cannot be USED in the transaction that
+  adds it, and `db push` runs each file as one transaction.
+- **`list_my_notifications()` gains `reason`** — RETURNS TABLE changed, so DROP + CREATE with the
+  grant re-applied; verified live that `authenticated` still holds execute and neither new
+  internal function is reachable.
+- **App:** both kinds link to `/my-stories` (where the badge is); the bell renders the reason as
+  a `line-clamp-2` line under the title, only when present.
+
+**Verified:** 3 new RLS-suite cases drive the real `moderate_revision()` reject and
+changes-requested paths and assert the owner gets the kind + exact reason, unread; staff get no
+decision row and their `story_submitted` rows are read; the internal functions 404 over the API.
+12/12 for the notification blocks. `npm run verify` exits 0 — 1010/1010.
+
+**2026-09-12 — in-app notifications: a bell in every signed-in header.**
 `20260911100000_notifications.sql`, APPLIED to the linked project. Two kinds, exactly the two
 asked for: `story_submitted` goes to every moderator and admin when a revision enters review;
 `story_published` goes to the story's contributor when a moderator approves it. Rejected /
@@ -5186,6 +5219,8 @@ All in `supabase/migrations/`, applied in filename order:
 | `20260806110000_fix_missing_storage_policy_function_grants.sql`    | Bug fix — image upload was completely broken for every authenticated user: grants `EXECUTE` on `_can_write_reserved_media_path(text)` and `_can_access_story_media(uuid)` to `authenticated`, missing since both functions were first created (referenced directly inside `storage.objects` RLS policies, which needs the querying role's own grant). **Applied.**                                                                                                              |
 | `20260806110100_fix_finalize_upload_alt_text_constraint.sql`       | Bug fix — `finalize_story_media_upload()`'s `story_revision_media` insert unconditionally violated `story_revision_media_alt_text_required`; now inserts `decorative = true` (no alt text collected yet at attach time) instead of `false`. **Applied.**                                                                                                                                                                                                                        |
 | `20260911100000_notifications.sql`                                 | `notification_kind` enum; `notifications` table (no direct access, story/revision FKs `on delete cascade` by design); `_notify_on_revision_status_change()` trigger on `story_revisions.revision_status` — `submitted` fans out to moderators/admins minus the actor, `approved` notifies the contributor, leaving `submitted` auto-reads that revision's `story_submitted` rows; `list_my_notifications()`, `count_my_unread_notifications()`, `mark_my_notifications_read()`. |
+| `20260912100000_notification_kinds_decisions.sql`                  | `notification_kind` gains `story_rejected`, `story_changes_requested`; `notifications.reason` column. Separate file because a new enum value cannot be used in the transaction that adds it.                                                                                                                                                                                                                                                                                    |
+| `20260912100100_notify_on_moderation_decisions.sql`                | `_notification_recipient_for_story()` (shared recipient rule); `_notify_on_moderation_decision()` AFTER INSERT trigger on `moderation_actions` — reject / changes_requested notify the contributor with `user_facing_reason`; `_notify_on_revision_status_change()` rewritten onto the helper; `list_my_notifications()` DROP + CREATE with `reason`, grant re-applied.                                                                                                         |
 
 ## Role and RLS matrix
 

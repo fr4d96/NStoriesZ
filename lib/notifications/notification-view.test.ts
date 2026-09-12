@@ -13,6 +13,7 @@ const base: NotificationRow = {
   revision_id: "r1",
   story_title: "Picking kiwifruit in Te Puke",
   story_slug: "picking-kiwifruit-abc123",
+  reason: null,
   read_at: null,
   created_at: "2026-09-11T10:00:00Z",
 };
@@ -35,6 +36,32 @@ describe("describeNotification", () => {
     expect(view.href).toBe("/stories/picking-kiwifruit-abc123");
     expect(view.heading).toBe("Your story is live");
     expect(view.unread).toBe(false);
+  });
+
+  it("sends a rejected story to My Stories and carries the moderator's reason", () => {
+    const view = describeNotification({
+      ...base,
+      kind: "story_rejected",
+      reason: "Please remove the employer's full name.",
+    });
+    expect(view.href).toBe("/my-stories");
+    expect(view.heading).toBe("Your story wasn't approved");
+    expect(view.reason).toBe("Please remove the employer's full name.");
+  });
+
+  it("does the same for changes requested", () => {
+    const view = describeNotification({
+      ...base,
+      kind: "story_changes_requested",
+      reason: "Add a bit about the visa timeline.",
+    });
+    expect(view.href).toBe("/my-stories");
+    expect(view.heading).toBe("Changes requested on your story");
+    expect(view.reason).toBe("Add a bit about the visa timeline.");
+  });
+
+  it("leaves reason null for kinds that have none", () => {
+    expect(describeNotification(base).reason).toBeNull();
   });
 });
 

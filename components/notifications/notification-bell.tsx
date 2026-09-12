@@ -240,6 +240,11 @@ export function NotificationBell({ inverted = false }: { inverted?: boolean }) {
                       <span className="block truncate text-sm text-muted-foreground">
                         &ldquo;{item.title}&rdquo;
                       </span>
+                      {item.reason && (
+                        <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                          {item.reason}
+                        </span>
+                      )}
                     </span>
                     <span className="shrink-0 pt-0.5 text-xs text-muted-foreground">
                       {formatNotificationAge(item.createdAt)}

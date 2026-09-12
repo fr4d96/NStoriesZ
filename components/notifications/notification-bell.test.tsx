@@ -20,6 +20,7 @@ const rows: NotificationRow[] = [
     revision_id: "r1",
     story_title: "Vineyard season in Marlborough",
     story_slug: "vineyard-season-abc",
+    reason: null,
     read_at: null,
     created_at: new Date(Date.now() - 5 * 60_000).toISOString(),
   },
@@ -30,8 +31,20 @@ const rows: NotificationRow[] = [
     revision_id: "r2",
     story_title: "Wwoofing near Nelson",
     story_slug: "wwoofing-nelson-def",
+    reason: null,
     read_at: new Date().toISOString(),
     created_at: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+  },
+  {
+    id: "n-changes",
+    kind: "story_changes_requested",
+    story_id: "s3",
+    revision_id: "r3",
+    story_title: "Hostel work in Queenstown",
+    story_slug: "hostel-queenstown-ghi",
+    reason: "Could you add roughly what the hostel paid per week?",
+    read_at: null,
+    created_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
   },
 ];
 
@@ -115,10 +128,22 @@ describe("NotificationBell", () => {
     const live = screen.getByRole("menuitem", { name: /Your story is live/ });
     expect(live).toHaveAttribute("href", "/stories/wwoofing-nelson-def");
     expect(live).not.toHaveTextContent("(unread)");
+
+    // A decision carries the moderator's reason into the panel itself.
+    const changes = screen.getByRole("menuitem", {
+      name: /Changes requested on your story/,
+    });
+    expect(changes).toHaveAttribute("href", "/my-stories");
+    expect(changes).toHaveTextContent(
+      "Could you add roughly what the hostel paid per week?",
+    );
+    // The other kinds render no reason line at all.
+    expect(review).not.toHaveTextContent("Could you");
   });
 
   it("marks a notification read when its link is clicked", async () => {
-    const state = { unread: 1, list: rows };
+    // Two unread rows in the fixture; clicking one leaves the other.
+    const state = { unread: 2, list: rows };
     stubRpc(state);
     render(<NotificationBell />);
     fireEvent.click(
@@ -134,13 +159,13 @@ describe("NotificationBell", () => {
       }),
     );
     // Badge follows: optimistic drop, then confirmed by the re-count.
-    await screen.findByRole("button", { name: "Notifications" });
+    await screen.findByRole("button", { name: "Notifications, 1 unread" });
     // The dropdown closes so the navigation is not hidden behind it.
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("'Mark all read' clears everything with one call and hides itself", async () => {
-    const state = { unread: 1, list: rows };
+    const state = { unread: 2, list: rows };
     stubRpc(state);
     render(<NotificationBell />);
     fireEvent.click(
