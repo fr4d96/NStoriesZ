@@ -46,7 +46,17 @@ function withAuthCookies<T extends NextResponse>(
   return outgoing;
 }
 
-const PROTECTED_PATHS = ["/my-stories", "/stories/new", "/account"];
+const PROTECTED_PATHS = [
+  "/my-stories",
+  "/stories/new",
+  "/account",
+  // /notifications is signed-in-only but NOT role-gated: a contributor's
+  // inbox and a moderator's queue alerts are the same table and the same
+  // page, and list_my_notifications() shows each caller only their own
+  // rows. So it belongs here with the ordinary session-protected routes,
+  // not with the STAFF_* patterns below.
+  "/notifications",
+];
 // Dynamic authoring routes added in Prompt 4 Sub-phase 3 — /stories/:id/edit
 // (plus its nested upload Route Handler) and /stories/:id/preview both
 // require a signed-in session; a static string list can't express the :id
@@ -542,6 +552,7 @@ export const config = {
     // against the compiled middleware matcher in .next's middleware-manifest).
     "/stories/new/:path*",
     "/account/:path*",
+    "/notifications",
     "/stories/:id/edit/:path*",
     "/stories/:id/preview/:path*",
     // Route Handler, so it is deliberately NOT added to the exact-match

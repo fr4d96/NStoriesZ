@@ -3,8 +3,9 @@
 Read this before starting any task — it reflects what actually exists, not what is planned in
 CLAUDE.md or docs/. Update it as part of the Definition of Done for every task.
 
-Last updated: 2026-09-12 (rejected / changes-requested notifications, carrying the moderator's
-reason to the contributor for the first time; earlier the same day: in-app notifications —
+Last updated: 2026-09-12 (a full /notifications page, and the header badge stops going stale
+beside it; earlier the same day: rejected / changes-requested notifications, carrying the
+moderator's reason to the contributor for the first time; earlier the same day: in-app notifications —
 moderators are told when a story needs review, contributors when theirs goes live; earlier: the unit suite's
 5s default timeout raised to 20s, fixing a
 ~1-in-3 phantom PDF-test failure; earlier: anonymous attribution is actually anonymous — it was publishing the
@@ -83,7 +84,49 @@ units — a display name starting outside the BMP returned half a surrogate pair
 replacement glyph. Now `Array.from(...)[0]`. The component gained its first 12 tests alongside;
 `AttributionChip` gained 7 and `StoryCard` 2. 987 total, `npm run verify` exits 0.
 
-**2026-09-12 (latest) — rejected and changes-requested reach the contributor, with the reason.**
+**2026-09-12 (latest) — /notifications: the inbox gets a real page.**
+No migration — it reads the same three RPCs the bell does. `app/(contributor)/notifications/`
+(page + list + a mark-read Server Action), `lib/notifications/queries.ts`, and a
+"See all notifications" link at the foot of the bell's dropdown.
+
+- **Under `(contributor)`, not a new route group or a staff one.** The precedent is `/account`:
+  signed-in-only, reachable by staff, rendered with `ContributorNav`. The page is not role-gated
+  because it does not need to be — a contributor's inbox and a moderator's queue alerts are the
+  same table, and `list_my_notifications()` shows each caller only their own rows.
+  `proxy.ts` gains `/notifications` in `PROTECTED_PATHS` and in the matcher (session refresh).
+- **Mark-read is a Server Action, not the client RPC the bell uses.** Real `<form>` submits, so
+  the page works with JavaScript off, and `revalidatePath("/notifications")` re-renders the list
+  from the database instead of from optimistic state. On a full page, being right beats being
+  instant. The action passes the form's ids straight through: `mark_my_notifications_read()`
+  scopes its UPDATE to `auth.uid()`, so an id belonging to someone else matches no row — the
+  action never trusts the form for ownership, which is why it has no ownership check to forget.
+- **One form per unread row, plus one empty form for "Mark all as read"** — empty meaning "all
+  of mine", which is the RPC's own null default rather than a second code path.
+- **`relativeTime()` is reused from `lib/story/moderation-queue-view.ts`**, not the bell's
+  `formatNotificationAge()`: a dropdown has ~40px and says "12m", a page can say "12 min ago",
+  and that helper is already the app's server-rendered phrasing for exactly this (and is
+  deliberately free of `server-only`, so a Client Component may import it). `now` is passed from
+  the page so the server HTML and the hydrated client agree — letting the client call
+  `new Date()` makes "12 min ago" a hydration mismatch on any request that crosses a minute.
+
+**A real bug caught by looking at it, not by a test.** Marking a row read on the page left the
+HEADER BADGE at 3 next to a page already saying "2 unread" — the bell is a sibling Client
+Component with its own state, and a Server Action's `revalidatePath` cannot reach it. The two have
+no shared parent short of the app layout. Fixed with a window event
+(`lib/notifications/notifications-changed.ts`, one exported constant so the name cannot drift):
+the list dispatches it after a SUCCESSFUL action, the bell re-counts. Keyed on a `markedAt`
+timestamp the action now returns, because a bare `{}` success is indistinguishable from the
+initial state and would fire on every render. Two tests cover it — fires once on success, stays
+silent on failure.
+
+**Verified:** 9 new RTL tests (17 total across the two notification components); `npm run verify`
+exits 0 — 1017/1017. Driven live in the browser against real rows: three notifications render
+with their reasons, per-row "Mark read" drops that row's dot/border/bold and moves the counter
+3→2, "Mark all as read" clears the page AND the badge in the same beat, the empty state renders
+after cleanup, and 375px has no horizontal overflow. The demo rows were deleted afterwards —
+`notifications` is back to 0 rows.
+
+**2026-09-12 — rejected and changes-requested reach the contributor, with the reason.**
 `20260912100000_notification_kinds_decisions.sql` (two enum values + `notifications.reason`) and
 `20260912100100_notify_on_moderation_decisions.sql`, both APPLIED. Two new kinds,
 `story_rejected` and `story_changes_requested`, sent to the story's contributor.
