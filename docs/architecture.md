@@ -695,6 +695,12 @@ moderator/admin except the actor; `approved` sends one row to the story's contri
 when that is null); leaving `submitted` by any decision marks the revision's `story_submitted`
 rows read. No RPC calls it, no RPC can forget it.
 
+Rejected / changes-requested (`20260912100100`) come from a second trigger, `AFTER INSERT` on
+`moderation_actions`, because `moderate_revision()` flips the status before it writes the audit
+row that carries `user_facing_reason` — and the reason is the point: no contributor-facing RPC
+returns it, so the inbox row (`notifications.reason`) is where the contributor reads it. Both
+triggers share `_notification_recipient_for_story()` for the recipient rule.
+
 Access is the story-domain model: no grants, no policies, three `SECURITY DEFINER` RPCs keyed on
 `auth.uid()` (`list_my_notifications`, `count_my_unread_notifications`,
 `mark_my_notifications_read`). The table stores title and slug snapshots but no routes —

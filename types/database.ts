@@ -302,6 +302,7 @@ export type Database = {
           id: string;
           kind: Database["public"]["Enums"]["notification_kind"];
           read_at: string | null;
+          reason: string | null;
           recipient_user_id: string;
           revision_id: string;
           story_id: string;
@@ -314,6 +315,7 @@ export type Database = {
           id?: string;
           kind: Database["public"]["Enums"]["notification_kind"];
           read_at?: string | null;
+          reason?: string | null;
           recipient_user_id: string;
           revision_id: string;
           story_id: string;
@@ -326,6 +328,7 @@ export type Database = {
           id?: string;
           kind?: Database["public"]["Enums"]["notification_kind"];
           read_at?: string | null;
+          reason?: string | null;
           recipient_user_id?: string;
           revision_id?: string;
           story_id?: string;
@@ -1535,6 +1538,10 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      _notification_recipient_for_story: {
+        Args: { p_story_id: string };
+        Returns: string;
+      };
       _require_processed_media: {
         Args: { p_revision_id: string };
         Returns: undefined;
@@ -2146,6 +2153,7 @@ export type Database = {
           id: string;
           kind: Database["public"]["Enums"]["notification_kind"];
           read_at: string;
+          reason: string;
           revision_id: string;
           story_id: string;
           story_slug: string;
@@ -2553,7 +2561,11 @@ export type Database = {
       contributor_status: "private" | "public" | "archived";
       identifiable_people_state:
         "confirmed" | "not_applicable" | "pending" | "declined";
-      notification_kind: "story_submitted" | "story_published";
+      notification_kind:
+        | "story_submitted"
+        | "story_published"
+        | "story_rejected"
+        | "story_changes_requested";
       story_lifecycle_status:
         | "draft"
         | "private"
@@ -2726,7 +2738,12 @@ export const Constants = {
         "pending",
         "declined",
       ],
-      notification_kind: ["story_submitted", "story_published"],
+      notification_kind: [
+        "story_submitted",
+        "story_published",
+        "story_rejected",
+        "story_changes_requested",
+      ],
       story_lifecycle_status: [
         "draft",
         "private",

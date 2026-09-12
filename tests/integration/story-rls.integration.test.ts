@@ -3408,6 +3408,7 @@ describe("notifications (20260911100000)", () => {
     revision_id: string;
     story_title: string;
     story_slug: string;
+    reason: string | null;
     read_at: string | null;
   };
 
@@ -3574,5 +3575,124 @@ describe("notifications (20260911100000)", () => {
       "count_my_unread_notifications",
     );
     expect(after).toBe(0);
+  });
+});
+
+// 20260912100100: reject / changes requested reach the contributor WITH the
+// moderator's reason. These come off the moderation_actions audit row, not
+// the status change (the reason does not exist yet when the status flips),
+// so they are exercised through the real moderate_revision() decision.
+describe("decision notifications carry the moderator's reason (20260912100100)", () => {
+  type Row = {
+    id: string;
+    kind: string;
+    revision_id: string;
+    reason: string | null;
+    read_at: string | null;
+  };
+
+  async function submitFreshStory(label: string) {
+    const { data: created, error: createError } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug(label),
+        p_content_json: [{ type: "paragraph", text: "Decide on me." }],
+      },
+    );
+    expect(createError).toBeNull();
+    const storyId = created![0].story_id;
+    const revisionId = created![0].revision_id;
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    const { error: submitError } = await owner.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: revisionId,
+        p_expected_version: draft![0].version,
+        p_confirmation_method: "account",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+      },
+    );
+    expect(submitError).toBeNull();
+    // submit bumps the story version; the decision needs the current one.
+    const { data: submitted } = await owner.client.rpc(
+      "get_my_story_with_draft",
+      { p_story_id: storyId },
+    );
+    return { storyId, revisionId, version: submitted![0].version };
+  }
+
+  async function rowsFor(client: SupabaseClient<Database>, revisionId: string) {
+    const { data, error } = await untypedRpc<Row[]>(
+      client,
+      "list_my_notifications",
+      { p_limit: 50 },
+    );
+    expect(error).toBeNull();
+    return (data ?? []).filter((row) => row.revision_id === revisionId);
+  }
+
+  it("the decision trigger and recipient helper are unreachable via the API", async () => {
+    for (const fn of [
+      "_notify_on_moderation_decision",
+      "_notification_recipient_for_story",
+    ]) {
+      const { error } = await untypedRpc(admin.client, fn, {
+        p_story_id: "11111111-1111-4111-8111-111111111111",
+      });
+      expect(error, fn).not.toBeNull();
+    }
+  });
+
+  it("rejecting tells the owner why -- and tells nobody else", async () => {
+    const { revisionId, version } = await submitFreshStory("reject-me");
+    const reason =
+      "Please remove the employer's full name before resubmitting.";
+
+    const { error } = await moderator.client.rpc("moderate_revision", {
+      p_revision_id: revisionId,
+      p_expected_version: version,
+      p_decision: "reject",
+      p_user_facing_reason: reason,
+    });
+    expect(error).toBeNull();
+
+    const ownerRows = await rowsFor(owner.client, revisionId);
+    const rejected = ownerRows.filter((row) => row.kind === "story_rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toBe(reason);
+    expect(rejected[0].read_at).toBeNull();
+
+    // The moderator's own story_submitted row for it was auto-read on the
+    // decision (20260911100000); they get no story_rejected row.
+    for (const client of [moderator.client, admin.client, editor.client]) {
+      const rows = await rowsFor(client, revisionId);
+      expect(rows.filter((row) => row.kind === "story_rejected")).toHaveLength(
+        0,
+      );
+      expect(rows.filter((row) => row.read_at === null)).toHaveLength(0);
+    }
+  });
+
+  it("changes requested does the same, with its own kind", async () => {
+    const { revisionId, version } = await submitFreshStory("revise-me");
+    const reason = "Could you add roughly what the hostel paid per week?";
+
+    const { error } = await moderator.client.rpc("moderate_revision", {
+      p_revision_id: revisionId,
+      p_expected_version: version,
+      p_decision: "changes_requested",
+      p_user_facing_reason: reason,
+    });
+    expect(error).toBeNull();
+
+    const ownerRows = await rowsFor(owner.client, revisionId);
+    expect(ownerRows.map((row) => row.kind)).toEqual([
+      "story_changes_requested",
+    ]);
+    expect(ownerRows[0].reason).toBe(reason);
+    expect(await rowsFor(other.client, revisionId)).toHaveLength(0);
   });
 });
