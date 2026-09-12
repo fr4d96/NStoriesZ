@@ -13,3 +13,8 @@ package-lock.json
 # Untracked local scratch output from one-off bootstrap/maintenance scripts --
 # generated, throwaway, not this project's source to format.
 scripts/.bootstrap-tmp/
+
+# Claude Code's isolated worktrees -- full checkouts of this repo, each with
+# its own node_modules. Not this checkout's source (same reason vitest.config.ts
+# excludes them).
+.claude/worktrees/

@@ -686,6 +686,27 @@ that `current_draft_revision_id` references a `draft`-or-`submitted` revision of
 and `published_revision_id` references an `approved` revision of the _same_ story — regardless of
 caller.
 
+### Notifications — the inbox is a trigger's output (2026-09-12)
+
+`notifications` (`20260911100000`) is written by exactly one thing: an `AFTER UPDATE OF
+revision_status` trigger on `story_revisions`. `submitted` fans one row out to every
+moderator/admin except the actor; `approved` sends one row to the story's contributor
+(`self_submitted` → `owner_user_id`, `editorial_import` → `contributors.linked_user_id`, no row
+when that is null); leaving `submitted` by any decision marks the revision's `story_submitted`
+rows read. No RPC calls it, no RPC can forget it.
+
+Access is the story-domain model: no grants, no policies, three `SECURITY DEFINER` RPCs keyed on
+`auth.uid()` (`list_my_notifications`, `count_my_unread_notifications`,
+`mark_my_notifications_read`). The table stores title and slug snapshots but no routes —
+`lib/notifications/notification-view.ts` decides where a kind leads. The story/revision foreign
+keys are the one `on delete cascade` in the domain (see "Deletion policy" — an inbox row is
+derived, not audit), and `scripts/rls-test-cleanup.sql` still deletes them explicitly because
+`replica` mode disables cascades too.
+
+`components/notifications/notification-bell.tsx` renders beside the avatar in every signed-in
+header and reads client-side (count on mount / tab-visible / 60s; list on open), for the same
+cacheability reason `SiteHeader` reads identity client-side.
+
 ### Private stories — the branch that never enters review (2026-09-07)
 
 `lifecycle_status` gained a `private` value, and the submit step became a choice of two

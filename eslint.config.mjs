@@ -41,6 +41,10 @@ const eslintConfig = defineConfig([
     "test-results/**",
     "coverage/**",
     "supabase/.temp/**",
+    // Claude Code's isolated worktrees -- full checkouts of this repo with
+    // their own node_modules and .next output. Same exclusion as
+    // vitest.config.ts and .prettierignore carry, for the same reason.
+    ".claude/worktrees/**",
   ]),
 ]);
 

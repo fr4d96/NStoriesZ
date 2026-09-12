@@ -16,7 +16,18 @@ export default defineConfig({
     include: ["**/*.test.{ts,tsx}"],
     // tests/integration/** hits a real Supabase project and is intentionally
     // excluded from the default run — see `npm run test:rls`.
-    exclude: ["node_modules/**", ".next/**", "e2e/**", "tests/integration/**"],
+    // .claude/** holds Claude Code's isolated worktrees -- full checkouts of
+    // this repo, each with its own node_modules. Without this the include
+    // glob walks into them and runs every test twice, and the copy fails
+    // with "Cannot read properties of null (reading 'useContext')" because
+    // its files resolve a second React from their own node_modules.
+    exclude: [
+      "node_modules/**",
+      ".next/**",
+      ".claude/**",
+      "e2e/**",
+      "tests/integration/**",
+    ],
     // Vitest's default is 5000ms, which was never a deliberate choice here and
     // is too tight for this suite's heaviest tests. Several do REAL work rather
     // than mocked work: the PDF import/attach/export paths rasterise actual

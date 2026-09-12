@@ -3390,3 +3390,189 @@ describe("public readers mask an anonymously-published story (20260910140000)", 
     expect(rows!.contributor_slug).toBeNull();
   });
 });
+
+// 20260911100000: in-app notifications. The trigger on
+// story_revisions.revision_status is the only writer, so the assertions
+// drive the REAL create -> submit -> approve flow and read the inbox back
+// through the three RPCs -- never the table, which nobody can touch.
+describe("notifications (20260911100000)", () => {
+  let storyId: string;
+  let revisionId: string;
+  let version: number;
+  let moderatorRowId: string;
+  let adminRowId: string;
+
+  type NotificationRow = {
+    id: string;
+    kind: "story_submitted" | "story_published";
+    revision_id: string;
+    story_title: string;
+    story_slug: string;
+    read_at: string | null;
+  };
+
+  /** This revision's rows only -- the fixed accounts accumulate real inboxes across runs. */
+  async function inboxFor(client: SupabaseClient<Database>) {
+    const { data, error } = await untypedRpc<NotificationRow[]>(
+      client,
+      "list_my_notifications",
+      { p_limit: 50 },
+    );
+    expect(error).toBeNull();
+    return (data ?? []).filter((row) => row.revision_id === revisionId);
+  }
+
+  it("nobody can read the table directly", async () => {
+    for (const client of [owner.client, moderator.client, admin.client]) {
+      const { error } = await untypedTable(client, "notifications")
+        .update({ read_at: null })
+        .eq("id", "11111111-1111-4111-8111-111111111111");
+      expect(error?.code).toBe("42501");
+    }
+    const { error } = await anon.from("notifications" as never).select("*");
+    expect(error?.code).toBe("42501");
+  });
+
+  it("the trigger function is unreachable via the API", async () => {
+    const { error } = await untypedRpc(
+      admin.client,
+      "_notify_on_revision_status_change",
+    );
+    expect(error).not.toBeNull();
+  });
+
+  it("anon cannot call any inbox RPC", async () => {
+    for (const fn of [
+      "list_my_notifications",
+      "count_my_unread_notifications",
+      "mark_my_notifications_read",
+    ]) {
+      const { error } = await untypedRpc(anon, fn);
+      expect(error, fn).not.toBeNull();
+    }
+  });
+
+  it("submitting a story notifies every moderator and admin -- not the editor, not the owner", async () => {
+    const { data: created, error: createError } = await owner.client.rpc(
+      "create_self_service_draft",
+      {
+        p_title: slug("notify"),
+        p_content_json: [{ type: "paragraph", text: "Notify me." }],
+      },
+    );
+    expect(createError).toBeNull();
+    storyId = created![0].story_id;
+    revisionId = created![0].revision_id;
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    version = draft![0].version;
+
+    const { error: submitError } = await owner.client.rpc(
+      "submit_revision_with_consent",
+      {
+        p_revision_id: revisionId,
+        p_expected_version: version,
+        p_confirmation_method: "account",
+        p_publication_confirmed: true,
+        p_expected_terms_version: currentTermsVersion,
+      },
+    );
+    expect(submitError).toBeNull();
+
+    const modRows = await inboxFor(moderator.client);
+    expect(modRows).toHaveLength(1);
+    expect(modRows[0].kind).toBe("story_submitted");
+    expect(modRows[0].story_title).toBe(slug("notify"));
+    expect(modRows[0].read_at).toBeNull();
+    moderatorRowId = modRows[0].id;
+
+    const adminRows = await inboxFor(admin.client);
+    expect(adminRows).toHaveLength(1);
+    expect(adminRows[0].kind).toBe("story_submitted");
+    adminRowId = adminRows[0].id;
+
+    expect(await inboxFor(editor.client)).toHaveLength(0);
+    expect(await inboxFor(owner.client)).toHaveLength(0);
+  });
+
+  it("marking read is scoped to the caller: the admin cannot read the moderator's row for them", async () => {
+    const { data: changed, error } = await untypedRpc<number>(
+      admin.client,
+      "mark_my_notifications_read",
+      { p_ids: [moderatorRowId] },
+    );
+    expect(error).toBeNull();
+    expect(changed).toBe(0);
+    const [modRow] = await inboxFor(moderator.client);
+    expect(modRow.read_at).toBeNull();
+  });
+
+  it("a moderator marks their own row read; the admin's stays unread", async () => {
+    const { data: changed, error } = await untypedRpc<number>(
+      moderator.client,
+      "mark_my_notifications_read",
+      { p_ids: [moderatorRowId] },
+    );
+    expect(error).toBeNull();
+    expect(changed).toBe(1);
+    const [modRow] = await inboxFor(moderator.client);
+    expect(modRow.read_at).not.toBeNull();
+    const [adminRow] = await inboxFor(admin.client);
+    expect(adminRow.id).toBe(adminRowId);
+    expect(adminRow.read_at).toBeNull();
+  });
+
+  it("approval notifies the owner that the story is live, with the slug the public page uses", async () => {
+    const { error } = await approveRevision(moderator.client, revisionId);
+    expect(error).toBeNull();
+
+    const ownerRows = await inboxFor(owner.client);
+    expect(ownerRows).toHaveLength(1);
+    expect(ownerRows[0].kind).toBe("story_published");
+    expect(ownerRows[0].read_at).toBeNull();
+
+    const { data: draft } = await owner.client.rpc("get_my_story_with_draft", {
+      p_story_id: storyId,
+    });
+    expect(ownerRows[0].story_slug).toBe(draft![0].slug);
+
+    // Staff get no "published" row -- that one is the contributor's.
+    expect(
+      (await inboxFor(moderator.client)).filter(
+        (row) => row.kind === "story_published",
+      ),
+    ).toHaveLength(0);
+    expect(
+      (await inboxFor(admin.client)).filter(
+        (row) => row.kind === "story_published",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("leaving review marks every remaining 'needs review' row read -- the admin never opened theirs", async () => {
+    const [adminRow] = await inboxFor(admin.client);
+    expect(adminRow.id).toBe(adminRowId);
+    expect(adminRow.read_at).not.toBeNull();
+  });
+
+  it("count_my_unread_notifications agrees with mark-all-read", async () => {
+    const { data: before } = await untypedRpc<number>(
+      owner.client,
+      "count_my_unread_notifications",
+    );
+    expect(before).toBeGreaterThanOrEqual(1);
+
+    const { data: changed } = await untypedRpc<number>(
+      owner.client,
+      "mark_my_notifications_read",
+    );
+    expect(changed).toBe(before);
+
+    const { data: after } = await untypedRpc<number>(
+      owner.client,
+      "count_my_unread_notifications",
+    );
+    expect(after).toBe(0);
+  });
+});

@@ -312,3 +312,15 @@ export function ChevronIcon(props: IconProps) {
     </svg>
   );
 }
+
+/** Notifications — the header bell. */
+export function BellIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6.5 16.25V11a5.5 5.5 0 0 1 11 0v5.25" />
+      <path d="M5 16.25h14" />
+      <path d="M10 19.25a2 2 0 0 0 4 0" />
+      <path d="M12 4.25v1.25" />
+    </svg>
+  );
+}

@@ -272,6 +272,20 @@ delete from public.story_takedown_requests where story_id in (
      )
 );
 
+-- 20260911100000: notifications reference stories/story_revisions with
+-- on delete CASCADE (the one deliberate exception -- see that migration's
+-- header), which would clean itself up anywhere else. Not here: `replica`
+-- switches off foreign-key enforcement, and a cascade is part of the
+-- constraint it switches off, so without this line every run leaves one
+-- orphaned inbox row per moderator per submitted fixture.
+delete from public.notifications where story_id in (
+  select id from public.stories
+  where slug like 'rls-test-%'
+     or owner_user_id in (
+       select id from auth.users where email like '%@whv-compass-test.example'
+     )
+);
+
 -- Prompt 6 Stage 1: story_publication_state_actions references stories
 -- with on delete restrict -- must go before the stories delete.
 delete from public.story_publication_state_actions where story_id in (
