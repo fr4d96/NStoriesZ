@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { ContributorNavLinks } from "@/components/contributor-nav-links";
 import {
   getCurrentUserAvatarEmoji,
@@ -42,6 +43,7 @@ export async function ContributorNav() {
 
         <div className="ml-auto flex items-center gap-2 md:ml-0">
           <ThemeToggle />
+          <NotificationBell />
           <UserAvatarMenu emoji={avatarEmoji} role={role} />
         </div>
       </div>

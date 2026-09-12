@@ -9,6 +9,7 @@ import { AuthModal } from "@/components/auth/auth-modal";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { SignUpForm } from "@/components/auth/sign-up-form";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { createClient } from "@/lib/supabase/client";
 import type { AppRole } from "@/lib/auth/staff-guard";
 
@@ -56,6 +57,10 @@ type AuthModalKind = "sign-in" | "sign-up" | null;
  * the browser Supabase client (lib/supabase/client.ts). That keeps every
  * public page's server-rendered HTML untouched; only this already-client
  * component re-renders once the check resolves.
+ *
+ * Once signed in, NotificationBell renders beside the avatar (both
+ * breakpoints) and does its own RPC reads the same client-side way, for
+ * the same cacheability reason -- see that component.
  *
  * Once signed in, the same effect also reads the caller's own
  * profiles.avatar_emoji (RLS already scopes this to auth.uid() -- see
@@ -170,7 +175,10 @@ export function SiteHeader() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {signedIn ? (
-              <UserAvatarMenu emoji={avatarEmoji} role={role} />
+              <>
+                <NotificationBell />
+                <UserAvatarMenu emoji={avatarEmoji} role={role} />
+              </>
             ) : (
               <>
                 <button
@@ -198,11 +206,14 @@ export function SiteHeader() {
             // Replaces the hamburger entirely on mobile once signed in --
             // its dropdown carries the primary nav links too (extraItems),
             // so nothing from the old hamburger menu is lost.
-            <UserAvatarMenu
-              emoji={avatarEmoji}
-              extraItems={primaryNav}
-              role={role}
-            />
+            <>
+              <NotificationBell />
+              <UserAvatarMenu
+                emoji={avatarEmoji}
+                extraItems={primaryNav}
+                role={role}
+              />
+            </>
           ) : (
             <MobileNavToggle
               navItems={[

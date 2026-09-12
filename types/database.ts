@@ -296,6 +296,60 @@ export type Database = {
           },
         ];
       };
+      notifications: {
+        Row: {
+          created_at: string;
+          id: string;
+          kind: Database["public"]["Enums"]["notification_kind"];
+          read_at: string | null;
+          recipient_user_id: string;
+          revision_id: string;
+          story_id: string;
+          story_slug: string;
+          story_title: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          kind: Database["public"]["Enums"]["notification_kind"];
+          read_at?: string | null;
+          recipient_user_id: string;
+          revision_id: string;
+          story_id: string;
+          story_slug: string;
+          story_title: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          kind?: Database["public"]["Enums"]["notification_kind"];
+          read_at?: string | null;
+          recipient_user_id?: string;
+          revision_id?: string;
+          story_id?: string;
+          story_slug?: string;
+          story_title?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notifications_revision_id_fkey";
+            columns: ["revision_id"];
+            isOneToOne: false;
+            referencedRelation: "story_revisions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_story_id_fkey";
+            columns: ["story_id"];
+            isOneToOne: false;
+            referencedRelation: "stories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       profiles: {
         Row: {
           avatar_emoji: string | null;
@@ -1593,6 +1647,7 @@ export type Database = {
           trip_years: number[];
         }[];
       };
+      count_my_unread_notifications: { Args: never; Returns: number };
       create_editorial_import_draft: {
         Args: {
           p_assigned_editor_id?: string;
@@ -2084,6 +2139,19 @@ export type Database = {
           version: number;
         }[];
       };
+      list_my_notifications: {
+        Args: { p_limit?: number };
+        Returns: {
+          created_at: string;
+          id: string;
+          kind: Database["public"]["Enums"]["notification_kind"];
+          read_at: string;
+          revision_id: string;
+          story_id: string;
+          story_slug: string;
+          story_title: string;
+        }[];
+      };
       list_my_reports: {
         Args: never;
         Returns: {
@@ -2277,6 +2345,10 @@ export type Database = {
       mark_editorial_draft_awaiting_approval: {
         Args: { p_story_id: string };
         Returns: undefined;
+      };
+      mark_my_notifications_read: {
+        Args: { p_ids?: string[] };
+        Returns: number;
       };
       moderate_revision: {
         Args: {
@@ -2481,6 +2553,7 @@ export type Database = {
       contributor_status: "private" | "public" | "archived";
       identifiable_people_state:
         "confirmed" | "not_applicable" | "pending" | "declined";
+      notification_kind: "story_submitted" | "story_published";
       story_lifecycle_status:
         | "draft"
         | "private"
@@ -2653,6 +2726,7 @@ export const Constants = {
         "pending",
         "declined",
       ],
+      notification_kind: ["story_submitted", "story_published"],
       story_lifecycle_status: [
         "draft",
         "private",

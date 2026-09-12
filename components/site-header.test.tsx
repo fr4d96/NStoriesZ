@@ -39,6 +39,10 @@ vi.mock("@/app/(auth)/actions", () => ({
 // `sessionMock.current` holds (null = signed out, the default).
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
+    // NotificationBell (rendered beside the avatar once signed in) counts
+    // the caller's unread inbox on mount. Zero here -- the bell has its
+    // own tests in components/notifications/notification-bell.test.tsx.
+    rpc: () => Promise.resolve({ data: 0, error: null }),
     auth: {
       getSession: () =>
         Promise.resolve({ data: { session: sessionMock.current } }),

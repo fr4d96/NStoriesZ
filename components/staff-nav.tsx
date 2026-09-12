@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 import { UserAvatarMenu } from "@/components/auth/user-avatar-menu";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { AppRole } from "@/lib/auth/staff-guard";
 
 /**
@@ -62,7 +63,8 @@ export function StaffNav({
             </Link>
           ))}
         </nav>
-        <div className="order-2 shrink-0 sm:order-2">
+        <div className="order-2 flex shrink-0 items-center gap-2 sm:order-2">
+          <NotificationBell />
           <UserAvatarMenu emoji={avatarEmoji} role={role} />
         </div>
       </div>
